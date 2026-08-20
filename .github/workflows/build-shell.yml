@@ -1,0 +1,126 @@
+name: build-shell
+
+# 三平台预编译壳（freedom-shell）的 CI 构建与 Release 资产发布。
+#
+# 背景：webview_go 依赖各系统自带 WebView 框架（Windows WebView2 / macOS WKWebView /
+# Linux WebKitGTK），无法交叉编译，必须分别在对应平台本机编译。
+# 本 workflow 在 win/mac/linux runner 上分别编译真实壳二进制，并上传到
+# GitHub Release，供 `freedom shell download <plat>` 拉取。
+#
+# 触发方式：
+#   - 手动（workflow_dispatch）：填写目标 tag，将壳资产上传到该 Release；
+#   - Release 发布（release published）：自动为当前 Release 构建并上传资产。
+#
+# 资产命名约定（与 lib/shell.js 的 releaseUrl 对齐）：
+#   freedom-shell-win-x64      （Windows x64，GUI 子系统）
+#   freedom-shell-darwin-x64   （macOS Intel）
+#   freedom-shell-darwin-arm64 （macOS Apple Silicon）
+#   freedom-shell-linux-x64    （Linux x64）
+#   freedom-shell-linux-arm64  （Linux ARM64，需 ARM 环境，见下方说明）
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '目标 GitHub Release 标签（如 v1.12.0）。留空则使用 GITHUB_REF'
+        required: false
+        default: ''
+  release:
+    types: [published]
+
+jobs:
+  build-win-x64:
+    name: Windows x64
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - name: 编译 Windows 壳（GUI 子系统）
+        working-directory: templates/go
+        env:
+          CGO_ENABLED: '1'
+        run: go build -ldflags "-H windowsgui" -o ../../shell/win-x64/freedom-shell.exe .
+      - name: 上传 Release 资产
+        shell: bash
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          gh release upload "$TAG" "shell/win-x64/freedom-shell.exe#freedom-shell-win-x64" \
+            --clobber --repo "${{ github.repository }}" \
+            || echo "::warning::资产上传失败（Release 可能不存在）：$TAG"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-darwin-x64:
+    name: macOS x64 (Intel)
+    runs-on: macos-13
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - name: 编译 macOS Intel 壳
+        working-directory: templates/go
+        env:
+          CGO_ENABLED: '1'
+        run: go build -o ../../shell/darwin-x64/freedom-shell .
+      - name: 上传 Release 资产
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          gh release upload "$TAG" "shell/darwin-x64/freedom-shell#freedom-shell-darwin-x64" \
+            --clobber --repo "${{ github.repository }}" \
+            || echo "::warning::资产上传失败（Release 可能不存在）：$TAG"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-darwin-arm64:
+    name: macOS arm64 (Apple Silicon)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - name: 编译 macOS ARM 壳
+        working-directory: templates/go
+        env:
+          CGO_ENABLED: '1'
+        run: go build -o ../../shell/darwin-arm64/freedom-shell .
+      - name: 上传 Release 资产
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          gh release upload "$TAG" "shell/darwin-arm64/freedom-shell#freedom-shell-darwin-arm64" \
+            --clobber --repo "${{ github.repository }}" \
+            || echo "::warning::资产上传失败（Release 可能不存在）：$TAG"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-linux-x64:
+    name: Linux x64
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - name: 安装 WebKitGTK 依赖
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.0-dev libgtk-3-dev
+      - name: 编译 Linux x64 壳
+        working-directory: templates/go
+        env:
+          CGO_ENABLED: '1'
+        run: go build -o ../../shell/linux-x64/freedom-shell .
+      - name: 上传 Release 资产
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          gh release upload "$TAG" "shell/linux-x64/freedom-shell#freedom-shell-linux-x64" \
+            --clobber --repo "${{ github.repository }}" \
+            || echo "::warning::资产上传失败（Release 可能不存在）：$TAG"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Linux ARM64：webview_go + WebKitGTK 在 x64 runner 上交叉编译 arm64 不可行
+  #（需 apt 安装 arm64 架构的 WebKitGTK 开发库 + 交叉工具链）。
+  # 建议使用自托管 ARM64 runner 或 qemu-user 环境编译后手动上传资产
+  # `freedom-shell-linux-arm64`；在就绪前，build --platform linux-arm64 会明确报错。

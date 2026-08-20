@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Freedom App</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+      background: #111827;
+      color: #e5e7eb;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    /* 无边框模式下的自绘标题栏（titlebar: 'frameless' 时显示） */
+    .titlebar {
+      display: none;
+      height: 38px;
+      flex: 0 0 38px;
+      align-items: center;
+      justify-content: space-between;
+      padding-left: 14px;
+      background: rgba(17, 24, 39, .92);
+      border-bottom: 1px solid rgba(156, 163, 175, .15);
+      -webkit-app-region: drag;
+    }
+    .titlebar .tb-title { font-size: 13px; color: #9ca3af; }
+    .tb-btns { display: flex; height: 100%; -webkit-app-region: no-drag; }
+    .tb-btn {
+      width: 46px; height: 100%;
+      display: flex; align-items: center; justify-content: center;
+      background: transparent; border: none;
+      color: #9ca3af; font-size: 13px;
+      font-family: "Segoe MDL2 Assets", "Segoe UI Symbol", sans-serif;
+    }
+    .tb-btn:hover { background: rgba(156, 163, 175, .2); color: #fff; }
+    .tb-btn.close:hover { background: #e81123; color: #fff; }
+    body.freedom-frameless .titlebar { display: flex; }
+
+    main {
+      flex: 1;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 14px;
+    }
+    h1 { font-size: 30px; font-weight: 700; }
+    .desc { color: #9ca3af; font-size: 14px; }
+    button {
+      padding: 10px 22px; border: none; border-radius: 10px;
+      background: #6366f1; color: #fff; font-size: 14px; cursor: pointer;
+    }
+    button:hover { background: #4f46e5; }
+    .result {
+      margin-top: 6px; padding: 8px 14px; border-radius: 8px;
+      background: rgba(99, 102, 241, .12); color: #a5b4fc; font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <div class="titlebar">
+    <div class="tb-title">Freedom App</div>
+    <div class="tb-btns">
+      <button class="tb-btn" id="tbMin">&#xE921;</button>
+      <button class="tb-btn" id="tbMax">&#xE922;</button>
+      <button class="tb-btn close" id="tbClose">&#xE8BB;</button>
+    </div>
+  </div>
+
+  <main>
+    <h1>Freedom App</h1>
+    <div class="desc">你的桌面应用已就绪。</div>
+    <button id="pingBtn">测试桥接</button>
+    <div class="result" id="result">点击上方按钮验证前后端桥接。</div>
+  </main>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

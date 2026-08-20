@@ -1,0 +1,39 @@
+{
+  "name": "@yufengtadian/freedom-cli",
+  "version": "1.12.0",
+  "description": "Freedom WebView desktop shell packaging tool - no Go toolchain required, one command packs three-platform desktop apps",
+  "keywords": [
+    "desktop",
+    "webview",
+    "electron-alternative",
+    "wails",
+    "tauri",
+    "frontend",
+    "cross-platform"
+  ],
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "bin": {
+    "freedom": "bin/freedom.js"
+  },
+  "files": [
+    "bin",
+    "lib",
+    "shell",
+    "templates",
+    "tutorial",
+    "postinstall.js",
+    "README.md"
+  ],
+  "scripts": {
+    "postinstall": "node postinstall.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "rcedit": "^4.0.1"
+  }
+}

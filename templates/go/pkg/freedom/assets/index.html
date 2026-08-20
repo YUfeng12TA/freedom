@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Freedom</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+    color: #e2e8f0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    user-select: none;
+    overflow: hidden;
+  }
+  .main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+  }
+  .logo {
+    width: 84px; height: 84px;
+    border-radius: 22px;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 40px; font-weight: 800; color: #fff;
+    box-shadow: 0 18px 40px rgba(99,102,241,.35);
+  }
+  h1 { font-size: 26px; font-weight: 700; letter-spacing: 1px; }
+  .sub { color: #94a3b8; font-size: 14px; }
+  .status {
+    margin-top: 8px;
+    padding: 8px 16px;
+    border-radius: 999px;
+    background: rgba(99,102,241,.15);
+    border: 1px solid rgba(99,102,241,.4);
+    color: #a5b4fc;
+    font-size: 13px;
+  }
+
+  /* 无边框模式：前端自绘标题栏（hidden / frameless 时显示） */
+  .titlebar {
+    display: none;
+    height: 36px;
+    flex: 0 0 36px;
+    background: rgba(15, 23, 42, .92);
+    border-bottom: 1px solid rgba(148,163,184,.12);
+    align-items: center;
+    justify-content: space-between;
+    padding-left: 12px;
+    -webkit-app-region: drag;   /* WebView2 支持：整条标题栏可拖拽窗口 */
+  }
+  .titlebar .tb-title { font-size: 13px; color: #cbd5e1; letter-spacing: .5px; }
+  .tb-btns { display: flex; height: 100%; -webkit-app-region: no-drag; }
+  .tb-btn {
+    width: 46px; height: 100%;
+    display: flex; align-items: center; justify-content: center;
+    border: none; background: transparent;
+    color: #cbd5e1; font-size: 12px; cursor: default;
+    font-family: "Segoe MDL2 Assets", "Segoe UI Symbol", sans-serif;
+  }
+  .tb-btn:hover { background: rgba(148,163,184,.18); color: #fff; }
+  .tb-btn.close:hover { background: #e81123; color: #fff; }
+  body.freedom-frameless .titlebar { display: flex; }
+</style>
+</head>
+<body>
+  <div class="titlebar" id="titlebar">
+    <div class="tb-title" id="tbTitle">Freedom</div>
+    <div class="tb-btns">
+      <button class="tb-btn" id="minBtn" title="最小化">&#xE921;</button>
+      <button class="tb-btn" id="maxBtn" title="最大化">&#xE922;</button>
+      <button class="tb-btn close" id="closeBtn" title="关闭">&#xE8BB;</button>
+    </div>
+  </div>
+  <div class="main">
+    <div class="logo">F</div>
+    <h1>Freedom</h1>
+    <div class="sub">WebView 桌面壳子框架 · 默认占位页</div>
+    <div class="status" id="status">初始化中...</div>
+  </div>
+  <script>
+    // 无边框模式：显示自绘标题栏并绑定窗口控制
+    if (window.freedom && window.freedom.window) {
+      window.freedom.window.isFrameless().then(function (frameless) {
+        if (frameless) {
+          document.body.classList.add('freedom-frameless');
+          window.freedom.window.bindButtons({ min: '#minBtn', max: '#maxBtn', close: '#closeBtn' });
+        }
+      }).catch(function () { /* 非桌面环境忽略 */ });
+    }
+
+    // 验证 IPC 双向桥接链路（框架内置 __freedom__ping）
+    window.freedom.call('__freedom__ping').then(function (r) {
+      document.getElementById('status').textContent = '桥接正常 · ' + r;
+    }).catch(function (e) {
+      document.getElementById('status').textContent = '桥接异常：' + e;
+    });
+  </script>
+</body>
+</html>

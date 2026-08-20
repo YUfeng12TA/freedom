@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Freedom CLI - 快速上手</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    background: #0f172a; color: #e2e8f0;
+    line-height: 1.7; padding: 40px 20px;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 26px; margin-bottom: 6px; }
+  .sub { color: #94a3b8; font-size: 14px; margin-bottom: 28px; }
+  h2 {
+    font-size: 17px; margin: 26px 0 10px;
+    padding-left: 10px; border-left: 3px solid #6366f1;
+  }
+  p, li { font-size: 14px; color: #cbd5e1; }
+  ul { padding-left: 22px; }
+  code {
+    background: #1e293b; color: #a5b4fc; padding: 2px 7px;
+    border-radius: 6px; font-size: 13px;
+  }
+  pre {
+    background: #1e293b; color: #e2e8f0; padding: 14px 16px;
+    border-radius: 10px; font-size: 13px; overflow-x: auto; margin: 10px 0;
+  }
+  pre code { background: none; padding: 0; color: inherit; }
+  .tip {
+    margin-top: 30px; padding: 14px 16px; border-radius: 10px;
+    background: rgba(99,102,241,.12); border: 1px solid rgba(99,102,241,.35);
+    font-size: 13px; color: #a5b4fc;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Freedom CLI</h1>
+  <div class="sub">WebView 桌面壳打包工具 · 任意语言后端 · 三平台</div>
+
+  <h2>1. 新建项目</h2>
+  <pre><code>freedom init my-app
+cd my-app
+npm install</code></pre>
+
+  <h2>2. 调整标题栏（终端一键切换）</h2>
+  <ul>
+    <li><code>freedom titlebar native</code> — 保留系统原生标题栏（默认）</li>
+    <li><code>freedom titlebar hidden</code> — 隐藏标题栏视觉，仅保留 Windows 原生最小化 / 最大化 / 关闭按钮</li>
+    <li><code>freedom titlebar frameless</code> — 完全无边框，按钮由前端自绘（模板已内置示例）</li>
+  </ul>
+  <p>也可以直接编辑 <code>freedom.config.js</code> 里的 <code>titlebar</code> 字段。</p>
+
+  <h2>3. 打包</h2>
+  <pre><code>freedom build
+freedom build --platform all         # 三平台全量（win + mac + linux）
+freedom build --platform win-x64     # 仅 Windows
+freedom build --platform mac-arm64   # 仅 macOS Apple Silicon
+freedom build --platform linux-x64   # 仅 Linux</code></pre>
+  <p>前端经 Vite 打成单文件 HTML 后写入 <code>dist/resources/</code>，与随包分发的预编译壳二进制合并出可执行文件。不再依赖本机 Go 工具链，任一平台都能一键产出三平台产物。产物以 GUI 子系统运行，不会弹出 cmd 黑窗。</p>
+  <p><code>resources/</code> 内含壳运行时加载的前端页面 <code>index.html</code> 与配置 <code>config.json</code>；声明了 <code>backend</code> 时 <code>backend/</code> 目录会被原样分发到 <code>resources/backend/</code>，壳启动后自动以 <code>resources/</code> 为工作目录拉起后端进程（黑窗同样隐藏）。</p>
+
+  <h2>3.5 调整产物目录（终端一键切换）</h2>
+  <pre><code>freedom config set outDir .     # 输出到项目根目录（dist 的上级）
+freedom config set outDir dist  # 恢复默认 dist/</code></pre>
+  <p><code>outDir</code> 支持任意相对 / 绝对路径。输出到项目根目录时自动跳过 <code>index.html</code> 副本，不会覆盖项目源文件。</p>
+
+  <h2>4. 配置项（freedom.config.js）</h2>
+  <pre><code>{
+  name: 'my-app',        // 应用名 / 窗口标题 / exe 文件名
+  width: 1024, height: 720,
+  minWidth: 400, minHeight: 300,
+  center: true,          // 启动居中
+  debug: false,          // 开发者工具
+  titlebar: 'native',    // native | hidden | frameless
+  outDir: 'dist',        // 产物目录：dist（默认）| .（项目根目录）| 任意路径
+  backend: undefined,    // 任意语言后端进程，如 { command: 'node', args: ['backend/main.mjs'] }
+}</code></pre>
+
+  <div class="tip">提示：freedom CLI 生成的每个文件都干净整洁，无任何冗余尾注，可直接作为交付产物使用。</div>
+</div>
+</body>
+</html>
