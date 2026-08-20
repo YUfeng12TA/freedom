@@ -49,7 +49,8 @@ jobs:
         shell: bash
         run: |
           TAG="${{ github.event.inputs.tag || github.ref_name }}"
-          gh release upload "$TAG" "shell/win-x64/freedom-shell.exe#freedom-shell-win-x64" \
+          cp "shell/win-x64/freedom-shell.exe" "shell/win-x64/freedom-shell-win-x64"
+          gh release upload "$TAG" "shell/win-x64/freedom-shell-win-x64" \
             --clobber --repo "${{ github.repository }}" \
             || echo "::warning::资产上传失败（Release 可能不存在）：$TAG"
         env:
@@ -71,7 +72,8 @@ jobs:
       - name: 上传 Release 资产
         run: |
           TAG="${{ github.event.inputs.tag || github.ref_name }}"
-          gh release upload "$TAG" "shell/darwin-x64/freedom-shell#freedom-shell-darwin-x64" \
+          cp "shell/darwin-x64/freedom-shell" "shell/darwin-x64/freedom-shell-darwin-x64"
+          gh release upload "$TAG" "shell/darwin-x64/freedom-shell-darwin-x64" \
             --clobber --repo "${{ github.repository }}" \
             || echo "::warning::资产上传失败（Release 可能不存在）：$TAG"
         env:
@@ -93,7 +95,8 @@ jobs:
       - name: 上传 Release 资产
         run: |
           TAG="${{ github.event.inputs.tag || github.ref_name }}"
-          gh release upload "$TAG" "shell/darwin-arm64/freedom-shell#freedom-shell-darwin-arm64" \
+          cp "shell/darwin-arm64/freedom-shell" "shell/darwin-arm64/freedom-shell-darwin-arm64"
+          gh release upload "$TAG" "shell/darwin-arm64/freedom-shell-darwin-arm64" \
             --clobber --repo "${{ github.repository }}" \
             || echo "::warning::资产上传失败（Release 可能不存在）：$TAG"
         env:
@@ -117,7 +120,8 @@ jobs:
       - name: 上传 Release 资产
         run: |
           TAG="${{ github.event.inputs.tag || github.ref_name }}"
-          gh release upload "$TAG" "shell/linux-x64/freedom-shell#freedom-shell-linux-x64" \
+          cp "shell/linux-x64/freedom-shell" "shell/linux-x64/freedom-shell-linux-x64"
+          gh release upload "$TAG" "shell/linux-x64/freedom-shell-linux-x64" \
             --clobber --repo "${{ github.repository }}" \
             || echo "::warning::资产上传失败（Release 可能不存在）：$TAG"
         env:
