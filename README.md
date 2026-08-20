@@ -1,19 +1,6 @@
----
-AIGC:
-    Label: "1"
-    ContentProducer: 001191440300708461136T1XGW3
-    ProduceID: 84e692d233baf4c4ebb909c06f044dd3_2d74bd4d9c4911f184de525400f8a581
-    ReservedCode1: xo2+Pdj5CsKT7YjGd4Rry/qknv3mVecOBHAw6HqFk7EuALvKYsLlY/JCDoqw3oHEfX+sRjzs+lLZfypsJxbkr73mtQrkuHrqQIZ8f4A7vIr7hTO5V+aMiCz29hrSmbNXeI0q5SXfE/orzUoL63JrdZc1HpZGj82RLwzxXZA/d59gHWK/oYb4EXzirS8=
-    ContentPropagator: 001191440300708461136T1XGW3
-    PropagateID: 84e692d233baf4c4ebb909c06f044dd3_2d74bd4d9c4911f184de525400f8a581
-    ReservedCode2: xo2+Pdj5CsKT7YjGd4Rry/qknv3mVecOBHAw6HqFk7EuALvKYsLlY/JCDoqw3oHEfX+sRjzs+lLZfypsJxbkr73mtQrkuHrqQIZ8f4A7vIr7hTO5V+aMiCz29hrSmbNXeI0q5SXfE/orzUoL63JrdZc1HpZGj82RLwzxXZA/d59gHWK/oYb4EXzirS8=
----
-
-
-
 # freedom-cli
 
-Freedom 桌面壳打包工具：把你的 Web 前端一键打包成跨平台桌面应用（v1.12.0）。
+Freedom 桌面壳打包工具：把你的 Web 前端一键打包成跨平台桌面应用（v1.12.1）。
 
 基于自研 Freedom WebView 壳层（对标 Wails / Tauri）：前端完全自由、后端可任意语言、渲染复用系统 WebView（Windows WebView2 / macOS WKWebView / Linux WebKitGTK），产物为单个可执行文件 + resources 目录，前端页面内存加载，不占本地端口。
 

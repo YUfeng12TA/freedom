@@ -1,6 +1,6 @@
 {
   "name": "@yufengtadian/freedom-cli",
-  "version": "1.12.0",
+  "version": "1.12.1",
   "description": "Freedom WebView desktop shell packaging tool - no Go toolchain required, one command packs three-platform desktop apps",
   "keywords": [
     "desktop",
