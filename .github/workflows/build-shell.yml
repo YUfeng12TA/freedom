@@ -18,6 +18,9 @@ name: build-shell
 #   freedom-shell-linux-x64    （Linux x64）
 #   freedom-shell-linux-arm64  （Linux ARM64，需 ARM 环境，见下方说明）
 
+permissions:
+  contents: write
+
 on:
   workflow_dispatch:
     inputs:
