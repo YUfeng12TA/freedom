@@ -13,7 +13,7 @@ name: build-shell
 #
 # 资产命名约定（与 lib/shell.js 的 releaseUrl 对齐）：
 #   freedom-shell-win-x64      （Windows x64，GUI 子系统）
-#   freedom-shell-darwin-x64   （macOS Intel）
+#   freedom-shell-darwin-arm64 （macOS Apple Silicon）
 #   freedom-shell-darwin-arm64 （macOS Apple Silicon）
 #   freedom-shell-linux-x64    （Linux x64）
 #   freedom-shell-linux-arm64  （Linux ARM64，需 ARM 环境，见下方说明）
@@ -56,28 +56,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  build-darwin-x64:
-    name: macOS x64 (Intel)
-    runs-on: macos-15-intel
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.26'
-      - name: 编译 macOS Intel 壳
-        working-directory: templates/go
-        env:
-          CGO_ENABLED: '1'
-        run: go build -o ../../shell/darwin-x64/freedom-shell .
-      - name: 上传 Release 资产
-        run: |
-          TAG="${{ github.event.inputs.tag || github.ref_name }}"
-          cp "shell/darwin-x64/freedom-shell" "shell/darwin-x64/freedom-shell-darwin-x64"
-          gh release upload "$TAG" "shell/darwin-x64/freedom-shell-darwin-x64" \
-            --clobber --repo "${{ github.repository }}" \
-            || echo "::warning::资产上传失败（Release 可能不存在）：$TAG"
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-darwin-arm64:
     name: macOS arm64 (Apple Silicon)
