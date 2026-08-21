@@ -29,14 +29,11 @@ import (
 type TitleBarMode string
 
 const (
-	// TitleBarNative 保留系统原生标题栏（默认）。
+	// TitleBarNative 保留系统原生标题栏（默认），标题栏图标与 exe 图标一致。
 	TitleBarNative TitleBarMode = "native"
-	// TitleBarHidden 隐藏标题栏视觉，但保留系统原生最小化 / 最大化 / 关闭按钮。
-	// 当前仅 Windows 生效（基于 DWM 扩展实现）；macOS / Linux 上回退为原生标题栏。
-	TitleBarHidden TitleBarMode = "hidden"
 	// TitleBarFrameless 完全无边框，客户区铺满整个窗口。
-	// 最小化 / 最大化 / 关闭按钮需由前端自绘（通过 window.freedom.window.* 控制），
-	// 三平台行为一致。
+	// 标题栏与系统原生最小化 / 最大化 / 关闭按钮均不存在，
+	// 需由前端自绘（通过 window.freedom.window.* 控制），三平台行为一致。
 	TitleBarFrameless TitleBarMode = "frameless"
 )
 
@@ -162,6 +159,7 @@ func (a *App) Run() {
 	}
 	a.applyCenter()
 	a.applyTitleBar()
+	a.setWindowIcon()
 
 	// 注入前端 SDK：window.freedom 全局对象。
 	w.Init(jsSDK)

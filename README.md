@@ -4,7 +4,7 @@ Freedom 桌面壳打包工具：把你的 Web 前端一键打包成跨平台桌�
 
 基于自研 Freedom WebView 壳层（对标 Wails / Tauri）：前端完全自由、后端可任意语言、渲染复用系统 WebView（Windows WebView2 / macOS WKWebView / Linux WebKitGTK），产物为单个可执行文件 + resources 目录，前端页面内存加载，不占本地端口。
 
-**v1.12.0 核心升级**：标题栏默认改为完全无边框（`frameless`）——标题栏不存在，关闭 / 最大化 / 最小化按钮由前端自绘融入 UI（模板已内置自绘标题栏示例），不再依赖 Windows 原生按钮。`freedom titlebar` 仍可随时切回 `native` / `hidden`。
+**v1.12.0 核心升级**：标题栏默认改为完全无边框（`frameless`）——标题栏不存在，关闭 / 最大化 / 最小化按钮由前端自绘融入 UI（模板已内置自绘标题栏示例），不再依赖 Windows 原生按钮。`freedom titlebar` 仍可随时切回 `native`。
 
 **v1.12.x 修复与加固**：
 - 修复 close 按钮缺陷：窗口关闭改走 `PostMessage(WM_CLOSE)`（原 `CloseWindow` 语义为最小化，导致点关闭只最小化）；
@@ -13,7 +13,7 @@ Freedom 桌面壳打包工具：把你的 Web 前端一键打包成跨平台桌�
 - 壳进程启用 DPI 感知，高 DPI 屏幕下窗口坐标 / 渲染 / 鼠标自动化定位一致，内容更清晰；
 - `freedom config set` 兼容双引号配置写法；依赖变更检测改用 `package-lock.json` 作基准。
 
-**v1.11.0 核心升级**：支持自定义应用图标 + 默认隐藏 Windows 原生标题栏。配置 `freedom.config.js` 的 `icon`（Windows 用 `.ico`，macOS 用 `.icns`），`freedom build` 时自动把图标注入到 exe 的 PE 资源（RT_ICON / RT_GROUP_ICON）或 `.app/Contents/Resources`，无需任何资源编译器；`freedom icon <path>` 可一键设置。标题栏默认值由 `native` 调整为 `hidden`——保留 Windows 原生最小化 / 最大化 / 关闭按钮，隐藏标题栏视觉（DWM 扩展实现），默认不再占用窗口顶部空间。
+**v1.11.0 核心升级**：支持自定义应用图标 + 无边框标题栏。配置 `freedom.config.js` 的 `icon`（Windows 用 `.ico`，macOS 用 `.icns`），`freedom build` 时自动把图标注入到 exe 的 PE 资源（RT_ICON / RT_GROUP_ICON）或 `.app/Contents/Resources`，无需任何资源编译器；`freedom icon <path>` 可一键设置。标题栏默认使用无边框（`frameless`），窗口控制按钮由前端自绘，不再占用窗口顶部空间。
 
 **v1.10.12 核心升级**：macOS 产物升级为标准 .app 应用包，直接产出 `.app.zip`（mac 用户解压即得 `.app`，拖入 /Applications 即可使用）；在 macOS 上执行 `freedom dmg` 可再用系统 hdiutil 生成 `.dmg`。全程仍不依赖 Go 工具链。
 
@@ -21,7 +21,7 @@ Freedom 桌面壳打包工具：把你的 Web 前端一键打包成跨平台桌�
 
 **v1.11.0 新特性**：
 - 自定义应用图标：`icon` 配置 + `freedom icon <path>` 命令，Windows 构建时用 rcedit 注入 `.ico` 到 exe 资源（支持多尺寸，资源管理器 / 任务栏 / 快捷方式统一显示），macOS 构建时把 `.icns` 放入 `.app` 并写入 Info.plist；
-- 标题栏默认改为 `hidden`：默认隐藏标题栏视觉，仅保留 Windows 原生最小化 / 最大化 / 关闭按钮；仍可用 `freedom titlebar` 随时切回 `native` / `frameless`。
+- 标题栏默认无边框（`frameless`）：标题栏与 Windows 原生最小化 / 最大化 / 关闭按钮均不存在，由前端自绘；仍可用 `freedom titlebar` 随时切回 `native`。
 
 **v1.10.12 新特性**：
 - macOS 产物打包为标准 `.app` bundle + `.app.zip`：壳复制进 `Contents/MacOS/`，resources 与前端/后端随包，解压即用，无需任何语言运行时；
@@ -54,7 +54,6 @@ freedom tui
 
 # 3. 调整标题栏（可选，随时可改；默认 frameless：标题栏不存在，关闭/最大化/最小化按钮由前端自绘融入 UI）
 freedom titlebar native      # 保留系统原生标题栏
-freedom titlebar hidden      # 隐藏标题栏视觉，仅保留 Windows 原生最小化/最大化/关闭按钮
 freedom titlebar frameless   # 完全无边框，标题栏不存在，三按钮由前端自绘（默认，模板已内置示例）
 
 # 3.5 设置应用图标（可选；Windows 用 .ico，macOS 用 .icns）
@@ -104,11 +103,10 @@ freedom config set outDir dist  # 恢复默认 dist/
 
 | 模式 | 说明 |
 | --- | --- |
-| `native` | 保留系统原生标题栏 |
-| `hidden` | 隐藏标题栏视觉，仅保留 Windows 原生最小化 / 最大化 / 关闭按钮（DWM 扩展实现） |
+| `native` | 保留系统原生标题栏，标题栏图标与 exe 图标一致 |
 | `frameless` | 完全无边框，标题栏不存在，客户区铺满窗口，关闭 / 最大化 / 最小化按钮由前端自绘（默认，模板已内置示例） |
 
-`hidden` / `frameless` 模式下，前端可通过注入的 `window.freedom.window` API 控制窗口（`minimize` / `maximize` / `toggleMaximize` / `close` / `isMaximized` / `isFrameless`），模板已内置自绘标题栏示例。
+`frameless` 模式下，前端可通过注入的 `window.freedom.window` API 控制窗口（`minimize` / `maximize` / `toggleMaximize` / `close` / `isMaximized` / `isFrameless`），模板已内置自绘标题栏示例。
 
 ## 配置（freedom.config.js）
 
@@ -121,7 +119,7 @@ export default {
   minHeight: 300,
   center: true,          // 启动居中
   debug: false,          // 开发者工具
-  titlebar: 'frameless', // frameless（默认，标题栏不存在，三按钮由前端自绘）| native | hidden
+  titlebar: 'frameless', // frameless（默认，标题栏不存在，三按钮由前端自绘）| native
   icon: undefined,       // 应用图标：Windows 用 .ico（推荐多尺寸），macOS 用 .icns
   outDir: 'dist',        // 产物目录：'dist'（默认）| '.'（项目根目录）| 任意路径
   // backend: { command: 'node', args: ['backend/main.mjs'] },  // 任意语言后端进程
@@ -156,7 +154,7 @@ window.freedom.window.minimize();                       // 窗口控制
 freedom tui                          # 交互式终端界面
 freedom init <目录> [--force]
 freedom build [--platform win-x64|mac-arm64|linux-x64|all] [--no-cache]
-freedom titlebar <native|hidden|frameless>
+freedom titlebar <native|frameless>
 freedom icon <path>                    # 设置应用图标（Windows 用 .ico，macOS 用 .icns）
 freedom config [get|set]
 freedom shell list|download <platform>|build <platform>

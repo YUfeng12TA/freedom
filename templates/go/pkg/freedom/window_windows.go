@@ -5,7 +5,6 @@ package freedom
 import (
 	"fmt"
 	"syscall"
-	"unsafe"
 )
 
 // 进程级 DPI 感知：让窗口坐标 / WebView 渲染统一按物理像素工作。
@@ -27,14 +26,19 @@ func init() {
 
 var (
 	user32win = syscall.NewLazyDLL("user32.dll")
+	kernel32  = syscall.NewLazyDLL("kernel32.dll")
 
-	procGetWindowLongPtr = user32win.NewProc("GetWindowLongPtrW")
-	procSetWindowLongPtr = user32win.NewProc("SetWindowLongPtrW")
-	procShowWindow       = user32win.NewProc("ShowWindow")
-	procIsZoomed         = user32win.NewProc("IsZoomed")
-	procSetWindowPos     = user32win.NewProc("SetWindowPos")
-	procSetWindowText    = user32win.NewProc("SetWindowTextW")
-	procPostMessage      = user32win.NewProc("PostMessageW")
+	procGetWindowLongPtr  = user32win.NewProc("GetWindowLongPtrW")
+	procSetWindowLongPtr  = user32win.NewProc("SetWindowLongPtrW")
+	procShowWindow        = user32win.NewProc("ShowWindow")
+	procIsZoomed          = user32win.NewProc("IsZoomed")
+	procSetWindowPos      = user32win.NewProc("SetWindowPos")
+	procSetWindowText     = user32win.NewProc("SetWindowTextW")
+	procPostMessage       = user32win.NewProc("PostMessageW")
+	procGetModuleHandle   = kernel32.NewProc("GetModuleHandleW")
+	procLoadImage         = user32win.NewProc("LoadImageW")
+	procGetSystemMetrics  = user32win.NewProc("GetSystemMetrics")
+	procSendMessage       = user32win.NewProc("SendMessageW")
 
 	dwmapi                     = syscall.NewLazyDLL("dwmapi.dll")
 	procDwmExtendFrameIntoArea = dwmapi.NewProc("DwmExtendFrameIntoClientArea")
@@ -46,11 +50,17 @@ const (
 	wsThickFrame = 0x00040000
 
 	wmClose     = 0x0010 // WM_CLOSE：请求窗口正常关闭（触发 GoWnd 的关闭回调）
+	wmSetIcon   = 0x0080 // WM_SETICON：设置窗口大/小图标（ICON_BIG=1 / ICON_SMALL=0）
 	swHide      = 0
 	swShow      = 5
 	swMinimize  = 6
 	swRestore   = 9
 	swMaximize  = 3
+
+	smCXIcon    = 11 // SM_CXICON
+	smCYIcon    = 12 // SM_CYICON
+	smCXSmall   = 13 // SM_CXSMICON
+	smCYSmall   = 14 // SM_CYSMICON
 
 	swpFrameChanged = 0x0020
 	swpNoMove       = 0x0002
@@ -111,7 +121,7 @@ func windowControl(hwnd uintptr, action string, mode TitleBarMode) (interface{},
 	case "isMaximized":
 		return isZoomed(hwnd), nil
 	case "isFrameless":
-		return mode == TitleBarFrameless || mode == TitleBarHidden, nil
+		return mode == TitleBarFrameless, nil
 	default:
 		return nil, fmt.Errorf("unknown window action %q", action)
 	}
@@ -131,20 +141,47 @@ func (a *App) applyTitleBar() {
 	switch a.cfg.TitleBar {
 	case TitleBarFrameless:
 		// 完全无边框：去掉标题栏 / 系统菜单，客户区铺满整个窗口。
-		// 最小化 / 最大化 / 关闭按钮由前端自绘（window.freedom.window.*）。
+		// 标题栏与系统原生最小化 / 最大化 / 关闭按钮均不存在，
+		// 由前端自绘（window.freedom.window.*）接管。
 		style := getWindowStyle(hwnd)
 		style &^= wsCaption | wsSysMenu
 		setWindowStyle(hwnd, style)
 		refreshFrame(hwnd)
-	case TitleBarHidden:
-		// 隐藏标题栏视觉但保留系统原生按钮：DWM 玻璃扩展。
-		// 标题栏区域透明化并并入客户区，右上角的最小化 / 最大化 / 关闭按钮
-		// 由 DWM 继续原生绘制，标题文字置空。
-		m := margins{cxLeftWidth: 0, cxRightWidth: 0, cyTopHeight: 0, cyBottomHeight: 1}
-		procDwmExtendFrameIntoArea.Call(hwnd, uintptr(unsafe.Pointer(&m)))
-		// 标题文字一并清除，标题栏区域只保留系统按钮
-		procSetWindowText.Call(hwnd, uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr(""))))
-		refreshFrame(hwnd)
-	default: // TitleBarNative：不处理
+	default: // TitleBarNative：保留系统原生标题栏，不处理。
 	}
+}
+
+// setWindowIcon 把 exe 内嵌的应用程序图标同步到窗口标题栏与任务栏：
+// - native 模式：标题栏图标（ICON_SMALL）与任务栏 / Alt-Tab 图标（ICON_BIG）均来自 exe 图标，
+//   保证「标题栏图标 = exe 图标」；
+// - frameless 模式：无标题栏，但任务栏 / Alt-Tab 仍显示 exe 图标。
+// 图标从 PE 资源第一个图标组（ID=1，rcedit 注入 .ico 时写入）按系统尺寸加载。
+func (a *App) setWindowIcon() {
+	hwnd := a.WindowHandle()
+	if hwnd == 0 {
+		return
+	}
+	hInst, _, _ := procGetModuleHandle.Call(0)
+	if hInst == 0 {
+		return
+	}
+	cxIcon, _, _ := procGetSystemMetrics.Call(smCXIcon)
+	cyIcon, _, _ := procGetSystemMetrics.Call(smCYIcon)
+	cxSmall, _, _ := procGetSystemMetrics.Call(smCXSmall)
+	cySmall, _, _ := procGetSystemMetrics.Call(smCYSmall)
+	// LoadImageW(MAKEINTRESOURCE(1))：资源 ID 1 作为指针字面量传入。
+	big := loadExeIcon(hInst, int(cxIcon), int(cyIcon))
+	small := loadExeIcon(hInst, int(cxSmall), int(cySmall))
+	if big != 0 {
+		procSendMessage.Call(hwnd, wmSetIcon, 1 /* ICON_BIG */, big)
+	}
+	if small != 0 {
+		procSendMessage.Call(hwnd, wmSetIcon, 0 /* ICON_SMALL */, small)
+	}
+}
+
+// loadExeIcon 从模块 PE 资源加载 ID=1 的图标（IMAGE_ICON=1，LR_DEFAULTCOLOR=0）。
+func loadExeIcon(hInst uintptr, cx, cy int) uintptr {
+	r, _, _ := procLoadImage.Call(hInst, 1 /* MAKEINTRESOURCE(1) */, 1 /* IMAGE_ICON */, uintptr(cx), uintptr(cy), 0 /* LR_DEFAULTCOLOR */)
+	return r
 }

@@ -18,11 +18,11 @@ export default {
   // 是否开启 WebView 开发者工具。
   debug: false,
 
-  // 标题栏策略，在终端随时可改，三选一：
-  //   'native'    - 保留系统原生标题栏
-  //   'hidden'    - 隐藏标题栏视觉，仅保留 Windows 原生最小化 / 最大化 / 关闭按钮
-  //   'frameless' - 完全无边框，标题栏不存在，关闭 / 最大化 / 最小化按钮由前端自绘（模板已内置示例，默认）
-  // 终端命令：freedom titlebar <native|hidden|frameless>
+  // 标题栏策略，在终端随时可改，二选一：
+  //   'native'    - 保留系统原生标题栏，标题栏图标与 exe 图标一致
+  //   'frameless' - 完全无边框，标题栏与 Windows 原生最小化 / 最大化 / 关闭按钮均不存在，
+  //                 关闭 / 最大化 / 最小化按钮由前端自绘（模板已内置示例，默认）
+  // 终端命令：freedom titlebar <native|frameless>
   titlebar: 'frameless',
 
   // 应用图标（可执行文件 / .app 的图标）：

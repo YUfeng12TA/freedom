@@ -69,8 +69,6 @@ func (a *App) loadRuntimeConfig() error {
 	switch rc.TitleBar {
 	case "native":
 		a.cfg.TitleBar = TitleBarNative
-	case "hidden":
-		a.cfg.TitleBar = TitleBarHidden
 	case "frameless":
 		a.cfg.TitleBar = TitleBarFrameless
 	}

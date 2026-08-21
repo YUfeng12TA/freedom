@@ -48,9 +48,8 @@ npm install</code></pre>
 
   <h2>2. 调整标题栏（终端一键切换）</h2>
   <ul>
-    <li><code>freedom titlebar native</code> — 保留系统原生标题栏（默认）</li>
-    <li><code>freedom titlebar hidden</code> — 隐藏标题栏视觉，仅保留 Windows 原生最小化 / 最大化 / 关闭按钮</li>
-    <li><code>freedom titlebar frameless</code> — 完全无边框，按钮由前端自绘（模板已内置示例）</li>
+    <li><code>freedom titlebar native</code> — 保留系统原生标题栏，标题栏图标与 exe 图标一致</li>
+        <li><code>freedom titlebar frameless</code> — 完全无边框（默认），标题栏与 Windows 原生最小化 / 最大化 / 关闭按钮均不存在，按钮由前端自绘（模板已内置示例）</li>
   </ul>
   <p>也可以直接编辑 <code>freedom.config.js</code> 里的 <code>titlebar</code> 字段。</p>
 
@@ -75,7 +74,7 @@ freedom config set outDir dist  # 恢复默认 dist/</code></pre>
   minWidth: 400, minHeight: 300,
   center: true,          // 启动居中
   debug: false,          // 开发者工具
-  titlebar: 'native',    // native | hidden | frameless
+  titlebar: 'frameless', // native | frameless
   outDir: 'dist',        // 产物目录：dist（默认）| .（项目根目录）| 任意路径
   backend: undefined,    // 任意语言后端进程，如 { command: 'node', args: ['backend/main.mjs'] }
 }</code></pre>

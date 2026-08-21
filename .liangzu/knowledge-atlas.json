@@ -1,0 +1,199 @@
+{
+  "version": 1,
+  "type": "json-atlas",
+  "generated": "2026-08-21T10:57:37",
+  "project": {
+    "name": "freedom-cli",
+    "desc": "Freedom WebView 桌面壳打包工具：前端完全自由、后端任意语言、三平台单 exe 打包（对标 Wails/Tauri）",
+    "root": "D:\\dev\\自研desktop exe打包框架\\freedom-cli",
+    "lang": "Node.js/TypeScript (CLI) + Go (壳) "
+  },
+  "architecture": {
+    "cli": [
+      "lib/build.js",
+      "lib/cli.js",
+      "lib/config.js",
+      "lib/dmg.js",
+      "lib/init.js",
+      "lib/shell.js",
+      "lib/tui.js",
+      "lib/utils.js"
+    ],
+    "shell_go": [
+      "templates/go/pkg/freedom/assets/freedom.js",
+      "templates/go/pkg/freedom/assets/index.html",
+      "templates/go/pkg/freedom/assets_embed.go",
+      "templates/go/pkg/freedom/backend.go",
+      "templates/go/pkg/freedom/backend_proc.go",
+      "templates/go/pkg/freedom/bridge.go",
+      "templates/go/pkg/freedom/center_other.go",
+      "templates/go/pkg/freedom/center_windows.go",
+      "templates/go/pkg/freedom/configfile.go",
+      "templates/go/pkg/freedom/freedom.go",
+      "templates/go/pkg/freedom/proc_hide_other.go",
+      "templates/go/pkg/freedom/proc_hide_windows.go",
+      "templates/go/pkg/freedom/window_other.go",
+      "templates/go/pkg/freedom/window_windows.go"
+    ],
+    "project_template": [
+      "templates/project/.gitignore",
+      "templates/project/freedom.config.js",
+      "templates/project/index.html",
+      "templates/project/package.json",
+      "templates/project/src/main.js",
+      "templates/project/vite.config.js"
+    ],
+    "prebuilt_shells": [
+      "shell/win-x64/freedom-shell.exe"
+    ]
+  },
+  "knowledge": {
+    "architecture": "壳为通用预编译二进制 freedom-shell；应用内容经 exe 同目录 resources/index.html + config.json 外部加载；CLI build 不依赖任何语言工具链",
+    "titlebar_modes": {
+      "native": "保留系统原生标题栏（含标题、图标、原生最小化/最大化/关闭按钮），标题栏与任务栏图标与 exe 内嵌图标一致",
+      "frameless": "完全无边框：去掉 WS_CAPTION|WS_SYSMENU，无系统原生三按钮，前端自绘关闭/最大化/最小化三按钮（默认，模板已内置示例）"
+    },
+    "window_control": "前端经 window.freedom.window.* 调用 minimize/maximize/toggleMaximize/close/isFrameless；Windows 实现见 window_windows.go，macOS/Linux 为占位",
+    "frameless_bridge": "壳注入 __freedom_window 桥接时机与页面脚本先后不定；前端初始化须轮询等待 typeof window.__freedom_window==='function' 再调 isFrameless/bindButtons（100x100ms）",
+    "data_persistence": "webview_go (v0.0.0-20240831120633) UserDataFolder = %APPDATA%/<exe文件名含.exe>；webview.go 接口未暴露 UserDataFolder/SetIcon；webview.h 图标用 IDI_APPLICATION 系统默认（与 exe 内嵌图标不一致）",
+    "icon": "CLI build 用 rcedit 把 .ico 注入 exe PE 资源；窗口标题栏图标仍为系统默认，需壳层设置 WM_SETICON 从 exe 资源加载",
+    "dpi": "window_windows.go init() 设 SetProcessDpiAwareness(2) PER_MONITOR_DPI_AWARE，窗口坐标/渲染/鼠标自动化定位一致",
+    "config_runtime": "resources/config.json 字段：name/title/titlebar/width/height/minWidth/minHeight/center/debug/backend；configfile.go loadRuntimeConfig 覆盖编译期配置，缺失静默回退",
+    "version_flow": "npm 包版本 1.12.1；壳预编译在 shell/<plat>；build 时缺壳自动从 GitHub YUfeng12TA/freedom Release 下载",
+    "pitfall": "releaseTag 曾硬编码 v1.1.10 与包版本脱钩（已修复）；平台矩阵 ALL_PLATFORMS=['win-x64','darwin-arm64','linux-x64','linux-arm64']，Intel Mac 已放弃"
+  },
+  "modules": [
+    {
+      "path": "lib/build.js",
+      "size": 16475
+    },
+    {
+      "path": "lib/cli.js",
+      "size": 9859
+    },
+    {
+      "path": "lib/config.js",
+      "size": 2164
+    },
+    {
+      "path": "lib/dmg.js",
+      "size": 1455
+    },
+    {
+      "path": "lib/init.js",
+      "size": 1326
+    },
+    {
+      "path": "lib/shell.js",
+      "size": 7975
+    },
+    {
+      "path": "lib/tui.js",
+      "size": 12078
+    },
+    {
+      "path": "lib/utils.js",
+      "size": 3379
+    },
+    {
+      "path": "templates/go/gen_config.go",
+      "size": 746
+    },
+    {
+      "path": "templates/go/go.mod",
+      "size": 108
+    },
+    {
+      "path": "templates/go/go.sum",
+      "size": 233
+    },
+    {
+      "path": "templates/go/main.go",
+      "size": 371
+    },
+    {
+      "path": "templates/go/pkg/freedom/assets_embed.go",
+      "size": 735
+    },
+    {
+      "path": "templates/go/pkg/freedom/backend.go",
+      "size": 1039
+    },
+    {
+      "path": "templates/go/pkg/freedom/backend_proc.go",
+      "size": 7265
+    },
+    {
+      "path": "templates/go/pkg/freedom/bridge.go",
+      "size": 3797
+    },
+    {
+      "path": "templates/go/pkg/freedom/center_other.go",
+      "size": 272
+    },
+    {
+      "path": "templates/go/pkg/freedom/center_windows.go",
+      "size": 919
+    },
+    {
+      "path": "templates/go/pkg/freedom/configfile.go",
+      "size": 3674
+    },
+    {
+      "path": "templates/go/pkg/freedom/freedom.go",
+      "size": 9778
+    },
+    {
+      "path": "templates/go/pkg/freedom/proc_hide_other.go",
+      "size": 166
+    },
+    {
+      "path": "templates/go/pkg/freedom/proc_hide_windows.go",
+      "size": 414
+    },
+    {
+      "path": "templates/go/pkg/freedom/window_other.go",
+      "size": 936
+    },
+    {
+      "path": "templates/go/pkg/freedom/window_windows.go",
+      "size": 4974
+    },
+    {
+      "path": "templates/go/pkg/freedom/assets/freedom.js",
+      "size": 3585
+    },
+    {
+      "path": "templates/go/pkg/freedom/assets/index.html",
+      "size": 3762
+    },
+    {
+      "path": "templates/project/.gitignore",
+      "size": 33
+    },
+    {
+      "path": "templates/project/freedom.config.js",
+      "size": 2202
+    },
+    {
+      "path": "templates/project/index.html",
+      "size": 2722
+    },
+    {
+      "path": "templates/project/package.json",
+      "size": 243
+    },
+    {
+      "path": "templates/project/vite.config.js",
+      "size": 687
+    },
+    {
+      "path": "templates/project/src/main.js",
+      "size": 1015
+    },
+    {
+      "path": "shell/win-x64/freedom-shell.exe",
+      "size": 6901185
+    }
+  ]
+}
