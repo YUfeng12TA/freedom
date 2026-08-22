@@ -1,8 +1,14 @@
 # freedom-cli
 
-Freedom 桌面壳打包工具：把你的 Web 前端一键打包成跨平台桌面应用（v1.12.1）。
+Freedom 桌面壳打包工具：把你的 Web 前端一键打包成跨平台桌面应用（v1.12.11）。
 
 基于自研 Freedom WebView 壳层（对标 Wails / Tauri）：前端完全自由、后端可任意语言、渲染复用系统 WebView（Windows WebView2 / macOS WKWebView / Linux WebKitGTK），产物为单个可执行文件 + resources 目录，前端页面内存加载，不占本地端口。
+
+**v1.12.11 标题栏优化**：自绘标题栏（frameless）增强——
+- 标题栏左侧显示应用图标，图标直接从 exe 内嵌图标（PE 资源 ID=1）提取为 PNG data URL，**不再依赖 resources 资源文件夹**里的任何图标文件，跨平台无 resources 依赖；
+- 双击标题栏空白区最大化 / 还原；
+- 右键标题栏弹出系统菜单（还原 / 最小化 / 最大化 / 关闭），并按窗口状态自动置灰；
+- 标题栏拖动改由 `window.freedom.window.startDrag()` 原生发起，保留双击与右键事件（`-webkit-app-region: drag` 会吞掉页面事件）。
 
 **v1.12.0 核心升级**：标题栏默认改为完全无边框（`frameless`）——标题栏不存在，关闭 / 最大化 / 最小化按钮由前端自绘融入 UI（模板已内置自绘标题栏示例），不再依赖 Windows 原生按钮。`freedom titlebar` 仍可随时切回 `native`。
 

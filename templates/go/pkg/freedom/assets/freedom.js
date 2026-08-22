@@ -52,10 +52,16 @@
       minimize: function () { return windowAction('minimize'); },
       maximize: function () { return windowAction('maximize'); },
       unmaximize: function () { return windowAction('unmaximize'); },
+      restore: function () { return windowAction('unmaximize'); },
       toggleMaximize: function () { return windowAction('toggleMaximize'); },
       close: function () { return windowAction('close'); },
       isMaximized: function () { return windowAction('isMaximized'); },
       isFrameless: function () { return windowAction('isFrameless'); },
+      // 应用图标（data URL）。从 exe 内嵌图标提取，供自绘标题栏显示，不依赖 resources 资源文件夹。
+      appIcon: function () { return windowAction('appIcon'); },
+      // 标题栏 JS 拖动（WM_NCLBUTTONDOWN + HTCAPTION），比 -webkit-app-region: drag
+      // 更稳（保留双击最大化 / 右键菜单等页面事件）。非 Windows 平台为 no-op。
+      startDrag: function () { return windowAction('startDrag'); },
     },
   };
 

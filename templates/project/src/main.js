@@ -28,13 +28,96 @@ async function initFrameless() {
     const frameless = await window.freedom.window.isFrameless();
     if (frameless) {
       document.body.classList.add('freedom-frameless');
-      window.freedom.window.bindButtons({ min: '#tbMin', max: '#tbMax', close: '#tbClose' });
+      const w = window.freedom.window;
+      w.bindButtons({ min: '#tbMin', max: '#tbMax', close: '#tbClose' });
+
+      // 应用图标：从 exe 内嵌图标提取，不依赖 resources 资源文件夹
+      const iconUrl = await w.appIcon();
+      const iconEl = document.getElementById('tbIcon');
+      if (iconUrl && iconEl) {
+        iconEl.src = iconUrl;
+        iconEl.style.display = 'block';
+      }
+
+      // JS 拖动标题栏（保留双击 / 右键事件；非 Windows 平台桥接静默则退化为原生 drag 体验）
+      const bar = document.getElementById('titlebar');
+      if (bar) {
+        bar.addEventListener('mousedown', (e) => {
+          if (e.button === 0 && e.target.closest('.tb-btn') === null) {
+            w.startDrag && w.startDrag();
+          }
+        });
+        // 双击最大化 / 还原
+        bar.addEventListener('dblclick', async (e) => {
+          if (e.target.closest('.tb-btn') !== null) return;
+          const isMax = await w.isMaximized();
+          if (isMax) { w.restore ? w.restore() : w.toggleMaximize(); }
+          else { w.maximize ? w.maximize() : w.toggleMaximize(); }
+        });
+        // 右键菜单
+        bar.addEventListener('contextmenu', async (e) => {
+          if (e.target.closest('.tb-btn') !== null) return;
+          e.preventDefault();
+          openTitlebarMenu(e.clientX, e.clientY);
+        });
+      }
     }
   } catch (e) {
     /* 桥接异常时保持默认样式 */
   }
 }
 
+// 标题栏右键菜单
+const tbMenu = () => document.getElementById('tbMenu');
+
+function openTitlebarMenu(x, y) {
+  const menu = tbMenu();
+  const win = window.freedom.window;
+  menu.style.left = x + 'px';
+  menu.style.top = y + 'px';
+  menu.style.display = 'block';
+
+  // 根据当前窗口状态动态置灰「最大化 / 还原」
+  const updateItems = async () => {
+    const isMax = await win.isMaximized();
+    menu.querySelectorAll('.tb-menu-item').forEach((item) => {
+      const action = item.dataset.action;
+      const disabled = (isMax && action === 'maximize') || (!isMax && action === 'restore');
+      item.style.opacity = disabled ? '0.4' : '1';
+      item.style.pointerEvents = disabled ? 'none' : 'auto';
+    });
+  };
+  updateItems();
+
+  const close = () => {
+    menu.style.display = 'none';
+    document.removeEventListener('mousedown', onDocDown);
+    window.removeEventListener('blur', close);
+  };
+  const onDocDown = (e) => {
+    if (!menu.contains(e.target)) close();
+  };
+  document.addEventListener('mousedown', onDocDown);
+  window.addEventListener('blur', close);
+}
+
+function initTitlebarMenu() {
+  const menu = tbMenu();
+  if (!menu) return;
+  menu.addEventListener('click', (e) => {
+    const item = e.target.closest('.tb-menu-item');
+    if (!item) return;
+    const action = item.dataset.action;
+    const w = window.freedom.window;
+    menu.style.display = 'none';
+    if (action === 'close') w.close();
+    else if (action === 'minimize') w.minimize();
+    else if (action === 'maximize') w.maximize();
+    else if (action === 'restore') w.restore ? w.restore() : w.toggleMaximize();
+  });
+}
+
+initTitlebarMenu();
 initFrameless();
 
 // 桥接自检。

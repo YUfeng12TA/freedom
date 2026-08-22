@@ -19,6 +19,12 @@ func windowControl(hwnd uintptr, action string, mode TitleBarMode) (interface{},
 		return mode == TitleBarFrameless, nil
 	case "isMaximized":
 		return false, nil
+	case "appIcon":
+		// macOS / Linux 暂不提供 exe 内嵌图标提取，前端隐藏标题栏图标。
+		return "", nil
+	case "startDrag":
+		// 非 Windows 平台暂不提供，前端可回退使用 -webkit-app-region: drag。
+		return nil, nil
 	case "minimize", "maximize", "unmaximize", "restore", "toggleMaximize", "close":
 		// 非 Windows 平台暂不提供底层窗口控制，前端自绘按钮可对事件静默处理
 		return nil, nil

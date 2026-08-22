@@ -24,12 +24,21 @@
       flex: 0 0 38px;
       align-items: center;
       justify-content: space-between;
-      padding-left: 14px;
+      padding-left: 12px;
       background: rgba(17, 24, 39, .92);
       border-bottom: 1px solid rgba(156, 163, 175, .15);
-      -webkit-app-region: drag;
+      /* 拖动改为 JS 实现（startDrag），以便保留双击最大化 / 右键菜单事件 */
+      -webkit-user-select: none;
     }
-    .titlebar .tb-title { font-size: 13px; color: #9ca3af; }
+    .titlebar-left { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .tb-icon {
+      width: 16px; height: 16px; flex: 0 0 16px;
+      object-fit: contain; display: none;
+    }
+    .titlebar .tb-title {
+      font-size: 13px; color: #9ca3af;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
     .tb-btns { display: flex; height: 100%; -webkit-app-region: no-drag; }
     .tb-btn {
       width: 46px; height: 100%;
@@ -41,6 +50,25 @@
     .tb-btn:hover { background: rgba(156, 163, 175, .2); color: #fff; }
     .tb-btn.close:hover { background: #e81123; color: #fff; }
     body.freedom-frameless .titlebar { display: flex; }
+
+    /* 标题栏右键菜单 */
+    .tb-menu {
+      position: fixed; z-index: 9999;
+      min-width: 160px; padding: 4px;
+      background: rgba(30, 41, 59, .98);
+      border: 1px solid rgba(156, 163, 175, .25);
+      border-radius: 8px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, .4);
+      display: none;
+    }
+    .tb-menu-item {
+      display: flex; align-items: center;
+      padding: 6px 12px; font-size: 13px; color: #e5e7eb;
+      border-radius: 5px; cursor: default;
+    }
+    .tb-menu-item:hover { background: rgba(99, 102, 241, .35); }
+    .tb-menu-item.danger:hover { background: #e81123; }
+    .tb-menu-divider { height: 1px; margin: 4px 6px; background: rgba(156, 163, 175, .2); }
 
     main {
       flex: 1;
@@ -61,13 +89,25 @@
   </style>
 </head>
 <body>
-  <div class="titlebar">
-    <div class="tb-title">Freedom App</div>
+  <div class="titlebar" id="titlebar">
+    <div class="titlebar-left">
+      <img class="tb-icon" id="tbIcon" alt="" draggable="false">
+      <div class="tb-title" id="tbTitle">Freedom App</div>
+    </div>
     <div class="tb-btns">
       <button class="tb-btn" id="tbMin">&#xE921;</button>
       <button class="tb-btn" id="tbMax">&#xE922;</button>
       <button class="tb-btn close" id="tbClose">&#xE8BB;</button>
     </div>
+  </div>
+
+  <!-- 标题栏右键菜单 -->
+  <div class="tb-menu" id="tbMenu">
+    <div class="tb-menu-item" data-action="restore">还原</div>
+    <div class="tb-menu-item" data-action="minimize">最小化</div>
+    <div class="tb-menu-item" data-action="maximize">最大化</div>
+    <div class="tb-menu-divider"></div>
+    <div class="tb-menu-item danger" data-action="close">关闭</div>
   </div>
 
   <main>
