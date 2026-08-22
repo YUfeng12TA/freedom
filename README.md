@@ -1,8 +1,13 @@
 # freedom-cli
 
-Freedom 桌面壳打包工具：把你的 Web 前端一键打包成跨平台桌面应用（v1.13.0）。
+Freedom 桌面壳打包工具：把你的 Web 前端一键打包成跨平台桌面应用（v1.12.13）。
 
 基于自研 Freedom WebView 壳层（对标 Wails / Tauri）：前端完全自由、后端可任意语言、渲染复用系统 WebView（Windows WebView2 / macOS WKWebView / Linux WebKitGTK），产物为单个可执行文件 + resources 目录，前端页面内存加载，不占本地端口。
+
+**v1.12.13 CLI 界面升级与版本检测**：
+- CLI 交互界面升级为 Claude Code 风格：彩色分组帮助菜单、徽章化命令反馈（✓ / ✗ / ⚠ / ➜）、品牌横幅与版本信息卡；非 TTY（管道 / 重定向）或 `NO_COLOR` 下自动降级为纯文本，脚本调用与 CI 输出不受影响；
+- 新增版本检测：`freedom version` / `freedom update` 实时查询 npm registry 对比最新版本，发现新版本即给出 `npm install -g @yufengtadian/freedom-cli@latest` 升级命令；每次命令执行后静默检测一次（24 小时缓存，离线不打扰、不阻塞），有新版本自动提示升级；
+- TUI 主菜单新增「检查更新」入口，可随时在界面内查看当前版本与最新版本。
 
 **v1.12.12 三平台 frameless 彻底修复**：macOS / Linux 无边框窗口不再残留原生标题栏——
 - 壳层向 webview_go 新增 `set_decorated` / `window_control` 原生窗口控制 API（GTK 走 `gtk_window_set_decorated` / `gtk_window_*`，Cocoa 走隐藏标题栏 + `performMiniaturize:` / `zoom:` / `performClose:` / `isZoomed`），mac/linux 的 frameless 从"空实现回退原生标题栏"修复为真无边框，UI 上方不再残留未清理的原生标题栏；
@@ -171,6 +176,8 @@ freedom icon <path>                    # 设置应用图标（Windows 用 .ico�
 freedom config [get|set]
 freedom shell list|download <platform>|build <platform>
 freedom dmg [--platform <plat>]      # 在 macOS 上把 .app 打包为 .dmg
+freedom version                     # 显示版本并检测最新版本
+freedom update                      # 检查新版本并给出升级命令（同 check-update）
 freedom tutorial
 freedom help
 ```
