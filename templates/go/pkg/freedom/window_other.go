@@ -57,8 +57,12 @@ func windowControl(a *App, action string) (interface{}, error) {
 		// macOS / Linux 暂不提供 exe 内嵌图标提取，前端隐藏标题栏图标。
 		return "", nil
 	case "startDrag":
-		// macOS / Linux 上无边框窗口通过 WebKit 的 -webkit-app-region: drag 拖动，
-		// 前端已在 CSS 中声明拖动区域；此处无需原生实现。
+		// 无边框窗口拖动：GTK 走 gtk_window_begin_move_drag（root_x/y=-1 用当前指针），
+		// Cocoa 走 performWindowDragWithEvent:（用当前鼠标位置合成事件）。
+		// 与 Windows 的 WM_NCLBUTTONDOWN+HTCAPTION 语义等价，保留页面双击/右键事件。
+		if a.view.BeginMoveDrag() != 0 {
+			return nil, fmt.Errorf("window drag is not supported on this platform")
+		}
 		return nil, nil
 	default:
 		return nil, fmt.Errorf("unknown window action %q", action)

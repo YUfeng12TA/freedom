@@ -122,7 +122,10 @@ func (a *App) Unbind(name string) {
 func (a *App) Run() {
 	// 通用壳：先加载 exe 同目录 resources/config.json 覆盖窗口与后端配置
 	//（CLI build 时写入；缺失则使用编译期/默认配置）。
-	_ = a.loadRuntimeConfig()
+	// 配置存在但非法时打印告警（不中断启动），避免用户手改配置出错时静默无感。
+	if err := a.loadRuntimeConfig(); err != nil {
+		fmt.Printf("freedom: warning: %v\n", err)
+	}
 
 	html, err := a.resolveHTML()
 	if err != nil {
@@ -207,6 +210,13 @@ func (a *App) bridge(method string, paramsJSON string) (result json.RawMessage, 
 		if err := json.Unmarshal([]byte(paramsJSON), &params); err != nil {
 			return nil, fmt.Errorf("freedom: method %q: invalid params: %w", method, err)
 		}
+	}
+
+	// 框架内置方法特判：__freedom__ping 由 webview Bind 注册为全局函数
+	// window.__freedom__ping()，同时兼容经 freedom.call()/__freedom_bridge 路由的旧写法，
+	// 避免模板"测试桥接"自检报"method not bound"。
+	if method == "__freedom__ping" {
+		return json.RawMessage(`"pong"`), nil
 	}
 
 	raw, err := a.backend.Handle(method, params)

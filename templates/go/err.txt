@@ -1,2 +1,0 @@
-# freedom-cli-shell/pkg/freedom
-pkg\freedom\freedom.go:212:16: cannot use a.backend.Handle(method, params) (value of type interface{}) as json.RawMessage value in assignment: need type assertion

@@ -12,6 +12,8 @@ package freedom
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 )
@@ -47,19 +49,24 @@ func resourcesDir() (string, error) {
 }
 
 // loadRuntimeConfig 读取 exe 同目录 resources/config.json，将命中的字段覆盖到应用配置。
-// 文件不存在或内容非法时静默回退（返回 nil），保持编译期/默认配置不变。
+// 文件不存在时视为未配置（返回 nil，保持编译期/默认配置不变）；
+// 文件存在但读取/解析失败时返回具体错误，由调用方打印告警，避免用户手改配置出错时无感知。
 func (a *App) loadRuntimeConfig() error {
 	dir, err := resourcesDir()
 	if err != nil {
-		return nil
+		return err
 	}
-	data, err := os.ReadFile(filepath.Join(dir, "config.json"))
+	cfgPath := filepath.Join(dir, "config.json")
+	data, err := os.ReadFile(cfgPath)
 	if err != nil {
-		return nil
+		if errors.Is(err, os.ErrNotExist) {
+			return nil // 未配置：正常回退默认
+		}
+		return fmt.Errorf("read %s: %w", cfgPath, err)
 	}
 	var rc runtimeConfigFile
 	if err := json.Unmarshal(data, &rc); err != nil {
-		return nil
+		return fmt.Errorf("parse %s: %w", cfgPath, err)
 	}
 	if rc.Title != "" {
 		a.cfg.Title = rc.Title

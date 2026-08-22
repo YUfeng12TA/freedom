@@ -134,12 +134,12 @@ func (p *ProcBackend) Handle(method string, params []json.RawMessage) (interface
 	id := p.nextID
 	ch := make(chan procResp, 1)
 	p.pending[id] = ch
-	msg := procMessage{ID: id, Method: method, Params: paramsJSON}
-	line, _ := json.Marshal(msg)
-	_, err = p.stdin.Write(append(line, '\n'))
+	w := p.stdin // 锁内取引用，锁外写，避免持锁阻塞（后端不消费 stdin 时 Write 可能挂起）
 	p.mu.Unlock()
 
-	if err != nil {
+	msg := procMessage{ID: id, Method: method, Params: paramsJSON}
+	line, _ := json.Marshal(msg)
+	if _, err := w.Write(append(line, '\n')); err != nil {
 		p.cancel(id, fmt.Errorf("freedom: proc backend write: %w", err))
 		return nil, err
 	}

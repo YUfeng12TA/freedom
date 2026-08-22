@@ -1,1 +1,0 @@
-github.com/webview/webview_go: build constraints exclude all Go files in D:\dev\自研desktop exe打包框架\freedom-cli\templates\go\webview_go

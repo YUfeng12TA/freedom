@@ -118,6 +118,10 @@ type WebView interface {
 	// 供前端自绘标题栏三按钮调用。Windows 上由 freedom 壳层处理，此处返回 -1。
 	WindowControl(action WindowAction) int
 
+	// BeginMoveDrag 发起无边框窗口的原生拖动（macOS/Linux）。
+	// Windows 由 freedom 壳层用 WM_NCLBUTTONDOWN 处理，此处返回 -1。
+	BeginMoveDrag() int
+
 	// SetSize updates native window size. See Hint constants.
 	SetSize(w int, h int, hint Hint)
 
@@ -230,6 +234,10 @@ func (w *webview) SetDecorated(decorated bool) {
 
 func (w *webview) WindowControl(action WindowAction) int {
 	return int(C.webview_window_control(w.w, C.webview_window_action_t(action)))
+}
+
+func (w *webview) BeginMoveDrag() int {
+	return int(C.webview_window_begin_move_drag(w.w))
 }
 
 func (w *webview) SetSize(width int, height int, hint Hint) {

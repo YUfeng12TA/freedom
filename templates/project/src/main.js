@@ -6,8 +6,8 @@
 
 // 无边框模式：显示自绘标题栏并绑定按钮。
 // 壳桥接（__freedom_window）注入时机与页面脚本加载先后不定，早期调用可能被 reject 吞掉导致标题栏不显示，
-// 因此先轮询等待桥接就绪（最多 100 次 × 100ms）再初始化。
-function waitForBridge(tries = 100, interval = 100) {
+// 因此先轮询等待桥接就绪（最多 150 次 × 100ms = 15s）再初始化；超时后明确告警而非静默失效。
+function waitForBridge(tries = 150, interval = 100) {
   return new Promise((resolve) => {
     const check = () => {
       if (window.freedom && window.freedom.window && typeof window.__freedom_window === 'function') {
@@ -47,7 +47,11 @@ async function syncMaxState(w) {
 }
 
 async function initFrameless() {
-  if (!(await waitForBridge())) return;
+  const ready = await waitForBridge();
+  if (!ready) {
+    console.warn('[freedom] 桥接 15s 未就绪，无边框标题栏未初始化（窗口仍可正常使用）。');
+    return;
+  }
   try {
     const frameless = await window.freedom.window.isFrameless();
     if (!frameless) return;
@@ -148,11 +152,14 @@ function initTitlebarMenu() {
 initTitlebarMenu();
 initFrameless();
 
-// 桥接自检。
+// 桥接自检：__freedom__ping 是壳注入的全局函数，优先直调；
+// 低版本壳不存在时回退经 bridge 路由（壳层 bridge 对 ping 特判兼容）。
 document.getElementById('pingBtn').addEventListener('click', async () => {
   const el = document.getElementById('result');
   try {
-    const r = await window.freedom.call('__freedom__ping');
+    const r = (typeof window.__freedom__ping === 'function')
+      ? await window.__freedom__ping()
+      : await window.freedom.call('__freedom__ping');
     el.textContent = '桥接正常：' + r;
   } catch (e) {
     el.textContent = '桥接异常：' + e.message;

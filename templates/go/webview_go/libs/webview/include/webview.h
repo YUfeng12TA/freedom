@@ -293,6 +293,7 @@ typedef enum webview_window_action {
  * @param action The action to execute (see webview_window_action_t).
  */
 WEBVIEW_API int webview_window_control(webview_t w, webview_window_action_t action);
+WEBVIEW_API int webview_window_begin_move_drag(webview_t w);
 
 /**
  * Navigates webview to the given URL. URL may be a properly encoded data URI.
@@ -1041,6 +1042,7 @@ if (status === 0) {\
   // 供前端自绘标题栏三按钮使用。action 取值见 webview_window_action_t。
   // 返回 0 表示成功；-1 表示该平台/动作不支持；isMaximized 返回 1/0。
   int window_control(int action) { return window_control_impl(action); }
+  int begin_move_drag() { return begin_move_drag_impl(); }
 
   void set_size(int width, int height, webview_hint_t hints) {
     set_size_impl(width, height, hints);
@@ -1062,6 +1064,7 @@ protected:
   virtual void set_size_impl(int width, int height, webview_hint_t hints) = 0;
   virtual void set_decorated_impl(bool decorated) = 0;
   virtual int window_control_impl(int action) = 0;
+  virtual int begin_move_drag_impl() = 0;
   virtual void set_html_impl(const std::string &html) = 0;
   virtual void init_impl(const std::string &js) = 0;
   virtual void eval_impl(const std::string &js) = 0;
@@ -1416,6 +1419,14 @@ public:
     default:
       return -1;
     }
+  }
+
+  // 无边框窗口拖动：root_x/root_y=-1 表示用当前指针位置，由窗口管理器接管拖动。
+  // 与 Windows 的 WM_NCLBUTTONDOWN+HTCAPTION 语义等价，保留页面双击/右键事件。
+  int begin_move_drag_impl() override {
+    gtk_window_begin_move_drag(GTK_WINDOW(m_window), GDK_BUTTON_PRESS, -1, -1,
+                               gtk_get_current_event_time());
+    return 0;
   }
 
   void set_size_impl(int width, int height, webview_hint_t hints) override {
@@ -1823,6 +1834,21 @@ public:
     default:
       return -1;
     }
+  }
+
+  // 无边框窗口拖动：用当前鼠标屏幕位置合成 NSLeftMouseDragged 事件，
+  // 调 performWindowDragWithEvent: 进入 AppKit 原生窗口拖动循环。
+  int begin_move_drag_impl() override {
+    objc::autoreleasepool arp;
+    auto loc = objc::msg_send<NSPoint>("NSEvent"_cls, "mouseLocation"_sel);
+    auto wnum = objc::msg_send<NSInteger>(m_window, "windowNumber"_sel);
+    auto evt = objc::msg_send<id>(
+        "NSEvent"_cls,
+        "mouseEventWithType:location:modifierFlags:timestamp:windowNumber:context:eventNumber:clickCount:pressure:"_sel,
+        (NSUInteger)1 /*NSLeftMouseDragged*/, loc, (NSUInteger)0, (double)0.0,
+        wnum, (id)nullptr, (NSInteger)0, (NSInteger)1, (float)1.0);
+    objc::msg_send<void>(m_window, "performWindowDragWithEvent:"_sel, evt);
+    return 0;
   }
   void navigate_impl(const std::string &url) override {
     objc::autoreleasepool arp;
@@ -3495,6 +3521,7 @@ public:
   // Windows 窗口控制（min/max/close）由 freedom 壳层 window_windows.go
   // 直接调 user32 处理，webview 层不参与。
   int window_control_impl(int action) override { (void)action; return -1; }
+  int begin_move_drag_impl() override { return -1; }
 
   void set_size_impl(int width, int height, webview_hint_t hints) override {
     auto style = GetWindowLong(m_window, GWL_STYLE);
@@ -3792,6 +3819,10 @@ WEBVIEW_API void webview_set_decorated(webview_t w, int decorated) {
 WEBVIEW_API int webview_window_control(webview_t w, webview_window_action_t action) {
   return static_cast<webview::webview *>(w)->window_control(
       static_cast<int>(action));
+}
+
+WEBVIEW_API int webview_window_begin_move_drag(webview_t w) {
+  return static_cast<webview::webview *>(w)->begin_move_drag();
 }
 
 WEBVIEW_API void webview_navigate(webview_t w, const char *url) {

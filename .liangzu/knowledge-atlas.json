@@ -53,14 +53,15 @@
       "native": "保留系统原生标题栏（含标题、图标、原生最小化/最大化/关闭按钮），标题栏与任务栏图标与 exe 内嵌图标一致",
       "frameless": "完全无边框：去掉 WS_CAPTION|WS_SYSMENU，无系统原生三按钮，前端自绘关闭/最大化/最小化三按钮（默认，模板已内置示例）"
     },
-    "window_control": "前端经 window.freedom.window.* 调用 minimize/maximize/toggleMaximize/close/isFrameless；Windows 实现见 window_windows.go，macOS/Linux 为占位",
+    "window_control": "前端经 window.freedom.window.* 调用 minimize/maximize/toggleMaximize/close/isFrameless；v1.12.12 起三平台真 frameless：Windows 走原生 HWND(user32)，mac/linux 经 webview_go fork 的 set_decorated + WindowControl(GTK/Cocoa)",
     "frameless_bridge": "壳注入 __freedom_window 桥接时机与页面脚本先后不定；前端初始化须轮询等待 typeof window.__freedom_window==='function' 再调 isFrameless/bindButtons（100x100ms）",
     "data_persistence": "webview_go (v0.0.0-20240831120633) UserDataFolder = %APPDATA%/<exe文件名含.exe>；webview.go 接口未暴露 UserDataFolder/SetIcon；webview.h 图标用 IDI_APPLICATION 系统默认（与 exe 内嵌图标不一致）",
     "icon": "CLI build 用 rcedit 把 .ico 注入 exe PE 资源；窗口标题栏图标仍为系统默认，需壳层设置 WM_SETICON 从 exe 资源加载",
     "dpi": "window_windows.go init() 设 SetProcessDpiAwareness(2) PER_MONITOR_DPI_AWARE，窗口坐标/渲染/鼠标自动化定位一致",
     "config_runtime": "resources/config.json 字段：name/title/titlebar/width/height/minWidth/minHeight/center/debug/backend；configfile.go loadRuntimeConfig 覆盖编译期配置，缺失静默回退",
-    "version_flow": "npm 包版本 1.12.1；壳预编译在 shell/<plat>；build 时缺壳自动从 GitHub YUfeng12TA/freedom Release 下载",
-    "pitfall": "releaseTag 曾硬编码 v1.1.10 与包版本脱钩（已修复）；平台矩阵 ALL_PLATFORMS=['win-x64','darwin-arm64','linux-x64','linux-arm64']，Intel Mac 已放弃"
+    "version_flow": "npm 包版本 1.12.12；壳预编译在 shell/<plat>（现仅 win-x64 随包，darwin-arm64/linux-x64 需下载，linux-arm64 无任何来源）；build 缺壳自动从 GitHub YUfeng12TA/freedom Release 下载",
+    "pitfall": "releaseTag 曾硬编码 v1.1.10 与包版本脱钩（已修复）；平台矩阵 ALL_PLATFORMS=['win-x64','darwin-arm64','linux-x64','linux-arm64']，Intel Mac 已放弃；all 构建含 linux-arm64 必 404 整体失败（B41）；模板 ping 按钮走 bridge 不命中自检必报异常（B04）；mac/linux 标题栏拖动需原生 begin_move_drag（B42）；templates/go 调试残留随包分发（B40）",
+    "review": "2026-08-22 打包工具全量审查：49 条 bug 注册表；其中 B02/B03/B04/B05/B09/B10/B11/B13/B40/B41/B42/B43/B44/B45/B46/B47/B49 经代码级复核/单测确认已修复（工作区未提交，待 commit+push+CI 重建壳）；残余 open 多为 README 文档项与 webview_go fork 深水区（B06/B07/B08/B31/B32）"
   },
   "modules": [
     {
@@ -210,32 +211,34 @@
       "sev": "major",
       "file": "backend_proc.go",
       "line": 129,
-      "summary": "Handle 持锁阻塞写 stdin 与 readLoop 抢锁，跨进程环形死锁（模板副本同缺陷 +10 行）",
-      "status": "open"
+      "summary": "Handle 在持锁状态下阻塞写 stdin，后端不消费时死锁；readLoop/cancel/finish 均持同一把锁（本轮复核仍成立）",
+      "status": "fixed",
+      "fixed_note": "backend_proc.go 写 stdin 已移出锁外，Handle 不再持锁阻塞 IO（复核已修复）"
     },
     {
       "id": "B03",
       "sev": "major",
       "file": "window_windows.go",
       "line": 92,
-      "summary": "close 动作用 CloseWindow（语义=最小化），前端关闭按钮失效；模板已修根库未同步",
-      "status": "open"
+      "summary": "close 动作用 CloseWindow（语义=最小化），前端关闭按钮失效；模板已修根库未同步；close 已改 PostMessage(WM_CLOSE) 触发正常关闭（注释明确避免 CloseWindow），已修复",
+      "status": "fixed"
     },
     {
       "id": "B04",
       "sev": "major",
       "file": "assets/default.html",
       "line": 101,
-      "summary": "__freedom__ping 经 bridge 路由但未注册进后端，自检必现桥接异常（5 处副本）",
-      "status": "open"
+      "summary": "模板 main.js 用 freedom.call('__freedom__ping') 走 __freedom_bridge -> EmbedBackend.Handle，但 '__freedom__ping' 只被 w.Bind 注册为全局函数，未进 backend methods map，自检按钮必然显示「桥接异常」（本轮复核仍成立）",
+      "status": "fixed",
+      "fixed_note": "freedom.go bridge 对 '__freedom__ping' 特判返回 pong，模板自检按钮不再报桥接异常（复核已修复）"
     },
     {
       "id": "B05",
       "sev": "major",
       "file": "freedom.go",
       "line": 192,
-      "summary": "根 bridge() 无 recover，Bind 方法 panic 击穿 GUI 进程（模板已修）",
-      "status": "open"
+      "summary": "根 bridge() 无 recover，Bind 方法 panic 击穿 GUI 进程（模板已修）；freedom.go bridge() 已加 defer recover 防御后端方法 panic 击穿 GUI 进程，已修复",
+      "status": "fixed"
     },
     {
       "id": "B06",
@@ -266,24 +269,25 @@
       "sev": "major",
       "file": "freedom-cli/lib/config.js",
       "line": 44,
-      "summary": "setConfig 不转义反斜杠/不中和 $ 替换模式，Windows 路径写坏配置文件",
-      "status": "open"
+      "summary": "setConfig 不转义反斜杠/不中和 $ 替换模式，Windows 路径写坏配置文件；setConfig 改 renderLiteral(JSON.stringify) + splice 逐行替换，反斜杠/引号自动转义，无 $ 注入面，已修复",
+      "status": "fixed"
     },
     {
       "id": "B10",
       "sev": "major",
       "file": "freedom-cli/lib/tui.js",
       "line": 219,
-      "summary": "TUI 多选拼逗号串与 parsePlatforms 契约不匹配，选 2-3 平台必失败",
-      "status": "open"
+      "summary": "TUI buildFlow 用 platforms.join(',') 作 platArg，parsePlatforms 不支持逗号分隔（实测 THROW: 未知平台 win-x64,linux-x64），多选 2-3 平台必失败（本轮实测复核仍成立）",
+      "status": "fixed",
+      "fixed_note": "parsePlatforms 现支持逗号分隔/数组/去重，TUI 多选 join(',') 不再抛未知平台（单测 PASS）"
     },
     {
       "id": "B11",
       "sev": "major",
       "file": "freedom-cli/lib/config.js",
       "line": 37,
-      "summary": "setConfig 正则命中注释行 + 字符串值形态，backend 配置三条路全不通且静默",
-      "status": "open"
+      "summary": "setConfig 正则命中注释行 + 字符串值形态，backend 配置三条路全不通且静默；normalizeValue 增加 backend 特殊分支（字符串->{command,args}），注释行跳过，backend 配置路径已通，已修复",
+      "status": "fixed"
     },
     {
       "id": "B12",
@@ -298,8 +302,9 @@
       "sev": "major",
       "file": "freedom-cli/lib/shell.js",
       "line": 148,
-      "summary": "downloadShell 落盘前不校验魔数，自动下载路径跳过 validateLocalShell，假壳静默分发",
-      "status": "open"
+      "summary": "downloadShell 落盘前不校验魔数，自动下载路径跳过 validateLocalShell，假壳/错误页静默分发（本轮复核仍成立）",
+      "status": "fixed",
+      "fixed_note": "downloadShell 落盘前调用 detectShellFormat 校验格式/架构，异常页与假壳拒绝写入（复核已修复）"
     },
     {
       "id": "B14",
@@ -482,7 +487,7 @@
       "sev": "minor",
       "file": "README.md",
       "line": 113,
-      "summary": "frameless 三平台一致声明失实，mac/Linux 回退原生标题栏且按钮全 reject",
+      "summary": "README 若仍宣称『frameless 三平台一致』需复核：v1.12.12 真无边框 + GTK begin_move_drag 拖动均已实现，仅需同步 README 描述",
       "status": "open"
     },
     {
@@ -513,9 +518,90 @@
       "id": "B40",
       "sev": "hygiene",
       "file": "freedom-cli/templates/go/",
-      "summary": "13 个调试残留文件（err*.txt 等）随 npm 包分发",
+      "summary": "templates/go 顶层 12 个调试残留（err.txt/err2~11.txt/build_out.txt/vet_out.txt/tidy.txt/go.mod.bak_gbk）已提交 git 且随 npm files:\"templates\" 分发（本轮复核仍成立）",
+      "status": "fixed",
+      "fixed_note": "templates/go 残留（err*.txt/build_out.txt/vet_out.txt/tidy.txt/go.mod.bak_gbk）已 git rm，磁盘仅存 gen_config.go/go.mod/go.sum/main.go（复核已修复）"
+    },
+    {
+      "id": "B41",
+      "sev": "critical",
+      "file": "freedom-cli/lib/utils.js + .github/workflows/build-shell.yml",
+      "line": 14,
+      "summary": "ALL_PLATFORMS 含 linux-arm64 但 CI 无该 job、无包内壳、无 GitHub 资产；build --platform all 并行分发到 linux-arm64 时 downloadShell 必然 HTTP 404 抛错，Promise.all 整体 abort，『all=三平台全量』实际必失败",
+      "status": "fixed",
+      "fixed_note": "parsePlatforms('all') 改为返回 DIST_PLATFORMS（win-x64/darwin-arm64/linux-x64），排除无资产的 linux-arm64，全量构建不再 404 整体失败（单测 PASS）"
+    },
+    {
+      "id": "B42",
+      "sev": "major",
+      "file": "freedom-cli/templates/go/pkg/freedom/window_other.go + templates/project/index.html",
+      "line": 61,
+      "summary": "mac/linux frameless 窗口标题栏无法拖动：window_other.go startDrag 返回 nil 空实现，注释声称『前端已在 CSS 声明 -webkit-app-region: drag 拖动区域』，但模板 index.html .titlebar 并无该声明（仅 .tb-btns 有 no-drag）；且 WKWebView/WebKitGTK 对 -webkit-app-region 支持本就不保证，应改用 GTK gtk_window_begin_move_drag / Cocoa 原生实现",
+      "status": "fixed",
+      "fixed_note": "window_other.go startDrag 改为 GTK gtk_window_begin_move_drag 原生拖动（注释已更新），frameless 窗口标题栏可拖动（复核已修复）"
+    },
+    {
+      "id": "B43",
+      "sev": "major",
+      "file": "freedom-cli/lib/config.js",
+      "line": 118,
+      "summary": "同文件重复定义 async function getConfig（62 行与 118 行各一次），后者覆盖前者，死代码 + 双份校验逻辑维护风险",
+      "status": "fixed",
+      "fixed_note": "config.js getConfig 仅定义一次（grep 2 次 = 定义+export），重复定义已清除（复核已修复）"
+    },
+    {
+      "id": "B44",
+      "sev": "major",
+      "file": "freedom-cli/lib/utils.js vs lib/shell.js",
+      "line": 43,
+      "summary": "平台映射重复且语义不一：utils.nativePlatform 对 darwin-x64 抛错，shell.nativePlatformKey 返回 'darwin-x64'；两处 win32 均恒返回 win-x64 不校验 arch；同语义两套实现，改一处漏一处",
+      "status": "fixed",
+      "fixed_note": "shell.js nativePlatformKey 已废弃，统一转调 utils.nativePlatform，平台映射收敛为单实现（复核已修复）"
+    },
+    {
+      "id": "B45",
+      "sev": "minor",
+      "file": "freedom-cli/lib/shell.js",
+      "line": 95,
+      "summary": "detectShellFormat 只按前 4 字节识别 PE/Mach-O/ELF 格式族，linux-x64 与 linux-arm64 同为 ELF 无法区分；linux-x64 壳被复制为 linux-arm64 假壳也校验不出，需按 ELF e_machine 判架构",
+      "status": "fixed",
+      "fixed_note": "detectShellFormat 升级为架构级（PE e_lfanew+machine / Mach-O cputype / ELF e_machine），win-arm64/mac-x64/mac-arm64/linux-arm64 均可精确识别（单测 PASS，真实壳=win-x64）"
+    },
+    {
+      "id": "B46",
+      "sev": "minor",
+      "file": "freedom-cli/templates/go/pkg/freedom/configfile.go",
+      "line": 27,
+      "summary": "loadRuntimeConfig 对 resources/config.json 读取失败 / JSON 非法一律 return nil 静默吞错，无任何日志；用户手改配置出错时窗口尺寸/标题静默回退默认值，无感知",
+      "status": "fixed",
+      "fixed_note": "configfile.go 读取/解析 config.json 失败时 freedom.go 侧打印可见告警，不再静默吞错（复核已修复）"
+    },
+    {
+      "id": "B47",
+      "sev": "minor",
+      "file": "freedom-cli/lib/build.js",
+      "line": 166,
+      "summary": "build 只校验 .freedom/vite-dist/index.html 存在，不校验产物是否 singlefile；未配 vite-plugin-singlefile 的项目打包后 JS/CSS 仍是外部 assets 引用，壳只 SetHtml 单页，页面静默空白无任何警告",
+      "status": "fixed",
+      "fixed_note": "build.js 新增 warnIfNotSingleFile：检测 index.html 引用外部 assets/static 资源并显式警告（复核已修复）"
+    },
+    {
+      "id": "B48",
+      "sev": "minor",
+      "file": "freedom-cli/lib/utils.js",
+      "line": 40,
+      "summary": "nativePlatform 在 win32 恒返回 'win-x64'，ARM Windows（process.arch==='arm64'）上 build 默认平台误判为 x64 并尝试拉 x64 壳",
       "status": "open"
+    },
+    {
+      "id": "B49",
+      "sev": "minor",
+      "file": "freedom-cli/templates/project/src/main.js",
+      "line": 24,
+      "summary": "waitForBridge 上限 100×100ms=10s，桥接注入慢于 10s 时 initFrameless 直接 return，标题栏/按钮/图标永久不初始化且无提示",
+      "status": "fixed",
+      "fixed_note": "模板 waitForBridge 提升至 150x100ms=15s 且超时打印明确告警（复核已修复）"
     }
   ],
-  "lastUpdated": "2026-08-22T11:01:47+08:00"
+  "lastUpdated": "2026-08-22T11:45:00+08:00"
 }
