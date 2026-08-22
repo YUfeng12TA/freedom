@@ -1840,7 +1840,7 @@ public:
   // 调 performWindowDragWithEvent: 进入 AppKit 原生窗口拖动循环。
   int begin_move_drag_impl() override {
     objc::autoreleasepool arp;
-    auto loc = objc::msg_send<NSPoint>("NSEvent"_cls, "mouseLocation"_sel);
+    auto loc = objc::msg_send<CGPoint>("NSEvent"_cls, "mouseLocation"_sel);
     auto wnum = objc::msg_send<NSInteger>(m_window, "windowNumber"_sel);
     auto evt = objc::msg_send<id>(
         "NSEvent"_cls,
