@@ -1,0 +1,133 @@
+//go:build windows
+
+package freedom
+
+import (
+	"fmt"
+	"syscall"
+	"unsafe"
+)
+
+// Windows 平台原生窗口操作（user32 / dwmapi）。
+// 供标题栏策略（applyTitleBar）与前端 window.freedom.window.* 控制使用。
+
+var (
+	user32win = syscall.NewLazyDLL("user32.dll")
+
+	procGetWindowLongPtr = user32win.NewProc("GetWindowLongPtrW")
+	procSetWindowLongPtr = user32win.NewProc("SetWindowLongPtrW")
+	procShowWindow       = user32win.NewProc("ShowWindow")
+	procCloseWindow      = user32win.NewProc("CloseWindow")
+	procIsZoomed         = user32win.NewProc("IsZoomed")
+	procSetWindowPos     = user32win.NewProc("SetWindowPos")
+	procSetWindowText    = user32win.NewProc("SetWindowTextW")
+
+	dwmapi                     = syscall.NewLazyDLL("dwmapi.dll")
+	procDwmExtendFrameIntoArea = dwmapi.NewProc("DwmExtendFrameIntoClientArea")
+)
+
+const (
+	wsCaption   = 0x00C00000 // WS_CAPTION = WS_BORDER | WS_DLGFRAME
+	wsSysMenu   = 0x00080000
+	wsThickFrame = 0x00040000
+
+	swHide      = 0
+	swShow      = 5
+	swMinimize  = 6
+	swRestore   = 9
+	swMaximize  = 3
+
+	swpFrameChanged = 0x0020
+	swpNoMove       = 0x0002
+	swpNoSize       = 0x0001
+	swpNoZOrder     = 0x0004
+	swpNoActivate   = 0x0010
+)
+
+// gwlStyle = GWL_STYLE（-16）。用变量声明，避免 uintptr 常量转换溢出。
+var gwlStyle = -16
+
+// margins 对应 DWM 的 MARGINS 结构（DwmExtendFrameIntoClientArea）。
+type margins struct {
+	cxLeftWidth, cxRightWidth, cyTopHeight, cyBottomHeight int32
+}
+
+func getWindowStyle(hwnd uintptr) uintptr {
+	r, _, _ := procGetWindowLongPtr.Call(hwnd, uintptr(int(gwlStyle)))
+	return r
+}
+
+func setWindowStyle(hwnd, style uintptr) {
+	procSetWindowLongPtr.Call(hwnd, uintptr(int(gwlStyle)), style)
+}
+
+func refreshFrame(hwnd uintptr) {
+	procSetWindowPos.Call(hwnd, 0, 0, 0, 0, 0,
+		swpFrameChanged|swpNoMove|swpNoSize|swpNoZOrder|swpNoActivate)
+}
+
+// windowControl 处理前端 window.freedom.window.* 请求（Windows 实现）。
+func windowControl(hwnd uintptr, action string, mode TitleBarMode) (interface{}, error) {
+	if hwnd == 0 {
+		return nil, fmt.Errorf("window not ready")
+	}
+	switch action {
+	case "minimize":
+		procShowWindow.Call(hwnd, swMinimize)
+		return nil, nil
+	case "maximize":
+		procShowWindow.Call(hwnd, swMaximize)
+		return nil, nil
+	case "unmaximize", "restore":
+		procShowWindow.Call(hwnd, swRestore)
+		return nil, nil
+	case "toggleMaximize":
+		if isZoomed(hwnd) {
+			procShowWindow.Call(hwnd, swRestore)
+		} else {
+			procShowWindow.Call(hwnd, swMaximize)
+		}
+		return nil, nil
+	case "close":
+		procCloseWindow.Call(hwnd)
+		return nil, nil
+	case "isMaximized":
+		return isZoomed(hwnd), nil
+	case "isFrameless":
+		return mode == TitleBarFrameless || mode == TitleBarHidden, nil
+	default:
+		return nil, fmt.Errorf("unknown window action %q", action)
+	}
+}
+
+func isZoomed(hwnd uintptr) bool {
+	r, _, _ := procIsZoomed.Call(hwnd)
+	return r != 0
+}
+
+// applyTitleBar 依据配置调整窗口标题栏（Windows 实现）。
+func (a *App) applyTitleBar() {
+	hwnd := a.WindowHandle()
+	if hwnd == 0 {
+		return
+	}
+	switch a.cfg.TitleBar {
+	case TitleBarFrameless:
+		// 完全无边框：去掉标题栏 / 系统菜单，客户区铺满整个窗口。
+		// 最小化 / 最大化 / 关闭按钮由前端自绘（window.freedom.window.*）。
+		style := getWindowStyle(hwnd)
+		style &^= wsCaption | wsSysMenu
+		setWindowStyle(hwnd, style)
+		refreshFrame(hwnd)
+	case TitleBarHidden:
+		// 隐藏标题栏视觉但保留系统原生按钮：DWM 玻璃扩展。
+		// 标题栏区域透明化并并入客户区，右上角的最小化 / 最大化 / 关闭按钮
+		// 由 DWM 继续原生绘制，标题文字置空。
+		m := margins{cxLeftWidth: 0, cxRightWidth: 0, cyTopHeight: 0, cyBottomHeight: 1}
+		procDwmExtendFrameIntoArea.Call(hwnd, uintptr(unsafe.Pointer(&m)))
+		// 标题文字一并清除，标题栏区域只保留系统按钮
+		procSetWindowText.Call(hwnd, uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr(""))))
+		refreshFrame(hwnd)
+	default: // TitleBarNative：不处理
+	}
+}

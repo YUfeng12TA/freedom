@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Freedom Hello</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    background: #0f172a; color: #e2e8f0;
+    min-height: 100vh; padding: 40px;
+  }
+  .wrap { max-width: 680px; margin: 0 auto; }
+  h1 { font-size: 24px; margin-bottom: 6px; color: #a5b4fc; }
+  .desc { color: #64748b; font-size: 13px; margin-bottom: 28px; }
+  .card {
+    background: #1e293b; border-radius: 14px; padding: 20px; margin-bottom: 16px;
+    border: 1px solid #334155;
+  }
+  .card h2 { font-size: 15px; color: #94a3b8; margin-bottom: 12px; font-weight: 600; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  input {
+    background: #0f172a; border: 1px solid #334155; color: #e2e8f0;
+    padding: 9px 12px; border-radius: 8px; font-size: 14px; outline: none; flex: 1; min-width: 160px;
+  }
+  input:focus { border-color: #6366f1; }
+  button {
+    background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #fff;
+    border: none; padding: 9px 18px; border-radius: 8px; font-size: 14px;
+    cursor: pointer; transition: opacity .15s;
+  }
+  button:hover { opacity: .85; }
+  button.secondary { background: #334155; }
+  .out {
+    margin-top: 12px; font-size: 14px; color: #a5b4fc;
+    word-break: break-all; line-height: 1.6; min-height: 20px;
+  }
+  .out.err { color: #f87171; }
+  .events {
+    margin-top: 12px; max-height: 120px; overflow-y: auto;
+    font-size: 13px; color: #94a3b8; line-height: 1.8;
+    background: #0f172a; border-radius: 8px; padding: 10px 12px;
+  }
+  .badge {
+    display: inline-block; padding: 2px 10px; border-radius: 999px;
+    font-size: 12px; margin-left: 8px;
+    background: rgba(34,197,94,.15); color: #4ade80;
+  }
+  .badge.off { background: rgba(248,113,113,.15); color: #f87171; }
+  .diag { font-size: 12px; color: #cbd5e1; margin-bottom: 16px; line-height: 1.7; }
+  .diag b { color: #fbbf24; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Freedom Hello</h1>
+  <div class="desc">自研 WebView 壳子框架示例 · 演示双向 IPC 桥接</div>
+  <div class="badge" id="bridge-badge">检测中</div>
+  <div class="diag" id="diag"></div>
+
+  <div class="card">
+    <h2>前端 → 后端：call("Greet", name)</h2>
+    <div class="row">
+      <input id="name" placeholder="输入你的名字" value="老板">
+      <button onclick="doGreet()">调用 Greet</button>
+    </div>
+    <div class="out" id="greet-out"></div>
+  </div>
+
+  <div class="card">
+    <h2>多参数调用：call("Add", a, b)</h2>
+    <div class="row">
+      <input id="a" value="12" style="max-width:80px">
+      <span style="color:#64748b">+</span>
+      <input id="b" value="30" style="max-width:80px">
+      <button class="secondary" onclick="doAdd()">调用 Add</button>
+    </div>
+    <div class="out" id="add-out"></div>
+  </div>
+
+  <div class="card">
+    <h2>错误处理：call("Greet", "")</h2>
+    <div class="row">
+      <button class="secondary" onclick="doErr()">触发一个后端错误</button>
+    </div>
+    <div class="out err" id="err-out"></div>
+  </div>
+
+  <div class="card">
+    <h2>后端 → 前端：app.Emit("tick") <span class="badge" id="event-badge">等待事件</span></h2>
+    <div class="events" id="events"></div>
+  </div>
+</div>
+
+<script>
+  var bridgeBadge = document.getElementById('bridge-badge');
+  bridgeBadge.textContent = window.freedom.isDesktop ? '桥接已连接' : '非桌面环境';
+  bridgeBadge.classList.toggle('off', !window.freedom.isDesktop);
+
+  var diag = document.getElementById('diag');
+  diag.innerHTML =
+    '<b>DIAG:</b> bridge=' + (typeof window.__freedom_bridge) +
+    ' external=' + (typeof window.external) +
+    ' invoke=' + (typeof (window.external && window.external.invoke)) +
+    ' isDesktop=' + window.freedom.isDesktop;
+
+  function logCallResult(tag, ok, detail) {
+    diag.innerHTML += ' | ' + tag + '=' + (ok ? 'OK' : 'FAIL:' + detail);
+  }
+
+  function out(el, text, isErr) {
+    el.textContent = text;
+    el.classList.toggle('err', !!isErr);
+  }
+
+  function doGreet() {
+    var name = document.getElementById('name').value;
+    out(document.getElementById('greet-out'), '调用中...');
+    window.freedom.call('Greet', name).then(function (r) {
+      logCallResult('Greet', true, '');
+      out(document.getElementById('greet-out'), '✅ ' + r);
+    }).catch(function (e) {
+      logCallResult('Greet', false, e);
+      out(document.getElementById('greet-out'), '❌ ' + e, true);
+    });
+  }
+
+  function doAdd() {
+    var a = parseInt(document.getElementById('a').value) || 0;
+    var b = parseInt(document.getElementById('b').value) || 0;
+    window.freedom.call('Add', a, b).then(function (r) {
+      logCallResult('Add', true, '');
+      out(document.getElementById('add-out'), a + ' + ' + b + ' = ' + r);
+    }).catch(function (e) {
+      logCallResult('Add', false, e);
+      out(document.getElementById('add-out'), '❌ ' + e, true);
+    });
+  }
+
+  function doErr() {
+    window.freedom.call('Greet', '').then(function (r) {
+      logCallResult('Err', true, '');
+      out(document.getElementById('err-out'), '意外成功：' + r);
+    }).catch(function (e) {
+      logCallResult('Err', false, e);
+      out(document.getElementById('err-out'), '已收到错误：' + e, true);
+    });
+  }
+
+  // 订阅后端事件
+  window.freedom.on('tick', function (data) {
+    var box = document.getElementById('events');
+    var line = document.createElement('div');
+    line.textContent = '[' + data.time + '] 第 ' + data.count + ' 次心跳事件';
+    box.insertBefore(line, box.firstChild);
+    document.getElementById('event-badge').textContent = '已收到 ' + data.count + ' 次';
+  });
+
+  // 页面加载后自动跑一遍完整链路自检，便于验证双向桥接真实工作
+  window.addEventListener('DOMContentLoaded', function () {
+    setTimeout(function () { doGreet(); }, 800);
+    setTimeout(function () { doAdd(); }, 1200);
+    setTimeout(function () { doErr(); }, 1600);
+  });
+</script>
+</body>
+</html>

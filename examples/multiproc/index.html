@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Freedom Multi-Backend</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "Segoe UI", "Microsoft YaHei", sans-serif; background: #0f1220; color: #e8eaf2; padding: 24px; }
+  h1 { font-size: 20px; margin-bottom: 4px; }
+  .sub { color: #8a90a8; font-size: 13px; margin-bottom: 20px; }
+  .panel { background: #1a1e30; border: 1px solid #2a2f45; border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  .panel h2 { font-size: 14px; margin-bottom: 12px; color: #9fb0ff; }
+  button { background: #3d5afe; color: #fff; border: 0; border-radius: 6px; padding: 8px 16px; margin: 4px 6px 4px 0; cursor: pointer; font-size: 13px; }
+  button:hover { background: #536dfe; }
+  input { background: #0f1220; color: #e8eaf2; border: 1px solid #2a2f45; border-radius: 6px; padding: 8px; margin-right: 8px; font-size: 13px; }
+  #out { background: #0f1220; border: 1px solid #2a2f45; border-radius: 6px; padding: 12px; min-height: 120px; font-family: Consolas, monospace; font-size: 12px; white-space: pre-wrap; max-height: 200px; overflow-y: auto; }
+  #events { color: #69f0ae; }
+  .badge { display: inline-block; background: #2a2f45; border-radius: 4px; padding: 2px 8px; font-size: 12px; margin-left: 8px; }
+</style>
+</head>
+<body>
+  <h1>Freedom Multi-Backend<span id="backendName" class="badge">?</span></h1>
+  <div class="sub">同一个壳、同一份前端，后端可换任意语言（Go / Node / Python / Rust…）</div>
+
+  <div class="panel">
+    <h2>调用后端方法</h2>
+    <input id="name" placeholder="你的名字" value="老板">
+    <button onclick="callGreet()">Greet</button>
+    <input id="a" placeholder="a" value="3" style="width:60px">
+    <input id="b" placeholder="b" value="4" style="width:60px">
+    <button onclick="callAdd()">Add</button>
+    <button onclick="callWhoAmI()">WhoAmI</button>
+    <button onclick="callError()">触发错误</button>
+  </div>
+
+  <div class="panel">
+    <h2>返回结果</h2>
+    <div id="out"></div>
+  </div>
+
+  <div class="panel">
+    <h2>后端推送事件（tick，每 2 秒）</h2>
+    <div id="events"></div>
+  </div>
+
+<script>
+  function logOut(line) {
+    var el = document.getElementById('out');
+    el.textContent += line + '\n';
+    el.scrollTop = el.scrollHeight;
+  }
+  async function callGreet() {
+    var name = document.getElementById('name').value;
+    try {
+      var r = await window.freedom.call('Greet', name);
+      logOut('Greet => ' + JSON.stringify(r));
+    } catch (e) { logOut('Greet !! ' + e.message); }
+  }
+  async function callAdd() {
+    var a = parseFloat(document.getElementById('a').value) || 0;
+    var b = parseFloat(document.getElementById('b').value) || 0;
+    try {
+      var r = await window.freedom.call('Add', a, b);
+      logOut('Add(' + a + ',' + b + ') => ' + r);
+    } catch (e) { logOut('Add !! ' + e.message); }
+  }
+  async function callWhoAmI() {
+    try {
+      var r = await window.freedom.call('WhoAmI');
+      logOut('WhoAmI => ' + r);
+    } catch (e) { logOut('WhoAmI !! ' + e.message); }
+  }
+  async function callError() {
+    try {
+      await window.freedom.call('Greet', '');
+    } catch (e) { logOut('Greet("") !! ' + e.message); }
+  }
+
+  // 订阅后端主动推送的 tick 事件。
+  window.freedom.on('tick', function (data) {
+    var el = document.getElementById('events');
+    el.textContent += '[' + data.time + '] tick#' + data.count + ' (lang=' + data.lang + ')\n';
+    el.scrollTop = el.scrollHeight;
+  });
+
+  // 标识当前后端：WhoAmI。
+  window.freedom.call('WhoAmI').then(function (lang) {
+    document.getElementById('backendName').textContent = lang;
+    logOut('当前后端语言: ' + lang);
+  }).catch(function () {
+    document.getElementById('backendName').textContent = '未知';
+  });
+</script>
+</body>
+</html>
