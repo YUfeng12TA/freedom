@@ -195,5 +195,327 @@
       "path": "shell/win-x64/freedom-shell.exe",
       "size": 6901185
     }
-  ]
+  ],
+  "bugRegistry": [
+    {
+      "id": "B01",
+      "sev": "critical",
+      "file": ".github/workflows/build.yml",
+      "line": 52,
+      "summary": "macOS/Linux job 以 bash 执行 PowerShell if/else，语法错误，非 Windows CI 全失效",
+      "status": "open"
+    },
+    {
+      "id": "B02",
+      "sev": "major",
+      "file": "backend_proc.go",
+      "line": 129,
+      "summary": "Handle 持锁阻塞写 stdin 与 readLoop 抢锁，跨进程环形死锁（模板副本同缺陷 +10 行）",
+      "status": "open"
+    },
+    {
+      "id": "B03",
+      "sev": "major",
+      "file": "window_windows.go",
+      "line": 92,
+      "summary": "close 动作用 CloseWindow（语义=最小化），前端关闭按钮失效；模板已修根库未同步",
+      "status": "open"
+    },
+    {
+      "id": "B04",
+      "sev": "major",
+      "file": "assets/default.html",
+      "line": 101,
+      "summary": "__freedom__ping 经 bridge 路由但未注册进后端，自检必现桥接异常（5 处副本）",
+      "status": "open"
+    },
+    {
+      "id": "B05",
+      "sev": "major",
+      "file": "freedom.go",
+      "line": 192,
+      "summary": "根 bridge() 无 recover，Bind 方法 panic 击穿 GUI 进程（模板已修）",
+      "status": "open"
+    },
+    {
+      "id": "B06",
+      "sev": "major",
+      "file": "freedom-cli/templates/go/webview_go/libs/webview/include/webview.h",
+      "line": 3104,
+      "summary": "fork 新增 WM_NCHITTEST/WM_NCCALCSIZE 在 WS_CAPTION 模式 return 0，native 模式鼠标输入失效",
+      "status": "open"
+    },
+    {
+      "id": "B07",
+      "sev": "major",
+      "file": "freedom-cli/templates/go/webview_go/webview.go",
+      "line": 217,
+      "summary": "Dispatch 解锁后读共享 index，数据竞争致事件丢失或 UI 线程 nil panic",
+      "status": "open"
+    },
+    {
+      "id": "B08",
+      "sev": "major",
+      "file": "freedom-cli/templates/go/pkg/freedom/window_windows.go",
+      "line": 286,
+      "summary": "WM_SETICON 后立即 DestroyIcon，HICON use-after-free（配 icon 即活跃）",
+      "status": "open"
+    },
+    {
+      "id": "B09",
+      "sev": "major",
+      "file": "freedom-cli/lib/config.js",
+      "line": 44,
+      "summary": "setConfig 不转义反斜杠/不中和 $ 替换模式，Windows 路径写坏配置文件",
+      "status": "open"
+    },
+    {
+      "id": "B10",
+      "sev": "major",
+      "file": "freedom-cli/lib/tui.js",
+      "line": 219,
+      "summary": "TUI 多选拼逗号串与 parsePlatforms 契约不匹配，选 2-3 平台必失败",
+      "status": "open"
+    },
+    {
+      "id": "B11",
+      "sev": "major",
+      "file": "freedom-cli/lib/config.js",
+      "line": 37,
+      "summary": "setConfig 正则命中注释行 + 字符串值形态，backend 配置三条路全不通且静默",
+      "status": "open"
+    },
+    {
+      "id": "B12",
+      "sev": "major",
+      "file": "freedom-cli/lib/tui.js",
+      "line": 257,
+      "summary": "configFlow 抛错绕过 TUI.exit，终端残留 raw mode 光标隐藏",
+      "status": "open"
+    },
+    {
+      "id": "B13",
+      "sev": "major",
+      "file": "freedom-cli/lib/shell.js",
+      "line": 148,
+      "summary": "downloadShell 落盘前不校验魔数，自动下载路径跳过 validateLocalShell，假壳静默分发",
+      "status": "open"
+    },
+    {
+      "id": "B14",
+      "sev": "major",
+      "file": ".github/workflows/build.yml",
+      "line": 44,
+      "summary": "Linux 装 webkit2gtk-4.1-dev 而代码需 4.0，编译必败（ubuntu-24.04 已无 4.0 包）",
+      "status": "open"
+    },
+    {
+      "id": "B15",
+      "sev": "major",
+      "file": "build.ps1",
+      "line": 38,
+      "summary": "EAP=Stop 不约束原生命令，go build/rustc 失败静默继续并报构建完成",
+      "status": "open"
+    },
+    {
+      "id": "B16",
+      "sev": "major",
+      "file": "build.sh",
+      "line": 10,
+      "summary": "文档化依赖写 webkit2gtk-4.1，实际需 4.0，按文档构建必败",
+      "status": "open"
+    },
+    {
+      "id": "B17",
+      "sev": "major",
+      "file": "README.md",
+      "line": 72,
+      "summary": "文档主推 --platform mac-arm64 参数不存在，照抄报错",
+      "status": "open"
+    },
+    {
+      "id": "B18",
+      "sev": "major",
+      "file": "README.md",
+      "line": 69,
+      "summary": "快速开始根目录运行 dist/multiproc.exe，后端相对路径按 CWD 解析必失败且静默",
+      "status": "open"
+    },
+    {
+      "id": "B19",
+      "sev": "minor",
+      "file": "backend_proc.go",
+      "line": 90,
+      "summary": "start 不检查 closed：孤儿进程 / 二次 Run 后端失效",
+      "status": "open"
+    },
+    {
+      "id": "B20",
+      "sev": "minor",
+      "file": "freedom.go",
+      "line": 214,
+      "summary": "Emit/Quit 与 Run 对 a.view 无同步，数据竞争",
+      "status": "open"
+    },
+    {
+      "id": "B21",
+      "sev": "minor",
+      "file": "freedom.go",
+      "line": 154,
+      "summary": "MinWidth/MinHeight 需同时>0 才生效，与注释语义不符",
+      "status": "open"
+    },
+    {
+      "id": "B22",
+      "sev": "minor",
+      "file": "center_windows.go",
+      "line": 31,
+      "summary": "居中用主屏全屏尺寸，多屏偏移/遮任务栏",
+      "status": "open"
+    },
+    {
+      "id": "B23",
+      "sev": "minor",
+      "file": "backend_proc_test.go",
+      "line": 62,
+      "summary": "断言 s[:6] 对 1-5 字节结果切片越界 panic",
+      "status": "open"
+    },
+    {
+      "id": "B24",
+      "sev": "minor",
+      "file": "assets/freedom.js",
+      "line": 70,
+      "summary": "bindButtons 最大化回调无 .catch，桥接 reject 静默失效",
+      "status": "open"
+    },
+    {
+      "id": "B25",
+      "sev": "minor",
+      "file": "freedom-cli/lib/cli.js",
+      "line": 137,
+      "summary": "config get <key> 忽略 key 打印全量配置",
+      "status": "open"
+    },
+    {
+      "id": "B26",
+      "sev": "minor",
+      "file": "freedom-cli/lib/cli.js",
+      "line": 91,
+      "summary": "--platform 缺值静默回退当前平台",
+      "status": "open"
+    },
+    {
+      "id": "B27",
+      "sev": "minor",
+      "file": "freedom-cli/lib/build.js",
+      "line": 297,
+      "summary": "zipDir 用 tar -a 压 .zip，GNU tar 不识别，Linux 打 mac 包必败",
+      "status": "open"
+    },
+    {
+      "id": "B28",
+      "sev": "minor",
+      "file": "freedom-cli/bin/freedom.js",
+      "line": 7,
+      "summary": "process.exit 截断管道 stdout",
+      "status": "open"
+    },
+    {
+      "id": "B29",
+      "sev": "minor",
+      "file": "freedom-cli/lib/config.js",
+      "line": 42,
+      "summary": "set name 123 写成 number，下次 build TypeError",
+      "status": "open"
+    },
+    {
+      "id": "B30",
+      "sev": "minor",
+      "file": "freedom-cli/templates/go/pkg/freedom/window_windows.go",
+      "line": 25,
+      "summary": "DPI init LazyDLL 加载 shcore.dll 在 Win7/8 panic，回退死代码",
+      "status": "open"
+    },
+    {
+      "id": "B31",
+      "sev": "minor",
+      "file": "freedom-cli/templates/go/webview_go/glue.c",
+      "line": 28,
+      "summary": "Unbind 泄漏 binding_context + Go bindings map 条目永不删除",
+      "status": "open"
+    },
+    {
+      "id": "B32",
+      "sev": "minor",
+      "file": "freedom-cli/templates/go/webview_go/libs/webview/include/webview.h",
+      "line": 3081,
+      "summary": "无边框最大化客户区多出边框宽 ~8px 裁剪",
+      "status": "open"
+    },
+    {
+      "id": "B33",
+      "sev": "minor",
+      "file": "freedom-cli/templates/go/main.go",
+      "line": 7,
+      "summary": "注释描述旧版嵌入架构与实际外置加载不符",
+      "status": "open"
+    },
+    {
+      "id": "B34",
+      "sev": "minor",
+      "file": "README.md",
+      "line": 65,
+      "summary": "命令含退格控制字节 0x08 写成 .uild.ps1",
+      "status": "open"
+    },
+    {
+      "id": "B35",
+      "sev": "minor",
+      "file": "README.md",
+      "line": 99,
+      "summary": "宣称 Intel Mac 支持但 CI/CLI 均已放弃 darwin-x64",
+      "status": "open"
+    },
+    {
+      "id": "B36",
+      "sev": "minor",
+      "file": "README.md",
+      "line": 113,
+      "summary": "frameless 三平台一致声明失实，mac/Linux 回退原生标题栏且按钮全 reject",
+      "status": "open"
+    },
+    {
+      "id": "B37",
+      "sev": "minor",
+      "file": "README.md",
+      "line": 128,
+      "summary": "go test 宣称四后端开箱可跑，Go/Rust 二进制文档流程产不出",
+      "status": "open"
+    },
+    {
+      "id": "B38",
+      "sev": "minor",
+      "file": "examples/multiproc/backends/node_backend.mjs",
+      "line": 11,
+      "summary": "setInterval 阻止 stdin EOF 退出，优雅关闭永远走 3s 强杀",
+      "status": "open"
+    },
+    {
+      "id": "B39",
+      "sev": "minor",
+      "file": "examples/multiproc/main.go",
+      "line": 42,
+      "summary": "未知语言提示漏列 rust",
+      "status": "open"
+    },
+    {
+      "id": "B40",
+      "sev": "hygiene",
+      "file": "freedom-cli/templates/go/",
+      "summary": "13 个调试残留文件（err*.txt 等）随 npm 包分发",
+      "status": "open"
+    }
+  ],
+  "lastUpdated": "2026-08-22T11:01:47+08:00"
 }

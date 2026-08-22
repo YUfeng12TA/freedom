@@ -274,6 +274,26 @@ WEBVIEW_API void webview_set_size(webview_t w, int width, int height,
  */
 WEBVIEW_API void webview_set_decorated(webview_t w, int decorated);
 
+/** Native window control actions (front-end custom title bar buttons). */
+typedef enum webview_window_action {
+  WEBVIEW_WINDOW_ACTION_MINIMIZE = 0,
+  WEBVIEW_WINDOW_ACTION_MAXIMIZE = 1,
+  WEBVIEW_WINDOW_ACTION_UNMAXIMIZE = 2,
+  WEBVIEW_WINDOW_ACTION_RESTORE = 3,
+  WEBVIEW_WINDOW_ACTION_CLOSE = 4,
+  WEBVIEW_WINDOW_ACTION_TOGGLE_MAXIMIZE = 5,
+  WEBVIEW_WINDOW_ACTION_IS_MAXIMIZED = 6
+} webview_window_action_t;
+
+/**
+ * Executes a native window control action (minimize/maximize/restore/close).
+ * Returns 0 on success, -1 if unsupported. For IS_MAXIMIZED returns 1/0.
+ *
+ * @param w The webview instance.
+ * @param action The action to execute (see webview_window_action_t).
+ */
+WEBVIEW_API int webview_window_control(webview_t w, webview_window_action_t action);
+
 /**
  * Navigates webview to the given URL. URL may be a properly encoded data URI.
  *
@@ -1017,6 +1037,11 @@ if (status === 0) {\
   // - Win32: no-op（Windows frameless 由 freedom 壳层 WndProc 处理，见 window_windows.go）
   void set_decorated(bool decorated) { set_decorated_impl(decorated); }
 
+  // window_control 执行原生窗口控制（最小化/最大化/还原/关闭等），
+  // 供前端自绘标题栏三按钮使用。action 取值见 webview_window_action_t。
+  // 返回 0 表示成功；-1 表示该平台/动作不支持；isMaximized 返回 1/0。
+  int window_control(int action) { return window_control_impl(action); }
+
   void set_size(int width, int height, webview_hint_t hints) {
     set_size_impl(width, height, hints);
   }
@@ -1036,6 +1061,7 @@ protected:
   virtual void set_title_impl(const std::string &title) = 0;
   virtual void set_size_impl(int width, int height, webview_hint_t hints) = 0;
   virtual void set_decorated_impl(bool decorated) = 0;
+  virtual int window_control_impl(int action) = 0;
   virtual void set_html_impl(const std::string &html) = 0;
   virtual void init_impl(const std::string &js) = 0;
   virtual void eval_impl(const std::string &js) = 0;
@@ -1355,6 +1381,41 @@ public:
   // gtk_window_set_decorated(FALSE) 仅移除标题栏装饰，窗口仍可正常移动 / 最大化。
   void set_decorated_impl(bool decorated) override {
     gtk_window_set_decorated(GTK_WINDOW(m_window), decorated ? TRUE : FALSE);
+  }
+
+  // GTK 原生窗口控制：最小化/最大化/还原/关闭均走 GtkWindow API，
+  // 与前端自绘标题栏三按钮一一对应。
+  int window_control_impl(int action) override {
+    auto win = GTK_WINDOW(m_window);
+    switch ((webview_window_action_t)action) {
+    case WEBVIEW_WINDOW_ACTION_MINIMIZE:
+      gtk_window_iconify(win);
+      return 0;
+    case WEBVIEW_WINDOW_ACTION_MAXIMIZE:
+      gtk_window_maximize(win);
+      return 0;
+    case WEBVIEW_WINDOW_ACTION_UNMAXIMIZE:
+      gtk_window_unmaximize(win);
+      return 0;
+    case WEBVIEW_WINDOW_ACTION_RESTORE:
+      gtk_window_present(win);
+      gtk_window_unmaximize(win);
+      return 0;
+    case WEBVIEW_WINDOW_ACTION_CLOSE:
+      gtk_window_close(win);
+      return 0;
+    case WEBVIEW_WINDOW_ACTION_TOGGLE_MAXIMIZE:
+      if (gtk_window_is_maximized(win)) {
+        gtk_window_unmaximize(win);
+      } else {
+        gtk_window_maximize(win);
+      }
+      return 0;
+    case WEBVIEW_WINDOW_ACTION_IS_MAXIMIZED:
+      return gtk_window_is_maximized(win) ? 1 : 0;
+    default:
+      return -1;
+    }
   }
 
   void set_size_impl(int width, int height, webview_hint_t hints) override {
@@ -1728,6 +1789,39 @@ public:
                            NSWindowTitleHidden);
       objc::msg_send<void>(m_window, "setTitlebarAppearsTransparent:"_sel, YES);
       objc::msg_send<void>(m_window, "setMovableByWindowBackground:"_sel, YES);
+    }
+  }
+  // Cocoa 原生窗口控制：最小化走 performMiniaturize:，最大化/还原走 zoom:
+  // （macOS 标准"最大化"语义，铺满当前屏幕可用区，非全屏独占），
+  // 关闭走 performClose:，最大化状态用 isZoomed 查询。
+  int window_control_impl(int action) override {
+    objc::autoreleasepool arp;
+    switch ((webview_window_action_t)action) {
+    case WEBVIEW_WINDOW_ACTION_MINIMIZE:
+      objc::msg_send<void>(m_window, "performMiniaturize:"_sel, nullptr);
+      return 0;
+    case WEBVIEW_WINDOW_ACTION_MAXIMIZE:
+      if (!objc::msg_send<BOOL>(m_window, "isZoomed"_sel)) {
+        objc::msg_send<void>(m_window, "zoom:"_sel, nullptr);
+      }
+      return 0;
+    case WEBVIEW_WINDOW_ACTION_UNMAXIMIZE:
+    case WEBVIEW_WINDOW_ACTION_RESTORE:
+      if (objc::msg_send<BOOL>(m_window, "isZoomed"_sel)) {
+        objc::msg_send<void>(m_window, "zoom:"_sel, nullptr);
+      }
+      objc::msg_send<void>(m_window, "deminiaturize:"_sel, nullptr);
+      return 0;
+    case WEBVIEW_WINDOW_ACTION_CLOSE:
+      objc::msg_send<void>(m_window, "performClose:"_sel, nullptr);
+      return 0;
+    case WEBVIEW_WINDOW_ACTION_TOGGLE_MAXIMIZE:
+      objc::msg_send<void>(m_window, "zoom:"_sel, nullptr);
+      return 0;
+    case WEBVIEW_WINDOW_ACTION_IS_MAXIMIZED:
+      return objc::msg_send<BOOL>(m_window, "isZoomed"_sel) ? 1 : 0;
+    default:
+      return -1;
     }
   }
   void navigate_impl(const std::string &url) override {
@@ -3398,6 +3492,9 @@ public:
   // Windows frameless 由 freedom 壳层 window_windows.go 的 applyTitleBar +
   // WM_NCHITTEST/WM_GETMINMAXINFO 处理，webview 层保持 no-op。
   void set_decorated_impl(bool decorated) override { (void)decorated; }
+  // Windows 窗口控制（min/max/close）由 freedom 壳层 window_windows.go
+  // 直接调 user32 处理，webview 层不参与。
+  int window_control_impl(int action) override { (void)action; return -1; }
 
   void set_size_impl(int width, int height, webview_hint_t hints) override {
     auto style = GetWindowLong(m_window, GWL_STYLE);
@@ -3690,6 +3787,11 @@ WEBVIEW_API void webview_set_size(webview_t w, int width, int height,
 
 WEBVIEW_API void webview_set_decorated(webview_t w, int decorated) {
   static_cast<webview::webview *>(w)->set_decorated(decorated != 0);
+}
+
+WEBVIEW_API int webview_window_control(webview_t w, webview_window_action_t action) {
+  return static_cast<webview::webview *>(w)->window_control(
+      static_cast<int>(action));
 }
 
 WEBVIEW_API void webview_navigate(webview_t w, const char *url) {

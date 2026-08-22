@@ -257,7 +257,7 @@ func (a *App) WindowHandle() uintptr {
 // windowControl 处理前端 window.freedom.window.* 的窗口控制请求。
 // 具体实现按平台分文件：window_windows.go（Windows）/ window_other.go（macOS、Linux）。
 func (a *App) windowControl(action string) (interface{}, error) {
-	return windowControl(a.WindowHandle(), action, a.cfg.TitleBar)
+	return windowControl(a, action)
 }
 
 // resolveHTML 依据配置返回页面内容。

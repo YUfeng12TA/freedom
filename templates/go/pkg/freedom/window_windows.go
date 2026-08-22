@@ -109,7 +109,8 @@ func refreshFrame(hwnd uintptr) {
 }
 
 // windowControl 处理前端 window.freedom.window.* 请求（Windows 实现）。
-func windowControl(hwnd uintptr, action string, mode TitleBarMode) (interface{}, error) {
+func windowControl(a *App, action string) (interface{}, error) {
+	hwnd := a.WindowHandle()
 	if hwnd == 0 {
 		return nil, fmt.Errorf("window not ready")
 	}
@@ -138,7 +139,7 @@ func windowControl(hwnd uintptr, action string, mode TitleBarMode) (interface{},
 	case "isMaximized":
 		return isWindowMaximized(hwnd), nil
 	case "isFrameless":
-		return mode == TitleBarFrameless, nil
+		return a.cfg.TitleBar == TitleBarFrameless, nil
 	case "appIcon":
 		// 从 exe 内嵌图标（PE 资源 ID=1）提取，转为 PNG data URL 供前端标题栏显示。
 		// 不依赖 resources 文件夹里的任何图标文件。

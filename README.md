@@ -1,8 +1,14 @@
 # freedom-cli
 
-Freedom 桌面壳打包工具：把你的 Web 前端一键打包成跨平台桌面应用（v1.12.11）。
+Freedom 桌面壳打包工具：把你的 Web 前端一键打包成跨平台桌面应用（v1.13.0）。
 
 基于自研 Freedom WebView 壳层（对标 Wails / Tauri）：前端完全自由、后端可任意语言、渲染复用系统 WebView（Windows WebView2 / macOS WKWebView / Linux WebKitGTK），产物为单个可执行文件 + resources 目录，前端页面内存加载，不占本地端口。
+
+**v1.13.0 三平台 frameless 彻底修复**：macOS / Linux 无边框窗口不再残留原生标题栏——
+- 壳层向 webview_go 新增 `set_decorated` / `window_control` 原生窗口控制 API（GTK 走 `gtk_window_set_decorated` / `gtk_window_*`，Cocoa 走隐藏标题栏 + `performMiniaturize:` / `zoom:` / `performClose:` / `isZoomed`），mac/linux 的 frameless 从"空实现回退原生标题栏"修复为真无边框，UI 上方不再残留未清理的原生标题栏；
+- 自绘三按钮（最小化 / 最大化 / 关闭）在 macOS / Linux 上接入原生窗口控制，双击最大化 / 还原、`isMaximized` 状态查询真实可用（此前 mac/linux 窗口控制为静默空转、`isMaximized` 恒 false）；
+- 最大化语义统一为"铺满工作区"的正常窗口最大化：Windows 经 `WM_GETMINMAXINFO` 限定到监视器工作区（rcWork），macOS 走 `zoom:`、Linux 走 `gtk_window_maximize`，均非 F11 式整屏全屏；
+- 打包流程全程仍不依赖 Go 工具链（`freedom build` 直接复制预编译壳，详见 v1.1.11 说明）。
 
 **v1.12.11 标题栏优化**：自绘标题栏（frameless）增强——
 - 标题栏左侧显示应用图标，图标直接从 exe 内嵌图标（PE 资源 ID=1）提取为 PNG data URL，**不再依赖 resources 资源文件夹**里的任何图标文件，跨平台无 resources 依赖；

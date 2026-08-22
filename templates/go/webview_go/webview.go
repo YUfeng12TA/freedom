@@ -45,6 +45,26 @@ func init() {
 // Hints are used to configure window sizing and resizing
 type Hint int
 
+// WindowAction 是原生窗口控制动作（前端自绘标题栏三按钮使用）。
+type WindowAction int
+
+const (
+	// WindowMinimize 最小化窗口
+	WindowMinimize WindowAction = iota
+	// WindowMaximize 最大化窗口
+	WindowMaximize
+	// WindowUnmaximize 取消最大化
+	WindowUnmaximize
+	// WindowRestore 还原窗口（取消最大化并恢复到前台）
+	WindowRestore
+	// WindowClose 关闭窗口
+	WindowClose
+	// WindowToggleMaximize 在最大化/还原间切换
+	WindowToggleMaximize
+	// WindowIsMaximized 查询窗口是否最大化
+	WindowIsMaximized
+)
+
 const (
 	// Width and height are default size
 	HintNone = C.WEBVIEW_HINT_NONE
@@ -92,6 +112,11 @@ type WebView interface {
 	// the UI thread. On Windows this is a no-op (handled by the freedom shell
 	// layer via WS_CAPTION / WM_NCHITTEST).
 	SetDecorated(decorated bool)
+
+	// WindowControl 执行原生窗口控制动作（最小化/最大化/还原/关闭/查询）。
+	// 返回 0 表示成功，-1 表示平台不支持；WindowIsMaximized 返回 1/0。
+	// 供前端自绘标题栏三按钮调用。Windows 上由 freedom 壳层处理，此处返回 -1。
+	WindowControl(action WindowAction) int
 
 	// SetSize updates native window size. See Hint constants.
 	SetSize(w int, h int, hint Hint)
@@ -201,6 +226,10 @@ func (w *webview) SetTitle(title string) {
 
 func (w *webview) SetDecorated(decorated bool) {
 	C.webview_set_decorated(w.w, boolToInt(decorated))
+}
+
+func (w *webview) WindowControl(action WindowAction) int {
+	return int(C.webview_window_control(w.w, C.webview_window_action_t(action)))
 }
 
 func (w *webview) SetSize(width int, height int, hint Hint) {
