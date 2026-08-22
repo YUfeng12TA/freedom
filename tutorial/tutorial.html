@@ -57,7 +57,7 @@ npm install</code></pre>
   <pre><code>freedom build
 freedom build --platform all         # 三平台全量（win + mac + linux）
 freedom build --platform win-x64     # 仅 Windows
-freedom build --platform mac-arm64   # 仅 macOS Apple Silicon
+freedom build --platform darwin-arm64   # 仅 macOS Apple Silicon
 freedom build --platform linux-x64   # 仅 Linux</code></pre>
   <p>前端经 Vite 打成单文件 HTML 后写入 <code>dist/resources/</code>，与随包分发的预编译壳二进制合并出可执行文件。不再依赖本机 Go 工具链，任一平台都能一键产出三平台产物。产物以 GUI 子系统运行，不会弹出 cmd 黑窗。</p>
   <p><code>resources/</code> 内含壳运行时加载的前端页面 <code>index.html</code> 与配置 <code>config.json</code>；声明了 <code>backend</code> 时 <code>backend/</code> 目录会被原样分发到 <code>resources/backend/</code>，壳启动后自动以 <code>resources/</code> 为工作目录拉起后端进程（黑窗同样隐藏）。</p>

@@ -4,7 +4,7 @@ Freedom 桌面壳打包工具：把你的 Web 前端一键打包成跨平台桌�
 
 基于自研 Freedom WebView 壳层（对标 Wails / Tauri）：前端完全自由、后端可任意语言、渲染复用系统 WebView（Windows WebView2 / macOS WKWebView / Linux WebKitGTK），产物为单个可执行文件 + resources 目录，前端页面内存加载，不占本地端口。
 
-**v1.13.0 三平台 frameless 彻底修复**：macOS / Linux 无边框窗口不再残留原生标题栏——
+**v1.12.12 三平台 frameless 彻底修复**：macOS / Linux 无边框窗口不再残留原生标题栏——
 - 壳层向 webview_go 新增 `set_decorated` / `window_control` 原生窗口控制 API（GTK 走 `gtk_window_set_decorated` / `gtk_window_*`，Cocoa 走隐藏标题栏 + `performMiniaturize:` / `zoom:` / `performClose:` / `isZoomed`），mac/linux 的 frameless 从"空实现回退原生标题栏"修复为真无边框，UI 上方不再残留未清理的原生标题栏；
 - 自绘三按钮（最小化 / 最大化 / 关闭）在 macOS / Linux 上接入原生窗口控制，双击最大化 / 还原、`isMaximized` 状态查询真实可用（此前 mac/linux 窗口控制为静默空转、`isMaximized` 恒 false）；
 - 最大化语义统一为"铺满工作区"的正常窗口最大化：Windows 经 `WM_GETMINMAXINFO` 限定到监视器工作区（rcWork），macOS 走 `zoom:`、Linux 走 `gtk_window_maximize`，均非 F11 式整屏全屏；
@@ -75,7 +75,7 @@ freedom icon icon.ico
 freedom build                        # 默认当前平台
 freedom build --platform all         # 三平台全量（win + mac + linux）
 freedom build --platform win-x64     # 仅 Windows
-freedom build --platform mac-arm64   # 仅 macOS Apple Silicon
+freedom build --platform darwin-arm64   # 仅 macOS Apple Silicon
 freedom build --platform linux-x64   # 仅 Linux
 freedom build --no-cache             # 忽略前端构建缓存，强制重建
 ```
@@ -102,7 +102,7 @@ mac 用户解压 `.app.zip` 即得 `.app`，拖入 `/Applications` 即可直接�
 
 **壳二进制平台校验**：`freedom build` 在分发前会读取壳二进制文件头，校验其确为目标平台的真实格式（Windows PE / macOS Mach-O / Linux ELF）。若某平台壳缺失或格式不匹配（例如误用其它平台的二进制顶替），会**明确报错并给出修复指引**，绝不静默产出无法运行的假产物。
 
-**预编译壳的来源与 CI**：`webview_go` 依赖各系统自带 WebView 框架，**无法交叉编译**，三平台壳必须在对应平台本机编译。仓库已提供 `.github/workflows/build-shell.yml`：在 win / mac（Intel / Apple Silicon）/ linux runner 上分别编译真实壳并上传到 GitHub Release，供 `freedom shell download` 拉取。发布新版本时：先 `npm publish`，再创建同名 GitHub Release，手动触发 `build-shell` workflow（或直接发 Release 自动触发）即自动补齐各平台壳资产。
+**预编译壳的来源与 CI**：`webview_go` 依赖各系统自带 WebView 框架，**无法交叉编译**，三平台壳必须在对应平台本机编译。仓库已提供 `.github/workflows/build-shell.yml`：在 win / mac（Apple Silicon）/ linux runner 上分别编译真实壳并上传到 GitHub Release，供 `freedom shell download` 拉取（Intel Mac 已不支持，见 `nativePlatform()` 的明确报错）。发布新版本时：先 `npm publish`，再创建同名 GitHub Release，手动触发 `build-shell` workflow（或直接发 Release 自动触发）即自动补齐各平台壳资产。
 
 产物目录可在 `freedom.config.js` 的 `outDir` 中调整：默认 `'dist'`，设为 `'.'` 则直接输出到项目根目录（dist 的上级），设为任意相对 / 绝对路径亦可。输出到项目根目录时会自动跳过 `index.html` 副本，避免覆盖项目源文件。
 
@@ -116,9 +116,9 @@ freedom config set outDir dist  # 恢复默认 dist/
 | 模式 | 说明 |
 | --- | --- |
 | `native` | 保留系统原生标题栏，标题栏图标与 exe 图标一致 |
-| `frameless` | 完全无边框，标题栏不存在，客户区铺满窗口，关闭 / 最大化 / 最小化按钮由前端自绘（默认，模板已内置示例） |
+| `frameless` | 完全无边框，标题栏不存在，客户区铺满窗口，关闭 / 最大化 / 最小化按钮由前端自绘（默认，模板已内置示例）。当前仅 Windows 完整实现；macOS / Linux 由系统窗口管理器托管，回退为原生标题栏且窗口控制动作返回明确错误 |
 
-`frameless` 模式下，前端可通过注入的 `window.freedom.window` API 控制窗口（`minimize` / `maximize` / `toggleMaximize` / `close` / `isMaximized` / `isFrameless`），模板已内置自绘标题栏示例。
+`frameless` 模式下（Windows），前端可通过注入的 `window.freedom.window` API 控制窗口（`minimize` / `maximize` / `toggleMaximize` / `close` / `isMaximized` / `isFrameless`），模板已内置自绘标题栏示例；macOS / Linux 上这些动作会 reject，前端应捕获并提示。
 
 ## 配置（freedom.config.js）
 
@@ -165,7 +165,7 @@ window.freedom.window.minimize();                       // 窗口控制
 ```
 freedom tui                          # 交互式终端界面
 freedom init <目录> [--force]
-freedom build [--platform win-x64|mac-arm64|linux-x64|all] [--no-cache]
+freedom build [--platform win-x64|darwin-arm64|linux-x64|all] [--no-cache]
 freedom titlebar <native|frameless>
 freedom icon <path>                    # 设置应用图标（Windows 用 .ico，macOS 用 .icns）
 freedom config [get|set]
