@@ -193,7 +193,15 @@ func (a *App) Run() {
 // bridge 是前端调用后端的统一入口（JSON-RPC 风格）。
 // 前端 SDK 通过 window.__freedom_bridge(method, paramsJson) 调用，
 // 桥接层把请求转发给当前绑定的后端（内嵌 Go 方法或任意语言进程）。
-func (a *App) bridge(method string, paramsJSON string) (json.RawMessage, error) {
+func (a *App) bridge(method string, paramsJSON string) (result json.RawMessage, err error) {
+	// 防御后端方法 panic 导致整个窗口崩溃：统一转为错误回传前端。
+	defer func() {
+		if r := recover(); r != nil {
+			result = nil
+			err = fmt.Errorf("freedom: method %q panicked: %v", method, r)
+		}
+	}()
+
 	var params []json.RawMessage
 	if len(paramsJSON) > 0 && paramsJSON != "null" {
 		if err := json.Unmarshal([]byte(paramsJSON), &params); err != nil {
@@ -201,11 +209,11 @@ func (a *App) bridge(method string, paramsJSON string) (json.RawMessage, error) 
 		}
 	}
 
-	result, err := a.backend.Handle(method, params)
+	raw, err := a.backend.Handle(method, params)
 	if err != nil {
 		return nil, err
 	}
-	data, err := json.Marshal(result)
+	data, err := json.Marshal(raw)
 	if err != nil {
 		return nil, fmt.Errorf("freedom: method %q: cannot marshal result: %w", method, err)
 	}

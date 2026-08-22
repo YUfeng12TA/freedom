@@ -266,6 +266,15 @@ WEBVIEW_API void webview_set_size(webview_t w, int width, int height,
                                   webview_hint_t hints);
 
 /**
+ * Controls whether the native window shows its system title bar decoration.
+ * Used by frameless mode (front-end draws its own min/max/close buttons).
+ *
+ * @param w The webview instance.
+ * @param decorated Non-zero to show the native title bar, zero for frameless.
+ */
+WEBVIEW_API void webview_set_decorated(webview_t w, int decorated);
+
+/**
  * Navigates webview to the given URL. URL may be a properly encoded data URI.
  *
  * Example:
@@ -1002,6 +1011,12 @@ if (status === 0) {\
   void dispatch(std::function<void()> f) { dispatch_impl(f); }
   void set_title(const std::string &title) { set_title_impl(title); }
 
+  // set_decorated 控制原生窗口标题栏装饰（frameless 模式下由前端自绘标题栏接管）。
+  // - GTK: gtk_window_set_decorated
+  // - Cocoa: 隐藏标题栏 + 透明标题栏 + 移除原生最小化/关闭按钮（保留 Titled 承载拖动区域）
+  // - Win32: no-op（Windows frameless 由 freedom 壳层 WndProc 处理，见 window_windows.go）
+  void set_decorated(bool decorated) { set_decorated_impl(decorated); }
+
   void set_size(int width, int height, webview_hint_t hints) {
     set_size_impl(width, height, hints);
   }
@@ -1020,6 +1035,7 @@ protected:
   virtual void dispatch_impl(std::function<void()> f) = 0;
   virtual void set_title_impl(const std::string &title) = 0;
   virtual void set_size_impl(int width, int height, webview_hint_t hints) = 0;
+  virtual void set_decorated_impl(bool decorated) = 0;
   virtual void set_html_impl(const std::string &html) = 0;
   virtual void init_impl(const std::string &js) = 0;
   virtual void eval_impl(const std::string &js) = 0;
@@ -1335,6 +1351,12 @@ public:
     gtk_window_set_title(GTK_WINDOW(m_window), title.c_str());
   }
 
+  // frameless 模式去掉 WM 窗口装饰（标题栏 / 边框），内容由前端自绘标题栏接管。
+  // gtk_window_set_decorated(FALSE) 仅移除标题栏装饰，窗口仍可正常移动 / 最大化。
+  void set_decorated_impl(bool decorated) override {
+    gtk_window_set_decorated(GTK_WINDOW(m_window), decorated ? TRUE : FALSE);
+  }
+
   void set_size_impl(int width, int height, webview_hint_t hints) override {
     gtk_window_set_resizable(GTK_WINDOW(m_window), hints != WEBVIEW_HINT_FIXED);
     if (hints == WEBVIEW_HINT_NONE) {
@@ -1530,6 +1552,11 @@ enum NSWindowStyleMask : NSUInteger {
   NSWindowStyleMaskResizable = 8
 };
 
+enum NSWindowTitleVisibility : NSInteger {
+  NSWindowTitleVisible = 0,
+  NSWindowTitleHidden = 1
+};
+
 enum NSApplicationActivationPolicy : NSInteger {
   NSApplicationActivationPolicyRegular = 0
 };
@@ -1678,6 +1705,30 @@ public:
                            CGRectMake(0, 0, width, height), YES, NO);
     }
     objc::msg_send<void>(m_window, "center"_sel);
+  }
+  // frameless 模式：隐藏标题栏 + 标题栏透明 + 移除原生最小化/关闭按钮。
+  // 保留 NSWindowStyleMaskTitled（配合透明标题栏承载前端拖动区域），
+  // 前端通过 freedom.window.* 自绘最小化/最大化/关闭按钮。
+  void set_decorated_impl(bool decorated) override {
+    objc::autoreleasepool arp;
+    if (decorated) {
+      auto style = static_cast<NSWindowStyleMask>(
+          NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
+          NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable);
+      objc::msg_send<void>(m_window, "setStyleMask:"_sel, style);
+      objc::msg_send<void>(m_window, "setTitleVisibility:"_sel,
+                           NSWindowTitleVisible);
+      objc::msg_send<void>(m_window, "setTitlebarAppearsTransparent:"_sel, NO);
+      objc::msg_send<void>(m_window, "setMovableByWindowBackground:"_sel, NO);
+    } else {
+      auto style = static_cast<NSWindowStyleMask>(
+          NSWindowStyleMaskTitled | NSWindowStyleMaskResizable);
+      objc::msg_send<void>(m_window, "setStyleMask:"_sel, style);
+      objc::msg_send<void>(m_window, "setTitleVisibility:"_sel,
+                           NSWindowTitleHidden);
+      objc::msg_send<void>(m_window, "setTitlebarAppearsTransparent:"_sel, YES);
+      objc::msg_send<void>(m_window, "setMovableByWindowBackground:"_sel, YES);
+    }
   }
   void navigate_impl(const std::string &url) override {
     objc::autoreleasepool arp;
@@ -3063,6 +3114,65 @@ public:
           if (w->m_minsz.x > 0 && w->m_minsz.y > 0) {
             lpmmi->ptMinTrackSize = w->m_minsz;
           }
+          // Freedom fork: 无边框窗口（WS_CAPTION 被移除，前端自绘标题栏）最大化行为修正。
+          // 系统对无边框窗口的默认最大化会铺满整个屏幕（覆盖任务栏，类似 F11 全屏）；
+          // 这里把最大化边界显式限定到窗口所在监视器的工作区（rcWork），
+          // 使"最大化"与标准窗口一致：铺满任务栏上方的工作区，而非整屏全屏。
+          // 注意：无边框窗口因下方 WM_NCCALCSIZE 返回 0，客户区即整个窗口矩形，
+          // 因此这里直接取 rcWork 作为最大化尺寸与位置即可（无需像普通窗口那样
+          // 额外补偿边框，否则会让客户区溢出工作区、盖住任务栏）。
+          auto fstyle = GetWindowLongPtrW(hwnd, GWL_STYLE);
+          if ((fstyle & WS_CAPTION) == 0) {
+            HMONITOR mon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+            MONITORINFO mi{};
+            mi.cbSize = sizeof(MONITORINFO);
+            if (mon != nullptr && GetMonitorInfoW(mon, &mi)) {
+              lpmmi->ptMaxPosition.x = mi.rcWork.left;
+              lpmmi->ptMaxPosition.y = mi.rcWork.top;
+              lpmmi->ptMaxSize.x = mi.rcWork.right - mi.rcWork.left;
+              lpmmi->ptMaxSize.y = mi.rcWork.bottom - mi.rcWork.top;
+            }
+          }
+        } break;
+        // Freedom fork: 无边框窗口彻底清理非客户区。
+        // 打包后 UI 顶部出现"未清理干净的原生标题栏"，根因是窗口移除 WS_CAPTION 后
+        // DWM 仍可能按原框架绘制标题栏/边框区域。此处对无边框窗口在计算客户区时
+        // 直接返回 0，让客户区铺满整个窗口，从根源上消除原生标题栏/边框残留。
+        case WM_NCCALCSIZE: {
+          if (wp) {
+            auto fstyle = GetWindowLongPtrW(hwnd, GWL_STYLE);
+            if ((fstyle & WS_CAPTION) == 0) {
+              return 0;
+            }
+          }
+        } break;
+        // Freedom fork: 无边框窗口保留边缘拖拽调整大小。
+        // 移除 WS_CAPTION 后系统默认把整个窗口都视为客户区（WM_NCHITTEST 返回
+        // HTCLIENT），边缘 resize 会失效。这里在无边框时手动恢复边框 hit-test，
+        // 8px 边缘返回对应的 HT 值，使无边框窗口仍可拖动边缘调整大小。
+        case WM_NCHITTEST: {
+          auto fstyle = GetWindowLongPtrW(hwnd, GWL_STYLE);
+          if ((fstyle & WS_CAPTION) == 0) {
+            POINT pt{};
+            pt.x = (short)LOWORD(lp);
+            pt.y = (short)HIWORD(lp);
+            RECT rc{};
+            GetWindowRect(hwnd, &rc);
+            constexpr int b = 8;
+            const bool top = pt.y < rc.top + b;
+            const bool bottom = pt.y > rc.bottom - b;
+            const bool left = pt.x < rc.left + b;
+            const bool right = pt.x > rc.right - b;
+            if (top && left) return HTTOPLEFT;
+            if (top && right) return HTTOPRIGHT;
+            if (bottom && left) return HTBOTTOMLEFT;
+            if (bottom && right) return HTBOTTOMRIGHT;
+            if (top) return HTTOP;
+            if (bottom) return HTBOTTOM;
+            if (left) return HTLEFT;
+            if (right) return HTRIGHT;
+            return HTCLIENT;
+          }
         } break;
         case 0x02E4 /*WM_GETDPISCALEDSIZE*/: {
           auto dpi = static_cast<int>(wp);
@@ -3285,6 +3395,9 @@ public:
   void set_title_impl(const std::string &title) override {
     SetWindowTextW(m_window, widen_string(title).c_str());
   }
+  // Windows frameless 由 freedom 壳层 window_windows.go 的 applyTitleBar +
+  // WM_NCHITTEST/WM_GETMINMAXINFO 处理，webview 层保持 no-op。
+  void set_decorated_impl(bool decorated) override { (void)decorated; }
 
   void set_size_impl(int width, int height, webview_hint_t hints) override {
     auto style = GetWindowLong(m_window, GWL_STYLE);
@@ -3573,6 +3686,10 @@ WEBVIEW_API void webview_set_title(webview_t w, const char *title) {
 WEBVIEW_API void webview_set_size(webview_t w, int width, int height,
                                   webview_hint_t hints) {
   static_cast<webview::webview *>(w)->set_size(width, height, hints);
+}
+
+WEBVIEW_API void webview_set_decorated(webview_t w, int decorated) {
+  static_cast<webview::webview *>(w)->set_decorated(decorated != 0);
 }
 
 WEBVIEW_API void webview_navigate(webview_t w, const char *url) {

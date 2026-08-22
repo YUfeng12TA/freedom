@@ -48,6 +48,10 @@ var (
 	procGetSystemMetrics = user32win.NewProc("GetSystemMetrics")
 	procSendMessage      = user32win.NewProc("SendMessageW")
 	procReleaseCapture   = user32win.NewProc("ReleaseCapture")
+	procGetWindowRect    = user32win.NewProc("GetWindowRect")
+	procMonitorFromWindow = user32win.NewProc("MonitorFromWindow")
+	procGetMonitorInfo   = user32win.NewProc("GetMonitorInfoW")
+	procMoveWindow       = user32win.NewProc("MoveWindow")
 
 	procDestroyIcon = user32win.NewProc("DestroyIcon")
 
@@ -114,16 +118,16 @@ func windowControl(hwnd uintptr, action string, mode TitleBarMode) (interface{},
 		procShowWindow.Call(hwnd, swMinimize)
 		return nil, nil
 	case "maximize":
-		procShowWindow.Call(hwnd, swMaximize)
+		maximizeWindow(hwnd)
 		return nil, nil
 	case "unmaximize", "restore":
-		procShowWindow.Call(hwnd, swRestore)
+		restoreWindow(hwnd)
 		return nil, nil
 	case "toggleMaximize":
-		if isZoomed(hwnd) {
-			procShowWindow.Call(hwnd, swRestore)
+		if isWindowMaximized(hwnd) {
+			restoreWindow(hwnd)
 		} else {
-			procShowWindow.Call(hwnd, swMaximize)
+			maximizeWindow(hwnd)
 		}
 		return nil, nil
 	case "close":
@@ -132,7 +136,7 @@ func windowControl(hwnd uintptr, action string, mode TitleBarMode) (interface{},
 		procPostMessage.Call(hwnd, wmClose, 0, 0)
 		return nil, nil
 	case "isMaximized":
-		return isZoomed(hwnd), nil
+		return isWindowMaximized(hwnd), nil
 	case "isFrameless":
 		return mode == TitleBarFrameless, nil
 	case "appIcon":
@@ -148,6 +152,24 @@ func windowControl(hwnd uintptr, action string, mode TitleBarMode) (interface{},
 	default:
 		return nil, fmt.Errorf("unknown window action %q", action)
 	}
+}
+
+// maximizeWindow 最大化窗口。
+// 直接走系统 SW_MAXIMIZE：壳层（webview_go fork）在 WndProc 的 WM_GETMINMAXINFO 中
+// 已把无边框窗口的最大化边界限定到监视器工作区（rcWork），
+// 因此"最大化 = 铺满任务栏上方的工作区"，而非 F11 式整屏全屏。
+func maximizeWindow(hwnd uintptr) {
+	procShowWindow.Call(hwnd, swMaximize)
+}
+
+// restoreWindow 还原窗口（系统 SW_RESTORE，恢复到最大化前的位置与尺寸）。
+func restoreWindow(hwnd uintptr) {
+	procShowWindow.Call(hwnd, swRestore)
+}
+
+// isWindowMaximized 判断窗口当前是否处于最大化状态。
+func isWindowMaximized(hwnd uintptr) bool {
+	return isZoomed(hwnd)
 }
 
 // exeIconData 读取当前 exe 内嵌的 RT_ICON 资源原始字节（rcedit 注入时资源 ID=1）。
@@ -222,14 +244,26 @@ func (a *App) applyTitleBar() {
 	}
 	switch a.cfg.TitleBar {
 	case TitleBarFrameless:
-		// 完全无边框：去掉标题栏 / 系统菜单，客户区铺满整个窗口。
-		// 标题栏与系统原生最小化 / 最大化 / 关闭按钮均不存在，
-		// 由前端自绘（window.freedom.window.*）接管。
+		// 完全无边框：去掉标题栏 / 系统菜单 / 可调边框（WS_THICKFRAME）。
+		// - 标题栏与系统原生最小化 / 最大化 / 关闭按钮均不存在，由前端自绘
+		//   （window.freedom.window.*）接管；
+		// - 去掉 WS_THICKFRAME 是最大化行为正确的关键：只要该位存在，系统在
+		//   WM_GETMINMAXINFO 之后仍会按 AdjustWindowRectEx 追加标题栏 + 边框空间，
+		//   导致最大化窗口溢出工作区、盖住任务栏（F11 全屏感）；
+		// - 边缘拖拽 resize 由壳层 WndProc 的 WM_NCHITTEST 手动实现（返回 HT* 边界值），
+		//   不依赖 WS_THICKFRAME。
 		style := getWindowStyle(hwnd)
-		style &^= wsCaption | wsSysMenu
+		style &^= wsCaption | wsSysMenu | wsThickFrame
 		setWindowStyle(hwnd, style)
 		refreshFrame(hwnd)
-	default: // TitleBarNative：保留系统原生标题栏，不处理。
+	default: // TitleBarNative：补齐系统原生标题栏与可调边框。
+		// webview_go 底层创建的窗口默认 style 不含 WS_CAPTION（见 WebView2 窗口创建），
+		// 因此 native 模式必须显式补回标题栏 / 系统菜单 / 可调边框，
+		// 否则窗口会表现为无边框（无原生三按钮、不可拖拽调整大小）。
+		style := getWindowStyle(hwnd)
+		style |= wsCaption | wsSysMenu | wsThickFrame
+		setWindowStyle(hwnd, style)
+		refreshFrame(hwnd)
 	}
 }
 

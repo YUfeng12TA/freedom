@@ -22,46 +22,74 @@ function waitForBridge(tries = 100, interval = 100) {
   });
 }
 
+// 统一执行窗口控制动作：成功返回结果，失败打印告警并返回 undefined。
+// 避免 mac/linux 等平台窗口控制不可用时的"静默无反应"假死体验。
+function runWindow(w, action, fallback) {
+  return w[action]().catch((e) => {
+    console.warn('[freedom] window action "' + action + '" failed:', e && e.message ? e.message : e);
+    if (typeof fallback === 'function') return fallback();
+    return undefined;
+  });
+}
+
+// 同步最大化状态到自绘按钮图标（最大化 ⇄ 还原）与 body 状态类。
+async function syncMaxState(w) {
+  const maxBtn = document.getElementById('tbMax');
+  if (!maxBtn) return;
+  try {
+    const isMax = await w.isMaximized();
+    // Segoe MDL2：E922=最大化，E923=还原
+    maxBtn.innerHTML = isMax ? '\uE923' : '\uE922';
+    document.body.classList.toggle('freedom-maximized', !!isMax);
+  } catch (e) {
+    // 平台不支持状态查询（mac/linux）时保持默认最大化图标
+  }
+}
+
 async function initFrameless() {
   if (!(await waitForBridge())) return;
   try {
     const frameless = await window.freedom.window.isFrameless();
-    if (frameless) {
-      document.body.classList.add('freedom-frameless');
-      const w = window.freedom.window;
-      w.bindButtons({ min: '#tbMin', max: '#tbMax', close: '#tbClose' });
+    if (!frameless) return;
+    document.body.classList.add('freedom-frameless');
+    const w = window.freedom.window;
+    w.bindButtons({ min: '#tbMin', max: '#tbMax', close: '#tbClose' });
 
-      // 应用图标：从 exe 内嵌图标提取，不依赖 resources 资源文件夹
-      const iconUrl = await w.appIcon();
-      const iconEl = document.getElementById('tbIcon');
-      if (iconUrl && iconEl) {
-        iconEl.src = iconUrl;
-        iconEl.style.display = 'block';
-      }
-
-      // JS 拖动标题栏（保留双击 / 右键事件；非 Windows 平台桥接静默则退化为原生 drag 体验）
-      const bar = document.getElementById('titlebar');
-      if (bar) {
-        bar.addEventListener('mousedown', (e) => {
-          if (e.button === 0 && e.target.closest('.tb-btn') === null) {
-            w.startDrag && w.startDrag();
-          }
-        });
-        // 双击最大化 / 还原
-        bar.addEventListener('dblclick', async (e) => {
-          if (e.target.closest('.tb-btn') !== null) return;
-          const isMax = await w.isMaximized();
-          if (isMax) { w.restore ? w.restore() : w.toggleMaximize(); }
-          else { w.maximize ? w.maximize() : w.toggleMaximize(); }
-        });
-        // 右键菜单
-        bar.addEventListener('contextmenu', async (e) => {
-          if (e.target.closest('.tb-btn') !== null) return;
-          e.preventDefault();
-          openTitlebarMenu(e.clientX, e.clientY);
-        });
-      }
+    // 应用图标：从 exe 内嵌图标提取，不依赖 resources 资源文件夹
+    const iconUrl = await w.appIcon();
+    const iconEl = document.getElementById('tbIcon');
+    if (iconUrl && iconEl) {
+      iconEl.src = iconUrl;
+      iconEl.style.display = 'block';
     }
+
+    // JS 拖动标题栏（保留双击 / 右键事件；非 Windows 平台桥接失败则退化为原生 drag 体验）
+    const bar = document.getElementById('titlebar');
+    if (bar) {
+      bar.addEventListener('mousedown', (e) => {
+        if (e.button === 0 && e.target.closest('.tb-btn') === null) {
+          runWindow(w, 'startDrag');
+        }
+      });
+      // 双击最大化 / 还原
+      bar.addEventListener('dblclick', async (e) => {
+        if (e.target.closest('.tb-btn') !== null) return;
+        const isMax = await runWindow(w, 'isMaximized', async () => false);
+        if (isMax) { await runWindow(w, 'restore', () => runWindow(w, 'toggleMaximize')); }
+        else { await runWindow(w, 'maximize', () => runWindow(w, 'toggleMaximize')); }
+        syncMaxState(w);
+      });
+      // 右键菜单
+      bar.addEventListener('contextmenu', async (e) => {
+        if (e.target.closest('.tb-btn') !== null) return;
+        e.preventDefault();
+        openTitlebarMenu(e.clientX, e.clientY);
+      });
+    }
+
+    // 初始化同步最大化按钮状态；窗口尺寸变化时（含拖拽到屏幕边缘触发的系统最大化）重新同步
+    syncMaxState(w);
+    window.addEventListener('resize', () => syncMaxState(w));
   } catch (e) {
     /* 桥接异常时保持默认样式 */
   }
@@ -79,7 +107,7 @@ function openTitlebarMenu(x, y) {
 
   // 根据当前窗口状态动态置灰「最大化 / 还原」
   const updateItems = async () => {
-    const isMax = await win.isMaximized();
+    const isMax = await runWindow(win, 'isMaximized', () => false);
     menu.querySelectorAll('.tb-menu-item').forEach((item) => {
       const action = item.dataset.action;
       const disabled = (isMax && action === 'maximize') || (!isMax && action === 'restore');
@@ -110,10 +138,10 @@ function initTitlebarMenu() {
     const action = item.dataset.action;
     const w = window.freedom.window;
     menu.style.display = 'none';
-    if (action === 'close') w.close();
-    else if (action === 'minimize') w.minimize();
-    else if (action === 'maximize') w.maximize();
-    else if (action === 'restore') w.restore ? w.restore() : w.toggleMaximize();
+    if (action === 'close') runWindow(w, 'close');
+    else if (action === 'minimize') runWindow(w, 'minimize');
+    else if (action === 'maximize') { runWindow(w, 'maximize', () => runWindow(w, 'toggleMaximize')); syncMaxState(w); }
+    else if (action === 'restore') { runWindow(w, 'restore', () => runWindow(w, 'toggleMaximize')); syncMaxState(w); }
   });
 }
 

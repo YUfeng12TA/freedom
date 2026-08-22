@@ -86,6 +86,13 @@ type WebView interface {
 	// thread.
 	SetTitle(title string)
 
+	// SetDecorated controls whether the native window shows its system title
+	// bar decoration. frameless mode should call SetDecorated(false) so the
+	// front-end can draw its own min/max/close buttons. Must be called from
+	// the UI thread. On Windows this is a no-op (handled by the freedom shell
+	// layer via WS_CAPTION / WM_NCHITTEST).
+	SetDecorated(decorated bool)
+
 	// SetSize updates native window size. See Hint constants.
 	SetSize(w int, h int, hint Hint)
 
@@ -190,6 +197,10 @@ func (w *webview) SetTitle(title string) {
 	s := C.CString(title)
 	defer C.free(unsafe.Pointer(s))
 	C.webview_set_title(w.w, s)
+}
+
+func (w *webview) SetDecorated(decorated bool) {
+	C.webview_set_decorated(w.w, boolToInt(decorated))
 }
 
 func (w *webview) SetSize(width int, height int, hint Hint) {
