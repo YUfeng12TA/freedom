@@ -1,8 +1,10 @@
 # freedom-cli
 
-Freedom 桌面壳打包工具：把你的 Web 前端一键打包成跨平台桌面应用（v1.12.15）。
+Freedom 桌面壳打包工具：把你的 Web 前端一键打包成跨平台桌面应用（v1.12.17）。
 
 基于自研 Freedom WebView 壳层（对标 Wails / Tauri）：前端完全自由、后端可任意语言、渲染复用系统 WebView（Windows WebView2 / macOS WKWebView / Linux WebKitGTK），产物为单个可执行文件 + resources 目录，前端页面内存加载，不占本地端口。
+
+**v1.12.17 安全模式全面落地**：三档安全模式 `freedom security <none|basic|high>` 正式随包分发——high 档把 resources 加密为 `app.bin`（AES-256-CTR + HMAC-SHA256 + PBKDF2 密钥派生），配合 `.integrity` 完整性校验、anti-debug 与进程隐藏，磁盘无明文、篡改即拒运行；三平台预编译壳经 CI 重建分发，补齐 v1.12.16 仅重编 win-x64 壳的缺口。
 
 **v1.12.16 自动更新 + 完整 CLI 模式 + 壳生命周期全面防御**：
 - **自动检测版本并自动更新**：`freedom update` / `freedom check-update` 检测到新版本即自动执行 `npm install -g @yufengtadian/freedom-cli@latest` 升级，**不再需要手动执行 npm 命令**；每次命令执行成功后静默自检，发现新版自动更新（6 小时频控防骚扰，非全局安装给出明确升级指引）；TUI 主菜单「检查 / 自动更新」同步接入；
