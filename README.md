@@ -1,8 +1,15 @@
 # freedom-cli
 
-Freedom 桌面壳打包工具：把你的 Web 前端一键打包成跨平台桌面应用（v1.12.13）。
+Freedom 桌面壳打包工具：把你的 Web 前端一键打包成跨平台桌面应用（v1.12.14）。
 
 基于自研 Freedom WebView 壳层（对标 Wails / Tauri）：前端完全自由、后端可任意语言、渲染复用系统 WebView（Windows WebView2 / macOS WKWebView / Linux WebKitGTK），产物为单个可执行文件 + resources 目录，前端页面内存加载，不占本地端口。
+
+**v1.12.14 稳定性 / 兼容性 / 打包链路修复**：
+- **Go 壳层并发安全**：`Dispatch` 修复解锁后读共享 index 的数据竞争（消除 UI 事件丢失 / 偶发 panic）；`App.view` 增加互斥锁，`Emit / Quit / WindowHandle` 可在任意 goroutine 安全调用（后端事件推送不再与 Run 竞态）；
+- **多屏适配**：窗口居中改为按窗口所在监视器工作区（rcWork）居中，副屏 / 负坐标 / 任务栏遮挡下均正确；实现改用纯 syscall，不再依赖 `x/sys/windows` 新版 API（老版本 Go 亦可编译）；
+- **窗口与后端健壮性**：`MinWidth / MinHeight` 任一 >0 即生效；后端进程启动前拦截已关闭状态，杜绝孤儿进程 / 二次 Run；前端自绘三按钮回调全部加 `.catch` 兜底，桥接 reject 不再静默失效；`Unbind` 清理 Go 侧绑定表消除泄漏；
+- **Linux 打包根因修复**：壳下载支持代理（`FREEDOM_SHELL_PROXY / ALL_PROXY / HTTPS_PROXY`），直连 GitHub Releases 被墙超时不再导致 linux 产物打包失败；`--platform` 缺值明确报错、zipDir 跨平台（Windows 用 `tar -a`，Linux/macOS 用 `zip`）、`config get` 校验 key、CLI 改用 `process.exitCode` 不截断管道输出；
+- **兼容性**：ARM Windows 识别并提示 x64 仿真运行；DPI 初始化惰性加载，Win7/8 不再 panic。
 
 **v1.12.13 CLI 界面升级与版本检测**：
 - CLI 交互界面升级为 Claude Code 风格：彩色分组帮助菜单、徽章化命令反馈（✓ / ✗ / ⚠ / ➜）、品牌横幅与版本信息卡；非 TTY（管道 / 重定向）或 `NO_COLOR` 下自动降级为纯文本，脚本调用与 CI 输出不受影响；
