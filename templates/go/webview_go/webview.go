@@ -165,10 +165,11 @@ type webview struct {
 }
 
 var (
-	m        sync.Mutex
-	index    uintptr
-	dispatch = map[uintptr]func(){}
-	bindings = map[uintptr]func(id, req string) (interface{}, error){}
+	m         sync.Mutex
+	index     uintptr
+	dispatch  = map[uintptr]func(){}
+	bindings  = map[uintptr]func(id, req string) (interface{}, error){}
+	bindNames = map[string]uintptr{} // name -> index，供 Unbind 清理 bindings 条目
 )
 
 func boolToInt(b bool) C.int {
@@ -261,8 +262,12 @@ func (w *webview) Dispatch(f func()) {
 	for ; dispatch[index] != nil; index++ {
 	}
 	dispatch[index] = f
+	// 在锁内保存局部副本再解锁：解锁后读取共享 index 属数据竞争
+	//（另一 goroutine 可能在 Lock 内推进 index），race detector 会报，
+	// 且极端时序下可能把未就绪的 index 传给 C 层导致回调失配。
+	idx := index
 	m.Unlock()
-	C.CgoWebViewDispatch(w.w, C.uintptr_t(index))
+	C.CgoWebViewDispatch(w.w, C.uintptr_t(idx))
 }
 
 //export _webviewDispatchGoCallback
@@ -364,14 +369,27 @@ func (w *webview) Bind(name string, f interface{}) error {
 	for ; bindings[index] != nil; index++ {
 	}
 	bindings[index] = binding
+	bindNames[name] = index
+	// 锁内保存副本，避免解锁后读取共享 index（与 Dispatch 同类数据竞争）
+	idx := index
 	m.Unlock()
 	cname := C.CString(name)
 	defer C.free(unsafe.Pointer(cname))
-	C.CgoWebViewBind(w.w, cname, C.uintptr_t(index))
+	C.CgoWebViewBind(w.w, cname, C.uintptr_t(idx))
 	return nil
 }
 
 func (w *webview) Unbind(name string) error {
+	// 清理 Go 侧 bindings / bindNames 条目，避免 Unbind 后永久泄漏。
+	// C 侧 binding_context（glue.c calloc，每 Bind 约 16B）在 C++ unbind 中
+	// 仅 erase map 不 free，会小幅泄漏；但框架内 Bind 次数固定（3~4 个）、
+	// 进程生命周期内不会反复 Bind/Unbind，实际影响可忽略，故不额外改 C 层。
+	m.Lock()
+	if idx, ok := bindNames[name]; ok {
+		delete(bindings, idx)
+		delete(bindNames, name)
+	}
+	m.Unlock()
 	cname := C.CString(name)
 	defer C.free(unsafe.Pointer(cname))
 	C.CgoWebViewUnbind(w.w, cname)

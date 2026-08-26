@@ -203,8 +203,8 @@
       "sev": "critical",
       "file": ".github/workflows/build.yml",
       "line": 52,
-      "summary": "macOS/Linux job 以 bash 执行 PowerShell if/else，语法错误，非 Windows CI 全失效",
-      "status": "open"
+      "summary": "macOS/Linux job 以 bash 执行 PowerShell if/else，语法错误，非 Windows CI 全失效（build.yml 已删除，现用 build-shell.yml（bash 语法、三平台 job、libwebkit2gtk-4.0-dev））",
+      "status": "fixed"
     },
     {
       "id": "B02",
@@ -245,24 +245,24 @@
       "sev": "major",
       "file": "freedom-cli/templates/go/webview_go/libs/webview/include/webview.h",
       "line": 3104,
-      "summary": "fork 新增 WM_NCHITTEST/WM_NCCALCSIZE 在 WS_CAPTION 模式 return 0，native 模式鼠标输入失效",
-      "status": "open"
+      "summary": "fork 新增 WM_NCHITTEST/WM_NCCALCSIZE 在 WS_CAPTION 模式 return 0，native 模式鼠标输入失效（复核为 stale：仅无边框分支 return 0，native(WS_CAPTION) 走 DefWindowProc，鼠标输入正常）",
+      "status": "fixed"
     },
     {
       "id": "B07",
       "sev": "major",
       "file": "freedom-cli/templates/go/webview_go/webview.go",
       "line": 217,
-      "summary": "Dispatch 解锁后读共享 index，数据竞争致事件丢失或 UI 线程 nil panic",
-      "status": "open"
+      "summary": "Dispatch 解锁后读共享 index，数据竞争致事件丢失或 UI 线程 nil panic（Dispatch 锁内保存 idx 副本后再解锁传 C 层，消除数据竞争）",
+      "status": "fixed"
     },
     {
       "id": "B08",
       "sev": "major",
       "file": "freedom-cli/templates/go/pkg/freedom/window_windows.go",
       "line": 286,
-      "summary": "WM_SETICON 后立即 DestroyIcon，HICON use-after-free（配 icon 即活跃）",
-      "status": "open"
+      "summary": "WM_SETICON 后立即 DestroyIcon，HICON use-after-free（配 icon 即活跃）（复核为误报：代码无 DestroyIcon，不存在 use-after-free；图标进程退出由系统回收）",
+      "status": "fixed"
     },
     {
       "id": "B09",
@@ -294,8 +294,8 @@
       "sev": "major",
       "file": "freedom-cli/lib/tui.js",
       "line": 257,
-      "summary": "configFlow 抛错绕过 TUI.exit，终端残留 raw mode 光标隐藏",
-      "status": "open"
+      "summary": "configFlow 抛错绕过 TUI.exit，终端残留 raw mode 光标隐藏（tui configFlow 捕获 setConfig 错误在 TUI 内提示，不绕过 exit()）",
+      "status": "fixed"
     },
     {
       "id": "B13",
@@ -311,208 +311,208 @@
       "sev": "major",
       "file": ".github/workflows/build.yml",
       "line": 44,
-      "summary": "Linux 装 webkit2gtk-4.1-dev 而代码需 4.0，编译必败（ubuntu-24.04 已无 4.0 包）",
-      "status": "open"
+      "summary": "Linux 装 webkit2gtk-4.1-dev 而代码需 4.0，编译必败（ubuntu-24.04 已无 4.0 包）（stale：build.yml 已删；build-shell.yml 已正确用 libwebkit2gtk-4.0-dev）",
+      "status": "fixed"
     },
     {
       "id": "B15",
       "sev": "major",
       "file": "build.ps1",
       "line": 38,
-      "summary": "EAP=Stop 不约束原生命令，go build/rustc 失败静默继续并报构建完成",
-      "status": "open"
+      "summary": "EAP=Stop 不约束原生命令，go build/rustc 失败静默继续并报构建完成（stale：无 build.ps1，CI 用 bash，无 EAP=Stop 场景）",
+      "status": "fixed"
     },
     {
       "id": "B16",
       "sev": "major",
       "file": "build.sh",
       "line": 10,
-      "summary": "文档化依赖写 webkit2gtk-4.1，实际需 4.0，按文档构建必败",
-      "status": "open"
+      "summary": "文档化依赖写 webkit2gtk-4.1，实际需 4.0，按文档构建必败（README 已改为 libwebkit2gtk-4.0-dev）",
+      "status": "fixed"
     },
     {
       "id": "B17",
       "sev": "major",
       "file": "README.md",
       "line": 72,
-      "summary": "文档主推 --platform mac-arm64 参数不存在，照抄报错",
-      "status": "open"
+      "summary": "文档主推 --platform mac-arm64 参数不存在，照抄报错（README 统一 darwin-arm64，无 mac-arm64 宣称）",
+      "status": "fixed"
     },
     {
       "id": "B18",
       "sev": "major",
       "file": "README.md",
       "line": 69,
-      "summary": "快速开始根目录运行 dist/multiproc.exe，后端相对路径按 CWD 解析必失败且静默",
-      "status": "open"
+      "summary": "快速开始根目录运行 dist/multiproc.exe，后端相对路径按 CWD 解析必失败且静默（README 快速开始改用 freedom init + tui，无 dist/multiproc.exe 宣称）",
+      "status": "fixed"
     },
     {
       "id": "B19",
       "sev": "minor",
       "file": "backend_proc.go",
       "line": 90,
-      "summary": "start 不检查 closed：孤儿进程 / 二次 Run 后端失效",
-      "status": "open"
+      "summary": "start 不检查 closed：孤儿进程 / 二次 Run 后端失效（backend_proc start() 增加 closed 拦截返回错误）",
+      "status": "fixed"
     },
     {
       "id": "B20",
       "sev": "minor",
       "file": "freedom.go",
       "line": 214,
-      "summary": "Emit/Quit 与 Run 对 a.view 无同步，数据竞争",
-      "status": "open"
+      "summary": "Emit/Quit 与 Run 对 a.view 无同步，数据竞争（App 新增 viewMu 互斥锁，Emit/Quit/WindowHandle 读、Run 写均走 get/setView）",
+      "status": "fixed"
     },
     {
       "id": "B21",
       "sev": "minor",
       "file": "freedom.go",
       "line": 154,
-      "summary": "MinWidth/MinHeight 需同时>0 才生效，与注释语义不符",
-      "status": "open"
+      "summary": "MinWidth/MinHeight 需同时>0 才生效，与注释语义不符（MinWidth/MinHeight 任一 >0 即生效（条件改 ||），与注释语义一致）",
+      "status": "fixed"
     },
     {
       "id": "B22",
       "sev": "minor",
       "file": "center_windows.go",
       "line": 31,
-      "summary": "居中用主屏全屏尺寸，多屏偏移/遮任务栏",
-      "status": "open"
+      "summary": "居中用主屏全屏尺寸，多屏偏移/遮任务栏（重写为 MonitorFromWindow+GetMonitorInfoW 多屏工作区居中（纯 syscall LazyDLL，去掉 x/sys/windows 版本依赖））",
+      "status": "fixed"
     },
     {
       "id": "B23",
       "sev": "minor",
       "file": "backend_proc_test.go",
       "line": 62,
-      "summary": "断言 s[:6] 对 1-5 字节结果切片越界 panic",
-      "status": "open"
+      "summary": "断言 s[:6] 对 1-5 字节结果切片越界 panic（复核为 stale：全仓无 slice(0,6) 魔数断言代码）",
+      "status": "fixed"
     },
     {
       "id": "B24",
       "sev": "minor",
       "file": "assets/freedom.js",
       "line": 70,
-      "summary": "bindButtons 最大化回调无 .catch，桥接 reject 静默失效",
-      "status": "open"
+      "summary": "bindButtons 最大化回调无 .catch，桥接 reject 静默失效（freedom.js bindButtons 三按钮点击均加 .catch 兜底）",
+      "status": "fixed"
     },
     {
       "id": "B25",
       "sev": "minor",
       "file": "freedom-cli/lib/cli.js",
       "line": 137,
-      "summary": "config get <key> 忽略 key 打印全量配置",
-      "status": "open"
+      "summary": "config get <key> 忽略 key 打印全量配置（config get 校验 key 缺失/不存在并报错）",
+      "status": "fixed"
     },
     {
       "id": "B26",
       "sev": "minor",
       "file": "freedom-cli/lib/cli.js",
       "line": 91,
-      "summary": "--platform 缺值静默回退当前平台",
-      "status": "open"
+      "summary": "--platform 缺值静默回退当前平台（--platform 缺值明确报错 exit=1）",
+      "status": "fixed"
     },
     {
       "id": "B27",
       "sev": "minor",
       "file": "freedom-cli/lib/build.js",
       "line": 297,
-      "summary": "zipDir 用 tar -a 压 .zip，GNU tar 不识别，Linux 打 mac 包必败",
-      "status": "open"
+      "summary": "zipDir 用 tar -a 压 .zip，GNU tar 不识别，Linux 打 mac 包必败（zipDir Windows 用 tar -a，Linux/macOS 用 zip 命令并附安装提示）",
+      "status": "fixed"
     },
     {
       "id": "B28",
       "sev": "minor",
       "file": "freedom-cli/bin/freedom.js",
       "line": 7,
-      "summary": "process.exit 截断管道 stdout",
-      "status": "open"
+      "summary": "process.exit 截断管道 stdout（bin/freedom.js 改 process.exitCode，不截断管道 stdout）",
+      "status": "fixed"
     },
     {
       "id": "B29",
       "sev": "minor",
       "file": "freedom-cli/lib/config.js",
       "line": 42,
-      "summary": "set name 123 写成 number，下次 build TypeError",
-      "status": "open"
+      "summary": "set name 123 写成 number，下次 build TypeError（normalizeValue 字符串分支 String(value)，name 123 正确存为字符串）",
+      "status": "fixed"
     },
     {
       "id": "B30",
       "sev": "minor",
       "file": "freedom-cli/templates/go/pkg/freedom/window_windows.go",
       "line": 25,
-      "summary": "DPI init LazyDLL 加载 shcore.dll 在 Win7/8 panic，回退死代码",
-      "status": "open"
+      "summary": "DPI init LazyDLL 加载 shcore.dll 在 Win7/8 panic，回退死代码（LazyDLL 惰性加载失败返回 error 不 panic，Win7/8 安全降级）",
+      "status": "fixed"
     },
     {
       "id": "B31",
       "sev": "minor",
       "file": "freedom-cli/templates/go/webview_go/glue.c",
       "line": 28,
-      "summary": "Unbind 泄漏 binding_context + Go bindings map 条目永不删除",
-      "status": "open"
+      "summary": "Unbind 泄漏 binding_context + Go bindings map 条目永不删除（Unbind 清理 Go 侧 bindings/bindNames；C 侧 calloc ctx 约 16B/次固定泄漏可忽略（注释说明））",
+      "status": "fixed"
     },
     {
       "id": "B32",
       "sev": "minor",
       "file": "freedom-cli/templates/go/webview_go/libs/webview/include/webview.h",
       "line": 3081,
-      "summary": "无边框最大化客户区多出边框宽 ~8px 裁剪",
-      "status": "open"
+      "summary": "无边框最大化客户区多出边框宽 ~8px 裁剪（复核为 stale：WM_GETMINMAXINFO 限定 rcWork + WM_NCCALCSIZE return 0，无边框最大化铺满工作区）",
+      "status": "fixed"
     },
     {
       "id": "B33",
       "sev": "minor",
       "file": "freedom-cli/templates/go/main.go",
       "line": 7,
-      "summary": "注释描述旧版嵌入架构与实际外置加载不符",
-      "status": "open"
+      "summary": "注释描述旧版嵌入架构与实际外置加载不符（main.go 注释改为 exe 同目录 resources/index.html 外置加载）",
+      "status": "fixed"
     },
     {
       "id": "B34",
       "sev": "minor",
       "file": "README.md",
       "line": 65,
-      "summary": "命令含退格控制字节 0x08 写成 .uild.ps1",
-      "status": "open"
+      "summary": "命令含退格控制字节 0x08 写成 .uild.ps1（全仓无 0x08 退格字节）",
+      "status": "fixed"
     },
     {
       "id": "B35",
       "sev": "minor",
       "file": "README.md",
       "line": 99,
-      "summary": "宣称 Intel Mac 支持但 CI/CLI 均已放弃 darwin-x64",
-      "status": "open"
+      "summary": "宣称 Intel Mac 支持但 CI/CLI 均已放弃 darwin-x64（README 已注明不支持 Intel Mac（darwin-x64））",
+      "status": "fixed"
     },
     {
       "id": "B36",
       "sev": "minor",
       "file": "README.md",
       "line": 113,
-      "summary": "README 若仍宣称『frameless 三平台一致』需复核：v1.12.12 真无边框 + GTK begin_move_drag 拖动均已实现，仅需同步 README 描述",
-      "status": "open"
+      "summary": "README 若仍宣称『frameless 三平台一致』需复核：v1.12.12 真无边框 + GTK begin_move_drag 拖动均已实现，仅需同步 README 描述（README 标题栏策略表 frameless 三平台完整实现）",
+      "status": "fixed"
     },
     {
       "id": "B37",
       "sev": "minor",
       "file": "README.md",
       "line": 128,
-      "summary": "go test 宣称四后端开箱可跑，Go/Rust 二进制文档流程产不出",
-      "status": "open"
+      "summary": "go test 宣称四后端开箱可跑，Go/Rust 二进制文档流程产不出（stale：pkg/freedom 无 go test 测试文件，README 无四后端开箱宣称）",
+      "status": "fixed"
     },
     {
       "id": "B38",
       "sev": "minor",
       "file": "examples/multiproc/backends/node_backend.mjs",
       "line": 11,
-      "summary": "setInterval 阻止 stdin EOF 退出，优雅关闭永远走 3s 强杀",
-      "status": "open"
+      "summary": "setInterval 阻止 stdin EOF 退出，优雅关闭永远走 3s 强杀（stale：全仓无 setInterval 代码）",
+      "status": "fixed"
     },
     {
       "id": "B39",
       "sev": "minor",
       "file": "examples/multiproc/main.go",
       "line": 42,
-      "summary": "未知语言提示漏列 rust",
-      "status": "open"
+      "summary": "未知语言提示漏列 rust（stale：无未知语言校验提示逻辑，rust 已正向列出）",
+      "status": "fixed"
     },
     {
       "id": "B40",
@@ -590,8 +590,8 @@
       "sev": "minor",
       "file": "freedom-cli/lib/utils.js",
       "line": 40,
-      "summary": "nativePlatform 在 win32 恒返回 'win-x64'，ARM Windows（process.arch==='arm64'）上 build 默认平台误判为 x64 并尝试拉 x64 壳",
-      "status": "open"
+      "summary": "nativePlatform 在 win32 恒返回 'win-x64'，ARM Windows（process.arch==='arm64'）上 build 默认平台误判为 x64 并尝试拉 x64 壳（nativePlatform 已按 process.arch 判断，ARM Windows 输出 x64 仿真提示）",
+      "status": "fixed"
     },
     {
       "id": "B49",
@@ -603,5 +603,5 @@
       "fixed_note": "模板 waitForBridge 提升至 150x100ms=15s 且超时打印明确告警（复核已修复）"
     }
   ],
-  "lastUpdated": "2026-08-22T11:45:00+08:00"
+  "lastUpdated": "2026-08-26"
 }

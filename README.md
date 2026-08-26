@@ -121,9 +121,9 @@ freedom config set outDir dist  # 恢复默认 dist/
 | 模式 | 说明 |
 | --- | --- |
 | `native` | 保留系统原生标题栏，标题栏图标与 exe 图标一致 |
-| `frameless` | 完全无边框，标题栏不存在，客户区铺满窗口，关闭 / 最大化 / 最小化按钮由前端自绘（默认，模板已内置示例）。当前仅 Windows 完整实现；macOS / Linux 由系统窗口管理器托管，回退为原生标题栏且窗口控制动作返回明确错误 |
+| `frameless` | 完全无边框，标题栏不存在，客户区铺满窗口，关闭 / 最大化 / 最小化按钮由前端自绘（默认，模板已内置示例）。三平台完整实现：Windows 经 `WM_NCCALCSIZE` / `WM_NCHITTEST` / `WM_GETMINMAXINFO` 原生层处理，macOS / Linux 经 `set_decorated` + 原生窗口控制（GTK `gtk_window_*` / Cocoa `performMiniaturize:` 等），行为一致（v1.12.12 起） |
 
-`frameless` 模式下（Windows），前端可通过注入的 `window.freedom.window` API 控制窗口（`minimize` / `maximize` / `toggleMaximize` / `close` / `isMaximized` / `isFrameless`），模板已内置自绘标题栏示例；macOS / Linux 上这些动作会 reject，前端应捕获并提示。
+`frameless` 模式下，前端可通过注入的 `window.freedom.window` API 控制窗口（`minimize` / `maximize` / `toggleMaximize` / `close` / `isMaximized` / `isFrameless`），模板已内置自绘标题栏示例；三平台窗口控制动作均已接入原生实现（Windows `WM_NCLBUTTONDOWN`、GTK `gtk_window_begin_move_drag`、Cocoa 原生拖动），拖动标题栏 / 双击最大化 / 右键菜单行为一致。
 
 ## 配置（freedom.config.js）
 

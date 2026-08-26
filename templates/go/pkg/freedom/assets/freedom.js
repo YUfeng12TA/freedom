@@ -71,13 +71,19 @@
     var q = function (s) { return typeof s === 'string' ? document.querySelector(s) : s; };
     var min = q(sel && sel.min), max = q(sel && sel.max), close = q(sel && sel.close);
     var self = this;
-    if (min) min.addEventListener('click', function () { self.minimize(); });
+    // 所有桥接调用均带 .catch：页面先于桥接就绪时点击按钮会产生未捕获的
+    // Promise rejection（并导致自绘标题栏静默失效），此处兜底为控制台告警。
+    if (min) min.addEventListener('click', function () {
+      self.minimize().catch(function (e) { console.warn('[freedom] minimize:', e); });
+    });
     if (max) max.addEventListener('click', function () {
       self.isMaximized().then(function (m) {
-        if (m) self.unmaximize(); else self.maximize();
-      });
+        if (m) return self.unmaximize(); else return self.maximize();
+      }).catch(function (e) { console.warn('[freedom] maximize toggle:', e); });
     });
-    if (close) close.addEventListener('click', function () { self.close(); });
+    if (close) close.addEventListener('click', function () {
+      self.close().catch(function (e) { console.warn('[freedom] close:', e); });
+    });
   };
 
   function windowAction(action) {

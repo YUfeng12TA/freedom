@@ -20,6 +20,7 @@ package freedom
 import (
 	"encoding/json"
 	"fmt"
+	"sync"
 	"unsafe"
 
 	webview "github.com/webview/webview_go"
@@ -63,6 +64,7 @@ type Config struct {
 // App 是 Freedom 应用实例。
 type App struct {
 	cfg             Config
+	viewMu          sync.Mutex // 保护 view 字段（Run 写 / Emit·Quit·WindowHandle 任意 goroutine 读）
 	view            webview.WebView
 	backend         Backend
 	backendExplicit bool // 调用方是否显式指定了后端（外部 config.json 不应覆盖显式绑定）
@@ -118,6 +120,21 @@ func (a *App) Unbind(name string) {
 	}
 }
 
+// getView / setView 以互斥锁保护 view 字段：Run 在主 goroutine 写，
+// Emit/Quit/WindowHandle 可能被任意 goroutine（如后端事件推送）读，
+// 无保护时 race detector 报数据竞争。
+func (a *App) getView() webview.WebView {
+	a.viewMu.Lock()
+	defer a.viewMu.Unlock()
+	return a.view
+}
+
+func (a *App) setView(v webview.WebView) {
+	a.viewMu.Lock()
+	a.view = v
+	a.viewMu.Unlock()
+}
+
 // Run 启动窗口并进入主事件循环，阻塞直到窗口被关闭。
 func (a *App) Run() {
 	// 通用壳：先加载 exe 同目录 resources/config.json 覆盖窗口与后端配置
@@ -138,7 +155,7 @@ func (a *App) Run() {
 		fmt.Println("freedom: failed to create webview")
 		return
 	}
-	a.view = w
+	a.setView(w)
 	defer func() {
 		_ = a.backend.Close()
 		w.Destroy()
@@ -157,7 +174,9 @@ func (a *App) Run() {
 
 	w.SetTitle(a.cfg.Title)
 	w.SetSize(a.cfg.Width, a.cfg.Height, webview.HintNone)
-	if a.cfg.MinWidth > 0 && a.cfg.MinHeight > 0 {
+	// 最小尺寸：任一项 >0 即生效；未设置的一项传 0 表示该维度不限制
+	//（GTK gtk_widget_set_size_request / Cocoa minSize 对 0 均视为"未指定"）。
+	if a.cfg.MinWidth > 0 || a.cfg.MinHeight > 0 {
 		w.SetSize(a.cfg.MinWidth, a.cfg.MinHeight, webview.HintMin)
 	}
 	a.applyCenter()
@@ -233,7 +252,8 @@ func (a *App) bridge(method string, paramsJSON string) (result json.RawMessage, 
 // Emit 把事件推送到前端。前端通过 window.freedom.on(event, cb) 订阅。
 // 线程安全：可从任意 goroutine 调用（进程后端推送的事件亦经由本函数）。
 func (a *App) Emit(event string, data interface{}) {
-	if a.view == nil {
+	v := a.getView()
+	if v == nil {
 		return
 	}
 	eb, _ := json.Marshal(event)
@@ -242,26 +262,26 @@ func (a *App) Emit(event string, data interface{}) {
 		db = []byte("null")
 	}
 	js := "window.freedom && window.freedom.emit(" + string(eb) + "," + string(db) + ");"
-	a.view.Dispatch(func() {
-		a.view.Eval(js)
+	v.Dispatch(func() {
+		v.Eval(js)
 	})
 }
 
 // Quit 关闭窗口并退出应用。可从任意 goroutine 调用。
 func (a *App) Quit() {
-	if a.view != nil {
-		a.view.Dispatch(func() {
-			a.view.Terminate()
+	if v := a.getView(); v != nil {
+		v.Dispatch(func() {
+			v.Terminate()
 		})
 	}
 }
 
 // WindowHandle 返回底层原生窗口句柄（Windows 上为 HWND）。
 func (a *App) WindowHandle() uintptr {
-	if a.view == nil {
-		return 0
+	if v := a.getView(); v != nil {
+		return uintptr(unsafe.Pointer(v.Window()))
 	}
-	return uintptr(unsafe.Pointer(a.view.Window()))
+	return 0
 }
 
 // windowControl 处理前端 window.freedom.window.* 的窗口控制请求。

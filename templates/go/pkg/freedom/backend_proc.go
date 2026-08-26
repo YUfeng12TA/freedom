@@ -97,6 +97,9 @@ func (p *ProcBackend) OnEvent(fn func(event string, data interface{})) {
 func (p *ProcBackend) start() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.closed {
+		return fmt.Errorf("freedom: proc backend is closed")
+	}
 	if p.stdin != nil {
 		return nil // 已启动
 	}
