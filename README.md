@@ -1,8 +1,12 @@
 # freedom-cli
 
-Freedom 桌面壳打包工具：把你的 Web 前端一键打包成跨平台桌面应用（v1.12.14）。
+Freedom 桌面壳打包工具：把你的 Web 前端一键打包成跨平台桌面应用（v1.12.15）。
 
 基于自研 Freedom WebView 壳层（对标 Wails / Tauri）：前端完全自由、后端可任意语言、渲染复用系统 WebView（Windows WebView2 / macOS WKWebView / Linux WebKitGTK），产物为单个可执行文件 + resources 目录，前端页面内存加载，不占本地端口。
+
+**v1.12.15 补发壳生命周期稳定性修复**：v1.12.14 的 npm 上架时间早于修复提交，上架版预编译壳未包含悬垂指针修复（窗口操作 / 代理端口触发随机退出的根因）；本版正式把含 B50 修复的预编译壳随 npm 包分发——
+- 壳销毁生命周期修复：`webview.Destroy()` 后经 Emit / Quit / WindowHandle / binding 回调访问已释放 C 对象（悬垂指针）导致随机退出；新增 `destroyed` 原子标记，Dispatch / Eval / binding 回调销毁后一律跳过原生调用，`Run` 在 `Destroy` 前清空 `App.view`，事件与绑定回调加 `recover` 兜底；
+- 使用全局包构建的下游应用（如 DSH）升级到本版后，随机退出问题一并消除（可用二进制字符串指纹 `freedom: binding panic` 核对）。
 
 **v1.12.14 稳定性 / 兼容性 / 打包链路修复**：
 - **Go 壳层并发安全**：`Dispatch` 修复解锁后读共享 index 的数据竞争（消除 UI 事件丢失 / 偶发 panic）；`App.view` 增加互斥锁，`Emit / Quit / WindowHandle` 可在任意 goroutine 安全调用（后端事件推送不再与 Run 竞态）；
