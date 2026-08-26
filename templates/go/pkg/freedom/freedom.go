@@ -152,7 +152,11 @@ func (a *App) Run() {
 
 	w := webview.New(a.cfg.Debug)
 	if w == nil {
-		fmt.Println("freedom: failed to create webview")
+		if !webview2Available() {
+			fmt.Println("freedom: failed to create webview: 未检测到 WebView2 Runtime，请安装 Microsoft Edge WebView2 Runtime（https://go.microsoft.com/fwlink/?linkid=2124703）后重试")
+		} else {
+			fmt.Println("freedom: failed to create webview")
+		}
 		return
 	}
 	a.setView(w)

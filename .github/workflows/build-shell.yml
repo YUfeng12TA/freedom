@@ -14,7 +14,7 @@ name: build-shell
 # 资产命名约定（与 lib/shell.js 的 releaseUrl 对齐）：
 #   freedom-shell-win-x64      （Windows x64，GUI 子系统）
 #   freedom-shell-darwin-arm64 （macOS Apple Silicon）
-#   freedom-shell-darwin-arm64 （macOS Apple Silicon）
+#   freedom-shell-darwin-x64   （macOS Intel x64，当前无 CI runner，可自托管 macOS x64 编译后手动上传）
 #   freedom-shell-linux-x64    （Linux x64）
 #   freedom-shell-linux-arm64  （Linux ARM64，需 ARM 环境，见下方说明）
 

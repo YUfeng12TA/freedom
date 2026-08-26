@@ -209,52 +209,85 @@ func (w *webview) Destroy() {
 }
 
 func (w *webview) Run() {
+	if destroyed.Load() {
+		return
+	}
 	C.webview_run(w.w)
 }
 
 func (w *webview) Terminate() {
+	if destroyed.Load() {
+		return
+	}
 	C.webview_terminate(w.w)
 }
 
 func (w *webview) Window() unsafe.Pointer {
+	if destroyed.Load() {
+		return nil
+	}
 	return C.webview_get_window(w.w)
 }
 
 func (w *webview) Navigate(url string) {
+	if destroyed.Load() {
+		return
+	}
 	s := C.CString(url)
 	defer C.free(unsafe.Pointer(s))
 	C.webview_navigate(w.w, s)
 }
 
 func (w *webview) SetHtml(html string) {
+	if destroyed.Load() {
+		return
+	}
 	s := C.CString(html)
 	defer C.free(unsafe.Pointer(s))
 	C.webview_set_html(w.w, s)
 }
 
 func (w *webview) SetTitle(title string) {
+	if destroyed.Load() {
+		return
+	}
 	s := C.CString(title)
 	defer C.free(unsafe.Pointer(s))
 	C.webview_set_title(w.w, s)
 }
 
 func (w *webview) SetDecorated(decorated bool) {
+	if destroyed.Load() {
+		return
+	}
 	C.webview_set_decorated(w.w, boolToInt(decorated))
 }
 
 func (w *webview) WindowControl(action WindowAction) int {
+	if destroyed.Load() {
+		return -1
+	}
 	return int(C.webview_window_control(w.w, C.webview_window_action_t(action)))
 }
 
 func (w *webview) BeginMoveDrag() int {
+	if destroyed.Load() {
+		return -1
+	}
 	return int(C.webview_window_begin_move_drag(w.w))
 }
 
 func (w *webview) SetSize(width int, height int, hint Hint) {
+	if destroyed.Load() {
+		return
+	}
 	C.webview_set_size(w.w, C.int(width), C.int(height), C.webview_hint_t(hint))
 }
 
 func (w *webview) Init(js string) {
+	if destroyed.Load() {
+		return
+	}
 	s := C.CString(js)
 	defer C.free(unsafe.Pointer(s))
 	C.webview_init(w.w, s)
@@ -294,6 +327,11 @@ func _webviewDispatchGoCallback(index unsafe.Pointer) {
 	delete(dispatch, uintptr(index))
 	m.Unlock()
 	if f != nil {
+		// 入队时 destroyed 可能为 false，但回调真正执行时窗口可能已销毁，
+		// 二次检查：销毁后 UI 线程即将退出，未执行的派发任务直接丢弃。
+		if destroyed.Load() {
+			return
+		}
 		f()
 	}
 }
@@ -335,6 +373,9 @@ func _webviewBindingGoCallback(w C.webview_t, id *C.char, req *C.char, index uin
 }
 
 func (w *webview) Bind(name string, f interface{}) error {
+	if destroyed.Load() {
+		return errors.New("freedom: webview destroyed")
+	}
 	v := reflect.ValueOf(f)
 	// f must be a function
 	if v.Kind() != reflect.Func {
@@ -413,6 +454,9 @@ func (w *webview) Bind(name string, f interface{}) error {
 }
 
 func (w *webview) Unbind(name string) error {
+	if destroyed.Load() {
+		return errors.New("freedom: webview destroyed")
+	}
 	// 清理 Go 侧 bindings / bindNames 条目，避免 Unbind 后永久泄漏。
 	// C 侧 binding_context（glue.c calloc，每 Bind 约 16B）在 C++ unbind 中
 	// 仅 erase map 不 free，会小幅泄漏；但框架内 Bind 次数固定（3~4 个）、

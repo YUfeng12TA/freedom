@@ -609,11 +609,35 @@
       "line": 0,
       "summary": "壳在窗口操作（关闭/拖动/最小化等）或后端事件推送（浏览器访问代理端口）时随机退出：webview.Destroy() 后 Go 侧仍可能通过 Emit/Quit/WindowHandle 或 binding 回调访问已 delete 的 C webview_t（悬垂指针崩溃）；binding/dispatch 回调无 panic 防护，任何 Go panic 外泄 C 层直接崩进程；App.view 在 Destroy 后未清空导致事件推送持旧引用。修复：Destroy 前置 destroyed 原子标记，Dispatch/Eval/binding 回调检查后跳过 C 调用；binding/dispatch/事件回调统一 recover 兜底；freedom.go defer 在 w.Destroy() 前 setView(nil)。",
       "status": "fixed"
+    },
+    {
+      "id": "B51",
+      "sev": "critical",
+      "file": "templates/go/webview_go/webview.go",
+      "line": 0,
+      "summary": "B50 修复仅覆盖 Destroy/Eval/Dispatch/binding 回调，webview 其余全部 C 访问方法（Run/Terminate/Window/Navigate/SetHtml/SetTitle/SetDecorated/WindowControl/BeginMoveDrag/SetSize/Init/Bind/Unbind）在窗口销毁后仍可能触碰已 delete 的 C webview_t 悬垂崩溃；Dispatch 回调入队后（destroyed=false）若销毁发生在回调执行前，回调仍会执行并可能访问 C 层。修复：全部方法入口加 destroyed.Load() 前置防护，Bind/Unbind 返回错误，Dispatch 回调执行前二次检查 destroyed 后跳过。",
+      "status": "fixed"
+    },
+    {
+      "id": "B52",
+      "sev": "minor",
+      "file": "templates/go/pkg/freedom/center_windows.go",
+      "line": 0,
+      "summary": "center_windows.go 与 window_windows.go 各自声明一套 user32.dll NewLazyDLL + proc（getSystemMetrics/moveWindow/monitorFromWindow/getMonitorInfo vs procGet*），重复加载冗余；applyCenter 直接访问未加锁的 a.view 字段。修复：删除重复声明统一引用 window_windows.go 的 proc*，applyCenter 改用线程安全的 App.WindowHandle()。",
+      "status": "fixed"
+    },
+    {
+      "id": "B53",
+      "sev": "medium",
+      "file": "templates/go/pkg/freedom/freedom.go + window_windows.go + window_other.go",
+      "line": 0,
+      "summary": "webview.New() 返回 nil 时仅打印泛化 'failed to create webview'，Windows 最常见根因（未安装 WebView2 Runtime）无任何可操作指引，用户无从排查；.github/workflows/build-shell.yml 资产命名注释 darwin-arm64 重复两行、缺 darwin-x64 说明。修复：新增 webview2Available()（注册表 EdgeUpdate Clients GUID 检测，非 Windows 恒 true），缺失时打印 WebView2 Runtime 安装链接；CI 注释修正。",
+      "status": "fixed"
     }
   ],
   "lastUpdated": "2026-08-26",
   "status": {
-    "summary": "v1.12.14 壳稳定性修复：Destroy 生命周期悬垂指针 + 回调 panic 兜底（B40 闭环）",
+    "summary": "v1.12.15+ 全面防御：webview 全方法销毁防护(B51) + user32 proc 去重(B52) + WebView2 缺失可操作提示(B53)",
     "updated": "2026-08-26"
   }
 }

@@ -13,6 +13,7 @@ import (
 	"syscall"
 
 	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/registry"
 )
 
 // 进程级 DPI 感知：让窗口坐标 / WebView 渲染统一按物理像素工作。
@@ -230,6 +231,25 @@ func exeAppIconDataURL() string {
 		return ""
 	}
 	return "data:image/png;base64," + base64.StdEncoding.EncodeToString(img)
+}
+
+// webview2Available 检测 Windows 是否已安装 WebView2 Runtime。
+// webview_create（WEBVIEW_EDGE）失败的最常见原因是缺少 WebView2 Runtime，
+// 检测其安装注册表键（EdgeUpdate Clients GUID）判断状态，便于给出可操作提示。
+// 返回值仅用于决定错误文案，不参与窗口创建逻辑。
+func webview2Available() bool {
+	guid := `{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}`
+	key := `SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\` + guid
+	if k, err := registry.OpenKey(registry.LOCAL_MACHINE, key, registry.QUERY_VALUE|registry.READ); err == nil {
+		k.Close()
+		return true
+	}
+	key2 := `SOFTWARE\Microsoft\EdgeUpdate\Clients\` + guid
+	if k, err := registry.OpenKey(registry.LOCAL_MACHINE, key2, registry.QUERY_VALUE|registry.READ); err == nil {
+		k.Close()
+		return true
+	}
+	return false
 }
 
 func isZoomed(hwnd uintptr) bool {

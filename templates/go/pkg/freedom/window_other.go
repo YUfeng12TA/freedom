@@ -24,6 +24,10 @@ func (a *App) applyTitleBar() {
 // setWindowIcon 在 macOS / Linux 上为空实现（图标由应用包 / 窗口管理器决定）。
 func (a *App) setWindowIcon() {}
 
+// webview2Available 非 Windows 平台恒返回 true（macOS WKWebView / Linux WebKitGTK，
+// 不依赖 WebView2 Runtime）。
+func webview2Available() bool { return true }
+
 // windowControl 处理前端 window.freedom.window.* 请求（macOS / Linux 实现）。
 //
 // 窗口控制类动作（最小化/最大化/还原/关闭/查询）直接转发到 webview 层的原生
