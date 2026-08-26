@@ -158,6 +158,10 @@ func (a *App) Run() {
 	a.setView(w)
 	defer func() {
 		_ = a.backend.Close()
+		// 先清空视图引用再销毁：Destroy 后 C 层 webview 对象已被 delete，
+		// 若此时仍有并发 goroutine（如后端事件推送触发的 Emit/Quit/WindowHandle）
+		// 持旧引用调用会访问悬垂指针导致随机崩溃。
+		a.setView(nil)
 		w.Destroy()
 	}()
 

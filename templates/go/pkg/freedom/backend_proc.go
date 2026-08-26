@@ -231,7 +231,12 @@ func (p *ProcBackend) dispatchEvent(event string, dataJSON json.RawMessage) {
 	fn := p.onEvent
 	p.mu.Unlock()
 	if fn != nil {
-		fn(event, data)
+		// 事件回调在 readLoop goroutine 执行；内部若 panic（如推送期间窗口已销毁）
+		// 一旦外泄到 readLoop 会崩掉整个壳进程，此处统一兜底。
+		func() {
+			defer func() { _ = recover() }()
+			fn(event, data)
+		}()
 	}
 }
 

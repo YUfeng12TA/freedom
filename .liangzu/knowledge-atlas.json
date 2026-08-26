@@ -601,7 +601,19 @@
       "summary": "waitForBridge 上限 100×100ms=10s，桥接注入慢于 10s 时 initFrameless 直接 return，标题栏/按钮/图标永久不初始化且无提示",
       "status": "fixed",
       "fixed_note": "模板 waitForBridge 提升至 150x100ms=15s 且超时打印明确告警（复核已修复）"
+    },
+    {
+      "id": "B50",
+      "sev": "critical",
+      "file": "webview_go/webview.go + pkg/freedom/freedom.go + pkg/freedom/backend_proc.go",
+      "line": 0,
+      "summary": "壳在窗口操作（关闭/拖动/最小化等）或后端事件推送（浏览器访问代理端口）时随机退出：webview.Destroy() 后 Go 侧仍可能通过 Emit/Quit/WindowHandle 或 binding 回调访问已 delete 的 C webview_t（悬垂指针崩溃）；binding/dispatch 回调无 panic 防护，任何 Go panic 外泄 C 层直接崩进程；App.view 在 Destroy 后未清空导致事件推送持旧引用。修复：Destroy 前置 destroyed 原子标记，Dispatch/Eval/binding 回调检查后跳过 C 调用；binding/dispatch/事件回调统一 recover 兜底；freedom.go defer 在 w.Destroy() 前 setView(nil)。",
+      "status": "fixed"
     }
   ],
-  "lastUpdated": "2026-08-26"
+  "lastUpdated": "2026-08-26",
+  "status": {
+    "summary": "v1.12.14 壳稳定性修复：Destroy 生命周期悬垂指针 + 回调 panic 兜底（B40 闭环）",
+    "updated": "2026-08-26"
+  }
 }

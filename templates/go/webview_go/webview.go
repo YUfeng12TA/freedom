@@ -31,9 +31,11 @@ import (
 	_ "github.com/webview/webview_go/libs/webview/include"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"unsafe"
 )
 
@@ -170,6 +172,11 @@ var (
 	dispatch  = map[uintptr]func(){}
 	bindings  = map[uintptr]func(id, req string) (interface{}, error){}
 	bindNames = map[string]uintptr{} // name -> index，供 Unbind 清理 bindings 条目
+	// destroyed 标记 C 层 webview 对象已被销毁。Destroy() 置位后：
+	//   - Dispatch / Eval 直接跳过 C 调用，避免向已释放的 webview_t 发消息（悬垂指针崩溃）；
+	//   - binding 回调跳过 C.webview_return，避免访问已释放的 C 内存。
+	// 壳为单窗口单 webview，全局单例标记即可。
+	destroyed atomic.Bool
 )
 
 func boolToInt(b bool) C.int {
@@ -196,6 +203,8 @@ func NewWindow(debug bool, window unsafe.Pointer) WebView {
 }
 
 func (w *webview) Destroy() {
+	// 先置销毁标记：销毁后任何并发 Dispatch/Eval/binding 回调不得再触碰 C 内存。
+	destroyed.Store(true)
 	C.webview_destroy(w.w)
 }
 
@@ -252,12 +261,18 @@ func (w *webview) Init(js string) {
 }
 
 func (w *webview) Eval(js string) {
+	if destroyed.Load() {
+		return
+	}
 	s := C.CString(js)
 	defer C.free(unsafe.Pointer(s))
 	C.webview_eval(w.w, s)
 }
 
 func (w *webview) Dispatch(f func()) {
+	if destroyed.Load() {
+		return
+	}
 	m.Lock()
 	for ; dispatch[index] != nil; index++ {
 	}
@@ -272,11 +287,15 @@ func (w *webview) Dispatch(f func()) {
 
 //export _webviewDispatchGoCallback
 func _webviewDispatchGoCallback(index unsafe.Pointer) {
+	// 兜底：回调内任何 panic 不得外泄到 C 层崩掉整个进程。
+	defer func() { _ = recover() }()
 	m.Lock()
 	f := dispatch[uintptr(index)]
 	delete(dispatch, uintptr(index))
 	m.Unlock()
-	f()
+	if f != nil {
+		f()
+	}
 }
 
 //export _webviewBindingGoCallback
@@ -286,15 +305,29 @@ func _webviewBindingGoCallback(w C.webview_t, id *C.char, req *C.char, index uin
 	m.Unlock()
 	jsString := func(v interface{}) string { b, _ := json.Marshal(v); return string(b) }
 	status, result := 0, ""
-	if res, err := f(C.GoString(id), C.GoString(req)); err != nil {
-		status = -1
-		result = jsString(err.Error())
-	} else if b, err := json.Marshal(res); err != nil {
-		status = -1
-		result = jsString(err.Error())
-	} else {
-		status = 0
-		result = string(b)
+	// 兜底：绑定回调内任何 panic 转为错误回传前端，绝不外泄到 C 层崩进程。
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				status = -1
+				result = jsString(fmt.Sprintf("freedom: binding panic: %v", r))
+			}
+		}()
+		if res, err := f(C.GoString(id), C.GoString(req)); err != nil {
+			status = -1
+			result = jsString(err.Error())
+		} else if b, err := json.Marshal(res); err != nil {
+			status = -1
+			result = jsString(err.Error())
+		} else {
+			status = 0
+			result = string(b)
+		}
+	}()
+	// 窗口已销毁：C 层 webview 对象已被 delete，不能再调用 webview_return，
+	// 否则访问悬垂 webview_t 导致进程随机崩溃。
+	if destroyed.Load() {
+		return
 	}
 	s := C.CString(result)
 	defer C.free(unsafe.Pointer(s))
