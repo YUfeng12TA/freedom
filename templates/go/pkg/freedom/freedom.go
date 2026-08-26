@@ -110,7 +110,14 @@ func (a *App) Bind(name string, fn interface{}) error {
 	if !ok {
 		return fmt.Errorf("freedom: Bind 仅适用于内嵌 Go 后端；当前后端为 %T，方法请在进程后端中注册", a.backend)
 	}
-	return eb.Bind(name, fn)
+	if err := eb.Bind(name, fn); err != nil {
+		return err
+	}
+	// B56：用户显式绑定方法 = 显式指定内嵌后端。置位后外部 resources/config.json
+	// 的 backend 配置不再覆盖（loadRuntimeConfig 仅当 !backendExplicit 时生效），
+	// 避免"用户 Bind 的方法被 config.json 的进程后端静默替换而全部失效"。
+	a.backendExplicit = true
+	return nil
 }
 
 // Unbind 移除先前 Bind 的方法（内嵌后端）。

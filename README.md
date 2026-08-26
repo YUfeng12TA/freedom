@@ -4,6 +4,11 @@ Freedom 桌面壳打包工具：把你的 Web 前端一键打包成跨平台桌�
 
 基于自研 Freedom WebView 壳层（对标 Wails / Tauri）：前端完全自由、后端可任意语言、渲染复用系统 WebView（Windows WebView2 / macOS WKWebView / Linux WebKitGTK），产物为单个可执行文件 + resources 目录，前端页面内存加载，不占本地端口。
 
+**v1.12.16 自动更新 + 完整 CLI 模式 + 壳生命周期全面防御**：
+- **自动检测版本并自动更新**：`freedom update` / `freedom check-update` 检测到新版本即自动执行 `npm install -g @yufengtadian/freedom-cli@latest` 升级，**不再需要手动执行 npm 命令**；每次命令执行成功后静默自检，发现新版自动更新（6 小时频控防骚扰，非全局安装给出明确升级指引）；TUI 主菜单「检查 / 自动更新」同步接入；
+- **完整 CLI 模式**：无参数运行 `freedom` 直接进入交互式完整 CLI（打包 / 新建项目 / 配置 / 壳管理 / 教程 / 自动更新 / 退出）；管道与脚本环境自动降级打印帮助，不卡死；
+- **壳生命周期全面防御（B51-B58 闭环）**：webview 全方法销毁防护、user32 proc 去重、WebView2 缺失可操作提示；`webview_create` 失败（如缺 WebKitGTK）返回 nil 后新壳走明确失败提示而非空指针崩溃；用户 `Bind` 的方法不再被 config.json 进程后端静默覆盖失效；help 文案与自动更新实现对齐，清理死代码。
+
 **v1.12.15 补发壳生命周期稳定性修复**：v1.12.14 的 npm 上架时间早于修复提交，上架版预编译壳未包含悬垂指针修复（窗口操作 / 代理端口触发随机退出的根因）；本版正式把含 B50 修复的预编译壳随 npm 包分发——
 - 壳销毁生命周期修复：`webview.Destroy()` 后经 Emit / Quit / WindowHandle / binding 回调访问已释放 C 对象（悬垂指针）导致随机退出；新增 `destroyed` 原子标记，Dispatch / Eval / binding 回调销毁后一律跳过原生调用，`Run` 在 `Destroy` 前清空 `App.view`，事件与绑定回调加 `recover` 兜底；
 - 使用全局包构建的下游应用（如 DSH）升级到本版后，随机退出问题一并消除（可用二进制字符串指纹 `freedom: binding panic` 核对）。

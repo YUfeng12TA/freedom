@@ -199,6 +199,13 @@ func New(debug bool) WebView { return NewWindow(debug, nil) }
 func NewWindow(debug bool, window unsafe.Pointer) WebView {
 	w := &webview{}
 	w.w = C.webview_create(boolToInt(debug), window)
+	// B55：webview_create 在目标平台 WebView 初始化失败时可能返回 NULL
+	//（如 Linux 缺 WebKitGTK、macOS WebKit 不可用），此时返回 nil 让调用方
+	//（freedom.go Run 的 w == nil 分支）走失败提示，而非持 nil webview_t
+	// 继续调用 SetTitle/SetSize/Init 等 C API 触发空指针崩溃。
+	if w.w == nil {
+		return nil
+	}
 	return w
 }
 
