@@ -7,7 +7,8 @@ Freedom 桌面壳打包工具：把你的 Web 前端一键打包成跨平台桌�
 **v1.12.16 自动更新 + 完整 CLI 模式 + 壳生命周期全面防御**：
 - **自动检测版本并自动更新**：`freedom update` / `freedom check-update` 检测到新版本即自动执行 `npm install -g @yufengtadian/freedom-cli@latest` 升级，**不再需要手动执行 npm 命令**；每次命令执行成功后静默自检，发现新版自动更新（6 小时频控防骚扰，非全局安装给出明确升级指引）；TUI 主菜单「检查 / 自动更新」同步接入；
 - **完整 CLI 模式**：无参数运行 `freedom` 直接进入交互式完整 CLI（打包 / 新建项目 / 配置 / 壳管理 / 教程 / 自动更新 / 退出）；管道与脚本环境自动降级打印帮助，不卡死；
-- **壳生命周期全面防御（B51-B58 闭环）**：webview 全方法销毁防护、user32 proc 去重、WebView2 缺失可操作提示；`webview_create` 失败（如缺 WebKitGTK）返回 nil 后新壳走明确失败提示而非空指针崩溃；用户 `Bind` 的方法不再被 config.json 进程后端静默覆盖失效；help 文案与自动更新实现对齐，清理死代码。
+- **壳生命周期全面防御（B51-B58 闭环）**：webview 全方法销毁防护、user32 proc 去重、WebView2 缺失可操作提示；`webview_create` 失败（如缺 WebKitGTK）返回 nil 后新壳走明确失败提示而非空指针崩溃；用户 `Bind` 的方法不再被 config.json 进程后端静默覆盖失效；help 文案与自动更新实现对齐，清理死代码；
+- **安全加固（新增 high 安全模式，B59-B62 闭环）**：`freedom security <none|basic|high>` 三档安全模式，high 档把 resources 整体加密为 `app.bin`（AES-256-CTR + HMAC-SHA256，密钥经 PBKDF2 按应用派生），磁盘无明文 HTML/配置，壳内存解密 + `.integrity` 完整性校验（防整体替换 / 篡改 / exe 改名），另含 anti-debug（检测调试器即退出）与进程隐藏；详见下文「安全模式」章节。
 
 **v1.12.15 补发壳生命周期稳定性修复**：v1.12.14 的 npm 上架时间早于修复提交，上架版预编译壳未包含悬垂指针修复（窗口操作 / 代理端口触发随机退出的根因）；本版正式把含 B50 修复的预编译壳随 npm 包分发——
 - 壳销毁生命周期修复：`webview.Destroy()` 后经 Emit / Quit / WindowHandle / binding 回调访问已释放 C 对象（悬垂指针）导致随机退出；新增 `destroyed` 原子标记，Dispatch / Eval / binding 回调销毁后一律跳过原生调用，`Run` 在 `Destroy` 前清空 `App.view`，事件与绑定回调加 `recover` 兜底；
@@ -94,6 +95,7 @@ freedom icon icon.ico
 
 # 4. 打包
 freedom build                        # 默认当前平台
+freedom build --security high        # 以 high 安全模式构建（resources 加密，见「安全模式」）
 freedom build --platform all         # 三平台全量（win + mac + linux）
 freedom build --platform win-x64     # 仅 Windows
 freedom build --platform darwin-arm64   # 仅 macOS Apple Silicon
@@ -152,6 +154,7 @@ export default {
   minHeight: 300,
   center: true,          // 启动居中
   debug: false,          // 开发者工具
+  security: 'none',      // 安全模式：'none'（明文）| 'basic'（明文+提示）| 'high'（resources 加密，见「安全模式」）
   titlebar: 'frameless', // frameless（默认，标题栏不存在，三按钮由前端自绘）| native
   icon: undefined,       // 应用图标：Windows 用 .ico（推荐多尺寸），macOS 用 .icns
   outDir: 'dist',        // 产物目录：'dist'（默认）| '.'（项目根目录）| 任意路径
@@ -163,6 +166,35 @@ export default {
 - Windows：`.ico` 在构建时由 rcedit 注入 exe 资源（无需 VC 资源编译器），资源管理器 / 任务栏 / 快捷方式统一显示自定义图标；推荐含 16 / 32 / 48 / 256 多尺寸；
 - macOS：`.icns` 在构建时放入 `.app/Contents/Resources` 并写入 Info.plist 的 `CFBundleIconFile`；
 - 未配置时使用壳默认图标。`freedom icon <path>` 可直接写入该配置。
+
+## 安全模式
+
+默认产物把前端 HTML 与配置以明文写入 `resources/`，任何人解包即可直接读取页面源码与配置。如需防止源码被轻易提取，提供三档安全模式：
+
+| 模式 | 资源形态 | 破解难度 | 适用场景 |
+| --- | --- | --- | --- |
+| `none` | 明文 `index.html` + `config.json`（默认，兼容历史产物） | 解包即读 | 公开页面 / 调试 / 快速分发 |
+| `basic` | 同上明文，构建时额外输出加固建议 | 低 | 需要提示、暂不加密 |
+| `high` | 整体加密为 `resources/app.bin` + `.integrity`，磁盘**无任何明文** HTML/配置 | 高（需逆向壳 + 还原派生密钥） | 防源码提取、防资源篡改的正式分发 |
+
+**切换方式**（二选一，`--security` 可临时覆盖配置文件）：
+
+```bash
+freedom security high                # 写入 freedom.config.js 持久生效
+freedom build --security high        # 单次构建生效（不改配置）
+freedom build                        # 读取配置中的 security 值
+```
+
+**high 模式原理**：
+- 构建时：前端 HTML + 配置序列化后，用 **AES-256-CTR** 加密为 `app.bin`（容器头 `FRDM1` + 16B IV + 16B 认证标签），并生成 `.integrity` 完整性清单（`app.bin` 与 `backend/**` 各文件的 HMAC-SHA256）；
+- 加密密钥由 **PBKDF2-HMAC-SHA256**（6 万次迭代）按「应用可执行文件名」派生，不同应用密钥不同，暴力破解成本高；
+- 壳启动时：先校验 `.integrity`（防整体替换 / 篡改 / exe 改名），再恒定时间比对 HMAC 认证标签（Encrypt-then-MAC），最后内存中解密加载——**磁盘始终无明文**；
+- 解密 / 校验失败即拒绝运行（不静默回退明文，防降级攻击）；
+- 另内置 **anti-debug**（`IsDebuggerPresent` / `CheckRemoteDebuggerPresent` 命中即退出）与进程隐藏加固。
+
+**加固上限说明**：`high` 大幅提高破解门槛，但**任何客户端可执行程序都无法做到绝对不可破解**——密钥最终存在于壳二进制与运行时内存中。更高强度建议：壳编译时设置 `-ldflags "-s -w"` 剥离符号表（CI 编译壳时已可选开启）、对核心业务保留服务端校验。若需"怎么都解不开"，请把真正敏感的密钥 / 逻辑放到你的后端。
+
+**互斥规则**：切换安全模式重新构建时，CLI 会自动清理另一模式的遗留产物（`app.bin`/`.integrity` 与明文 `index.html`/`config.json` 只能存其一），避免壳误加载旧资源。
 
 ## 前端
 
@@ -186,8 +218,9 @@ window.freedom.window.minimize();                       // 窗口控制
 ```
 freedom tui                          # 交互式终端界面
 freedom init <目录> [--force]
-freedom build [--platform win-x64|darwin-arm64|linux-x64|all] [--no-cache]
+freedom build [--platform win-x64|darwin-arm64|linux-x64|all] [--no-cache] [--security none|basic|high]
 freedom titlebar <native|frameless>
+freedom security <none|basic|high>     # 设置安全模式（写入配置）
 freedom icon <path>                    # 设置应用图标（Windows 用 .ico，macOS 用 .icns）
 freedom config [get|set]
 freedom shell list|download <platform>|build <platform>

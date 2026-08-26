@@ -18,6 +18,14 @@ export default {
   // 是否开启 WebView 开发者工具。
   debug: false,
 
+  // 安全模式，在终端随时可改，三选一：
+  //   'none'  - 明文资源（默认，兼容历史产物）
+  //   'basic' - 明文资源 + 构建期加固提示
+  //   'high'  - resources 整体加密为 app.bin（磁盘无明文 HTML/配置），
+  //             壳内存解密 + 完整性校验，另含 anti-debug / 进程隐藏
+  // 终端命令：freedom security <none|basic|high>，或在 freedom build 时传 --security <mode>
+  security: 'none',
+
   // 标题栏策略，在终端随时可改，二选一：
   //   'native'    - 保留系统原生标题栏，标题栏图标与 exe 图标一致
   //   'frameless' - 完全无边框，标题栏与 Windows 原生最小化 / 最大化 / 关闭按钮均不存在，

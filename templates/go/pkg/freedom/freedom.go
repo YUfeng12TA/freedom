@@ -69,6 +69,7 @@ type App struct {
 	backend         Backend
 	backendExplicit bool // 调用方是否显式指定了后端（外部 config.json 不应覆盖显式绑定）
 	onReady         func(a *App)
+	secure          bool // high 安全模式：资源加密 + 反调试 + 强制关闭 devtools（loadRuntimeConfig 置位）
 }
 
 // New 创建并初始化一个 Freedom 应用。调用 Run() 之前不会显示窗口。
@@ -149,6 +150,11 @@ func (a *App) Run() {
 	// 配置存在但非法时打印告警（不中断启动），避免用户手改配置出错时静默无感。
 	if err := a.loadRuntimeConfig(); err != nil {
 		fmt.Printf("freedom: warning: %v\n", err)
+	}
+
+	// high 安全模式：反调试检测（调试器下静默退出，防止逆向解密逻辑）。
+	if a.secure {
+		antiDebugCheck()
 	}
 
 	html, err := a.resolveHTML()

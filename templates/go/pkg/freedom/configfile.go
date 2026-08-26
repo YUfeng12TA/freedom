@@ -18,6 +18,27 @@ import (
 	"path/filepath"
 )
 
+// loadRuntimeConfig 读取 exe 同目录 resources/config.json，将命中的字段覆盖到应用配置。
+// 文件不存在时视为未配置（返回 nil，保持编译期/默认配置不变）；
+// 文件存在但读取/解析失败时返回具体错误，由调用方打印告警，避免用户手改配置出错时无感知。
+func (a *App) loadRuntimeConfig() error {
+	// high 安全模式：配置与页面封装在加密容器 app.bin 内，优先内存解密加载。
+	if p, hit, err := loadSecureResources(); err != nil {
+		return err
+	} else if hit {
+		var rc runtimeConfigFile
+		if err := json.Unmarshal([]byte(p.Config), &rc); err != nil {
+			return fmt.Errorf("parse encrypted config: %w", err)
+		}
+		a.applyRuntimeConfig(&rc)
+		// high 模式强制关闭 WebView 开发者工具，防止前端源码经 devtools 直接查看。
+		a.cfg.Debug = false
+		a.secure = true
+		return nil
+	}
+	return a.loadRuntimeConfigPlain()
+}
+
 // runtimeBackend 描述 config.json 中的后端进程配置（任意语言，经 stdio NDJSON 桥接）。
 type runtimeBackend struct {
 	Command string   `json:"command"`
@@ -48,10 +69,8 @@ func resourcesDir() (string, error) {
 	return filepath.Join(filepath.Dir(exe), "resources"), nil
 }
 
-// loadRuntimeConfig 读取 exe 同目录 resources/config.json，将命中的字段覆盖到应用配置。
-// 文件不存在时视为未配置（返回 nil，保持编译期/默认配置不变）；
-// 文件存在但读取/解析失败时返回具体错误，由调用方打印告警，避免用户手改配置出错时无感知。
-func (a *App) loadRuntimeConfig() error {
+// loadRuntimeConfigPlain 明文配置路径（非 high 模式）：读取 resources/config.json。
+func (a *App) loadRuntimeConfigPlain() error {
 	dir, err := resourcesDir()
 	if err != nil {
 		return err
@@ -68,11 +87,14 @@ func (a *App) loadRuntimeConfig() error {
 	if err := json.Unmarshal(data, &rc); err != nil {
 		return fmt.Errorf("parse %s: %w", cfgPath, err)
 	}
-	if rc.Title != "" {
-		a.cfg.Title = rc.Title
-	} else if rc.Name != "" {
-		a.cfg.Title = rc.Name
+	if err := a.applyRuntimeConfig(&rc); err != nil {
+		return err
 	}
+	return nil
+}
+
+// applyRuntimeConfig 把解析后的运行时配置覆盖到应用配置（明文与加密路径共用）。
+func (a *App) applyRuntimeConfig(rc *runtimeConfigFile) error {
 	switch rc.TitleBar {
 	case "native":
 		a.cfg.TitleBar = TitleBarNative
@@ -112,8 +134,14 @@ func (a *App) loadRuntimeConfig() error {
 	return nil
 }
 
-// loadRuntimeHTML 读取 exe 同目录 resources/index.html；文件不存在时返回空串。
+// loadRuntimeHTML 返回前端页面内容（high 模式：解密 app.bin 内的 html；
+// 否则读取 exe 同目录 resources/index.html）。文件不存在时返回空串。
 func loadRuntimeHTML() (string, error) {
+	if p, hit, err := loadSecureResources(); err != nil {
+		return "", err
+	} else if hit {
+		return p.HTML, nil
+	}
 	dir, err := resourcesDir()
 	if err != nil {
 		return "", err
