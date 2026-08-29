@@ -154,6 +154,8 @@ func (a *App) Run() {
 		if err := a.backend.Close(); err != nil {
 			fmt.Fprintf(os.Stderr, "freedom: backend close: %v\n", err)
 		}
+		// 销毁前摘除引用：Run 返回后 Emit/Quit/WindowHandle 不得再触碰已销毁的 webview。
+		a.setView(nil)
 		w.Destroy()
 	}()
 

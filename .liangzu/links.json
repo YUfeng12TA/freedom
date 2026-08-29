@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "lastUpdated": "2026-08-29T19:10:01+08:00",
+  "lastUpdated": "2026-08-29T19:45:00+08:00",
   "edges": [
     {
       "from": "B01",
@@ -271,6 +271,54 @@
       "rel": "decision_for",
       "to": "MOD:freedom-cli",
       "note": "mtime 指纹构建缓存"
+    },
+    {
+      "from": "BUG-20260829-002",
+      "rel": "root_at",
+      "to": "FILE:freedom.go",
+      "note": ""
+    },
+    {
+      "from": "BUG-20260829-003",
+      "rel": "root_at",
+      "to": "FILE:window_windows.go",
+      "note": ""
+    },
+    {
+      "from": "BUG-20260829-004",
+      "rel": "root_at",
+      "to": "FILE:window_windows.go",
+      "note": ""
+    },
+    {
+      "from": "BUG-20260829-005",
+      "rel": "root_at",
+      "to": "FILE:backend_proc.go",
+      "note": ""
+    },
+    {
+      "from": "BUG-20260829-006",
+      "rel": "root_at",
+      "to": "FILE:backend_proc.go",
+      "note": ""
+    },
+    {
+      "from": "BUG-20260829-007",
+      "rel": "root_at",
+      "to": "FILE:center_windows.go",
+      "note": ""
+    },
+    {
+      "from": "BUG-20260829-008",
+      "rel": "root_at",
+      "to": "FILE:assets/freedom.js",
+      "note": ""
+    },
+    {
+      "from": "BUG-20260829-009",
+      "rel": "root_at",
+      "to": "FILE:backend_proc.go",
+      "note": ""
     }
   ]
 }

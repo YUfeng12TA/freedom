@@ -27,15 +27,15 @@ var (
 )
 
 const (
-	wsCaption   = 0x00C00000 // WS_CAPTION = WS_BORDER | WS_DLGFRAME
-	wsSysMenu   = 0x00080000
+	wsCaption    = 0x00C00000 // WS_CAPTION = WS_BORDER | WS_DLGFRAME
+	wsSysMenu    = 0x00080000
 	wsThickFrame = 0x00040000
 
-	swHide      = 0
-	swShow      = 5
-	swMinimize  = 6
-	swRestore   = 9
-	swMaximize  = 3
+	swHide     = 0
+	swShow     = 5
+	swMinimize = 6
+	swRestore  = 9
+	swMaximize = 3
 
 	swpFrameChanged = 0x0020
 	swpNoMove       = 0x0002
@@ -98,7 +98,9 @@ func windowControl(hwnd uintptr, action string, mode TitleBarMode) (interface{},
 	case "isMaximized":
 		return isZoomed(hwnd), nil
 	case "isFrameless":
-		return mode == TitleBarFrameless || mode == TitleBarHidden, nil
+		// 仅 frameless 返回 true：hidden 模式保留 DWM 原生按钮，
+		// 前端若据 isFrameless 自绘按钮会与原生按钮重叠。
+		return mode == TitleBarFrameless, nil
 	default:
 		return nil, fmt.Errorf("unknown window action %q", action)
 	}
@@ -127,10 +129,13 @@ func (a *App) applyTitleBar() {
 		// 隐藏标题栏视觉但保留系统原生按钮：DWM 玻璃扩展。
 		// 标题栏区域透明化并并入客户区，右上角的最小化 / 最大化 / 关闭按钮
 		// 由 DWM 继续原生绘制，标题文字置空。
-		m := margins{cxLeftWidth: 0, cxRightWidth: 0, cyTopHeight: 0, cyBottomHeight: 1}
+		// 标题栏区域并入客户区须扩展顶部（cyTopHeight），扩展底部不影响标题栏视觉。
+		m := margins{cxLeftWidth: 0, cxRightWidth: 0, cyTopHeight: 1, cyBottomHeight: 0}
 		procDwmExtendFrameIntoArea.Call(hwnd, uintptr(unsafe.Pointer(&m)))
 		// 标题文字一并清除，标题栏区域只保留系统按钮
-		procSetWindowText.Call(hwnd, uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr(""))))
+		if title, err := syscall.UTF16PtrFromString(""); err == nil {
+			procSetWindowText.Call(hwnd, uintptr(unsafe.Pointer(title)))
+		}
 		refreshFrame(hwnd)
 	default: // TitleBarNative：不处理
 	}

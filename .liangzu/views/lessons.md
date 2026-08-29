@@ -1,6 +1,6 @@
 # 教训（lessons）
 
-更新于 2026-08-29T19:10:01+08:00 · 共 4 条
+更新于 2026-08-29T19:45:00+08:00 · 共 5 条
 
 ## LES-1（2026-08-19）
 
@@ -25,3 +25,10 @@
 - **问题**：测试 TUI 时直接 emit('keypress') 无效：readline.emitKeypressEvents 会重写 input.emit 并拦截手动 keypress 事件
 - **解法**：mock stdin 时改为 emit('data', Buffer) 让 readline 走原始字节解析路径触发 keypress；无 TTY 下 setRawMode 不可用，需在 tui() 入口加 isTTY 守卫
 - **涉及**：`freedom-cli/lib/tui.js`
+
+## LES-5（2026-08-29）
+
+- **问题**：审查时把 window_windows.go:26 的 DwmExtendFrameIntoClientArea 误读为不存在的 DwmExtendFrameIntoArea，凭幻觉登记了一条 critical（API 名错误致启动 panic）；三路实证（go test Find 返回 nil、ctypes 导出表、go run 探针 + findstr 源码复核）交叉后证伪
+- **解法**：长相似标识符（仅差中间子串）一律以 grep/findstr 字符级复核替代肉眼 Read；对『存在性』类断言先写可执行验证（Find/hasattr）再下结论；误报条目当场撤销而非静默修改
+- **涉及**：`window_windows.go`、`.liangzu/bugs.json`
+

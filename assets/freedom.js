@@ -65,13 +65,14 @@
     var q = function (s) { return typeof s === 'string' ? document.querySelector(s) : s; };
     var min = q(sel && sel.min), max = q(sel && sel.max), close = q(sel && sel.close);
     var self = this;
-    if (min) min.addEventListener('click', function () { self.minimize(); });
+    var ignoreErr = function () { /* 桥接未就绪（如窗口销毁中）时忽略本次操作 */ };
+    if (min) min.addEventListener('click', function () { self.minimize().catch(ignoreErr); });
     if (max) max.addEventListener('click', function () {
       self.isMaximized().then(function (m) {
         if (m) self.unmaximize(); else self.maximize();
-      }).catch(function () { /* 桥接未就绪（如窗口销毁中）时忽略本次点击 */ });
+      }).catch(ignoreErr);
     });
-    if (close) close.addEventListener('click', function () { self.close(); });
+    if (close) close.addEventListener('click', function () { self.close().catch(ignoreErr); });
   };
 
   function windowAction(action) {

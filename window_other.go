@@ -13,7 +13,9 @@ func (a *App) applyTitleBar() {}
 func windowControl(hwnd uintptr, action string, mode TitleBarMode) (interface{}, error) {
 	switch action {
 	case "isFrameless":
-		return mode == TitleBarFrameless || mode == TitleBarHidden, nil
+		// 仅 frameless 返回 true（与 window_windows.go 语义一致）；
+		// hidden 模式回退原生标题栏，前端不应自绘按钮。
+		return mode == TitleBarFrameless, nil
 	case "isMaximized":
 		return false, nil
 	case "minimize", "maximize", "unmaximize", "restore", "toggleMaximize", "close":

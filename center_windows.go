@@ -39,10 +39,12 @@ type monitorInfo struct {
 // 使用 MonitorFromWindow + GetMonitorInfo：多显示器下相对窗口实际所在屏幕居中，
 // 且基于工作区（扣除任务栏）计算，不会遮挡任务栏；查询失败时回退主屏全屏尺寸估算。
 func (a *App) applyCenter() {
-	if !a.cfg.Center || a.view == nil {
+	// 与 Emit/Quit/WindowHandle 一致经 viewMu 访问，维持 view 字段的并发约定。
+	view := a.getView()
+	if !a.cfg.Center || view == nil {
 		return
 	}
-	hwnd := uintptr(unsafe.Pointer(a.view.Window()))
+	hwnd := uintptr(unsafe.Pointer(view.Window()))
 	if hwnd == 0 {
 		return
 	}

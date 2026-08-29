@@ -38,6 +38,37 @@ func binPath(name string) string {
 	return base
 }
 
+// errReadLoop 锁定 readLoop 的行为契约：stdout IO 错误（非 EOF）时也必须
+// 唤醒所有 pending 调用，不允许调用方无限等待（BUG-20260829-006 回归锁）。
+type errReader struct{}
+
+func (errReader) Read([]byte) (int, error) { return 0, errStdout("stdout boom") }
+
+type errStdout string
+
+func (e errStdout) Error() string { return string(e) }
+
+func TestProcBackendReadLoopWakesPendingOnIOError(t *testing.T) {
+	p := NewProcBackend("freedom-noop-backend")
+	// 注册后不再触碰 map（readLoop 会并发 delete），select 只读局部 channel，避免数据竞争。
+	ch := make(chan procResp, 1)
+	p.pending[1] = ch
+	done := make(chan struct{})
+	go func() {
+		p.readLoop(errReader{})
+		close(done)
+	}()
+	select {
+	case r := <-ch:
+		if r.err == nil {
+			t.Fatal("pending call woken without error")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("readLoop did not wake pending call on stdout IO error")
+	}
+	<-done
+}
+
 func testProcBackend(t *testing.T, cmd ...string) {
 	t.Helper()
 

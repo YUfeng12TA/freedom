@@ -148,9 +148,12 @@ func (p *ProcBackend) Handle(method string, params []json.RawMessage) (interface
 
 	var resp procResp
 	if p.timeout > 0 {
+		// NewTimer 便于超时后 Stop 释放；time.After 的 timer 会滞留到期才回收。
+		timer := time.NewTimer(p.timeout)
+		defer timer.Stop()
 		select {
 		case resp = <-ch:
-		case <-time.After(p.timeout):
+		case <-timer.C:
 			p.cancel(id, fmt.Errorf("freedom: proc backend: method %q timed out after %s", method, p.timeout))
 			return nil, fmt.Errorf("freedom: proc backend: method %q timed out after %s", method, p.timeout)
 		}
@@ -195,6 +198,10 @@ func (p *ProcBackend) readLoop(stdout io.Reader) {
 			continue
 		}
 		p.finish(msg)
+	}
+	// Scanner.Err 非 nil 即真实 IO 错误（EOF 不含在内），必须留痕以便排查。
+	if err := sc.Err(); err != nil {
+		fmt.Fprintf(os.Stderr, "freedom: proc backend: read stdout: %v\n", err)
 	}
 	// 后端进程已退出：唤醒所有仍等待中的调用。
 	err := fmt.Errorf("freedom: proc backend exited unexpectedly")
@@ -269,7 +276,12 @@ func (p *ProcBackend) Close() error {
 			if err := cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
 				fmt.Fprintf(os.Stderr, "freedom: backend kill: %v\n", err)
 			}
-			<-done
+			// Kill 也可能失败（权限等），等待必须有上限，否则 Close 永久阻塞。
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				fmt.Fprintf(os.Stderr, "freedom: backend: process did not exit after kill\n")
+			}
 		}
 	}
 	return nil
