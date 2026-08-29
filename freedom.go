@@ -20,6 +20,8 @@ package freedom
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"sync"
 	"unsafe"
 
 	webview "github.com/webview/webview_go"
@@ -51,7 +53,8 @@ type Config struct {
 	Height int
 	// Center 为 true 时窗口在屏幕居中（Windows 生效；macOS/Linux 由窗口管理器决定）。
 	Center bool
-	// MinWidth / MinHeight 为窗口最小尺寸（<=0 表示不限制）。
+	// MinWidth / MinHeight 为窗口最小尺寸。两个字段均 >0 时作为一组约束生效
+	//（webview 的 HintMin 按整组应用）；任一 <=0 表示不启用最小尺寸限制。
 	MinWidth  int
 	MinHeight int
 	// Debug 为 true 时开启 WebView 开发者工具（目标平台支持时）。
@@ -67,8 +70,22 @@ type Config struct {
 type App struct {
 	cfg     Config
 	view    webview.WebView
+	viewMu  sync.RWMutex // 保护 view：Emit/Quit/WindowHandle 承诺可从任意 goroutine 调用
 	backend Backend
 	onReady func(a *App)
+}
+
+// setView / getView 提供 view 字段的并发安全访问。
+func (a *App) setView(w webview.WebView) {
+	a.viewMu.Lock()
+	a.view = w
+	a.viewMu.Unlock()
+}
+
+func (a *App) getView() webview.WebView {
+	a.viewMu.RLock()
+	defer a.viewMu.RUnlock()
+	return a.view
 }
 
 // New 创建并初始化一个 Freedom 应用。调用 Run() 之前不会显示窗口。
@@ -132,9 +149,11 @@ func (a *App) Run() {
 		fmt.Println("freedom: failed to create webview")
 		return
 	}
-	a.view = w
+	a.setView(w)
 	defer func() {
-		_ = a.backend.Close()
+		if err := a.backend.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "freedom: backend close: %v\n", err)
+		}
 		w.Destroy()
 	}()
 
@@ -189,7 +208,21 @@ func (a *App) Run() {
 // bridge 是前端调用后端的统一入口（JSON-RPC 风格）。
 // 前端 SDK 通过 window.__freedom_bridge(method, paramsJson) 调用，
 // 桥接层把请求转发给当前绑定的后端（内嵌 Go 方法或任意语言进程）。
-func (a *App) bridge(method string, paramsJSON string) (json.RawMessage, error) {
+func (a *App) bridge(method string, paramsJSON string) (result json.RawMessage, err error) {
+	// 防御后端方法 panic 导致整个窗口崩溃：统一转为错误回传前端。
+	defer func() {
+		if r := recover(); r != nil {
+			result = nil
+			err = fmt.Errorf("freedom: method %q panicked: %v", method, r)
+		}
+	}()
+
+	// 框架内置健康检查：__freedom__ping 同时以 JS 直调全局函数与桥接路由两种方式
+	// 暴露（占位页/文档示例走桥接路由），此处兜底保证两条链路行为一致。
+	if method == "__freedom__ping" {
+		return json.RawMessage(`"pong"`), nil
+	}
+
 	var params []json.RawMessage
 	if len(paramsJSON) > 0 && paramsJSON != "null" {
 		if err := json.Unmarshal([]byte(paramsJSON), &params); err != nil {
@@ -197,11 +230,11 @@ func (a *App) bridge(method string, paramsJSON string) (json.RawMessage, error) 
 		}
 	}
 
-	result, err := a.backend.Handle(method, params)
+	raw, err := a.backend.Handle(method, params)
 	if err != nil {
 		return nil, err
 	}
-	data, err := json.Marshal(result)
+	data, err := json.Marshal(raw)
 	if err != nil {
 		return nil, fmt.Errorf("freedom: method %q: cannot marshal result: %w", method, err)
 	}
@@ -211,7 +244,8 @@ func (a *App) bridge(method string, paramsJSON string) (json.RawMessage, error) 
 // Emit 把事件推送到前端。前端通过 window.freedom.on(event, cb) 订阅。
 // 线程安全：可从任意 goroutine 调用（进程后端推送的事件亦经由本函数）。
 func (a *App) Emit(event string, data interface{}) {
-	if a.view == nil {
+	view := a.getView()
+	if view == nil {
 		return
 	}
 	eb, _ := json.Marshal(event)
@@ -220,26 +254,28 @@ func (a *App) Emit(event string, data interface{}) {
 		db = []byte("null")
 	}
 	js := "window.freedom && window.freedom.emit(" + string(eb) + "," + string(db) + ");"
-	a.view.Dispatch(func() {
-		a.view.Eval(js)
+	view.Dispatch(func() {
+		view.Eval(js)
 	})
 }
 
 // Quit 关闭窗口并退出应用。可从任意 goroutine 调用。
 func (a *App) Quit() {
-	if a.view != nil {
-		a.view.Dispatch(func() {
-			a.view.Terminate()
+	view := a.getView()
+	if view != nil {
+		view.Dispatch(func() {
+			view.Terminate()
 		})
 	}
 }
 
 // WindowHandle 返回底层原生窗口句柄（Windows 上为 HWND）。
 func (a *App) WindowHandle() uintptr {
-	if a.view == nil {
+	view := a.getView()
+	if view == nil {
 		return 0
 	}
-	return uintptr(unsafe.Pointer(a.view.Window()))
+	return uintptr(unsafe.Pointer(view.Window()))
 }
 
 // windowControl 处理前端 window.freedom.window.* 的窗口控制请求。

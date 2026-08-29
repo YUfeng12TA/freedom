@@ -62,7 +62,7 @@ freedom/
 
 ```bash
 # 1) 构建全部（壳 + Go 后端 + Rust 后端，脚本后端直接复制）
-.uild.ps1                 # Windows
+.\build.ps1                 # Windows
 ./build.sh                  # macOS / Linux
 
 # 2) 运行多后端示例（默认 Go 后端；可换 node / python / rust）
@@ -116,7 +116,8 @@ app.Run()
 | --- | --- | --- | --- |
 | Windows | WebView2（Win11 自带） | 无 | `build.ps1` |
 | macOS | WKWebView | Xcode CLT | `build.sh` |
-| Linux | WebKitGTK | `libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev` | `build.sh` |
+| Linux | WebKitGTK | `libwebkit2gtk-4.0-dev libgtk-3-dev libayatana-appindicator3-dev
+  （注意是 4.0：webview_go 的 pkg-config 包为 webkit2gtk-4.0；该包在 Ubuntu 24.04+ 已移除，请用 22.04 构建）` | `build.sh` |
 
 GitHub Actions：`.github/workflows/build.yml` 在三个 runner 上分别编译壳层 + 编译型后端、
 跑四语言 IPC 协议测试并上传产物。macOS/Linux 交叉编译不可行（依赖系统 WebKit），
@@ -125,6 +126,7 @@ GitHub Actions：`.github/workflows/build.yml` 在三个 runner 上分别编译�
 ## 测试
 
 ```bash
+# 先运行 build.ps1 / build.sh 产出编译型后端二进制（缺失时对应子测试自动跳过）
 go test -v ./...   # 同一套断言跑 Go / Node / Python / Rust 四个后端（调用/错误/事件）
 ```
 

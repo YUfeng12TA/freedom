@@ -1,0 +1,22 @@
+{
+  "version": 4,
+  "project": "freedom (自研 desktop exe 打包框架)",
+  "migratedFrom": "knowledge-atlas.json (单文件) @ 2026-08-29",
+  "shards": {
+    "map": {
+      "lastUpdated": "2026-08-29T19:10:01+08:00"
+    },
+    "bugs": {
+      "lastUpdated": "2026-08-29T19:10:01+08:00"
+    },
+    "lessons": {
+      "lastUpdated": "2026-08-29T19:10:01+08:00"
+    },
+    "decisions": {
+      "lastUpdated": "2026-08-29T19:10:01+08:00"
+    },
+    "links": {
+      "lastUpdated": "2026-08-29T19:10:01+08:00"
+    }
+  }
+}

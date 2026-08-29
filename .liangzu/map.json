@@ -1,0 +1,1102 @@
+{
+  "version": 4,
+  "lastUpdated": "2026-08-29T19:10:01+08:00",
+  "directories": [
+    ".github/workflows",
+    "assets",
+    "examples/hello",
+    "examples/multiproc",
+    "examples/multiproc/backends",
+    "freedom-cli",
+    "freedom-cli/bin",
+    "freedom-cli/lib",
+    "freedom-cli/templates/go",
+    "freedom-cli/templates/go/pkg/freedom",
+    "freedom-cli/templates/go/pkg/freedom/assets",
+    "freedom-cli/templates/project",
+    "freedom-cli/templates/project/src",
+    "freedom-cli/tutorial"
+  ],
+  "files": [
+    {
+      "path": "assets_embed.go",
+      "type": "source",
+      "language": "go",
+      "purpose": "",
+      "exports": []
+    },
+    {
+      "path": "backend.go",
+      "type": "source",
+      "language": "go",
+      "purpose": "",
+      "exports": [
+        "Backend"
+      ]
+    },
+    {
+      "path": "backend_proc.go",
+      "type": "source",
+      "language": "go",
+      "purpose": "",
+      "exports": [
+        "Close",
+        "Handle",
+        "NewProcBackend",
+        "OnEvent",
+        "ProcBackend",
+        "SetTimeout"
+      ]
+    },
+    {
+      "path": "backend_proc_test.go",
+      "type": "source",
+      "language": "go",
+      "purpose": "",
+      "exports": [
+        "TestProcBackendGo",
+        "TestProcBackendNode",
+        "TestProcBackendPython",
+        "TestProcBackendRust"
+      ]
+    },
+    {
+      "path": "bridge.go",
+      "type": "source",
+      "language": "go",
+      "purpose": "",
+      "exports": [
+        "Bind",
+        "Close",
+        "EmbedBackend",
+        "Handle",
+        "NewEmbedBackend",
+        "Unbind"
+      ]
+    },
+    {
+      "path": "build.ps1",
+      "type": "script",
+      "language": "ps1",
+      "purpose": "",
+      "exports": []
+    },
+    {
+      "path": "build.sh",
+      "type": "script",
+      "language": "sh",
+      "purpose": "",
+      "exports": []
+    },
+    {
+      "path": "center_other.go",
+      "type": "source",
+      "language": "go",
+      "purpose": "",
+      "exports": []
+    },
+    {
+      "path": "center_windows.go",
+      "type": "source",
+      "language": "go",
+      "purpose": "",
+      "exports": []
+    },
+    {
+      "path": "freedom.go",
+      "type": "source",
+      "language": "go",
+      "purpose": "",
+      "exports": [
+        "App",
+        "Bind",
+        "Config",
+        "Emit",
+        "New",
+        "OnReady",
+        "Quit",
+        "Run",
+        "TitleBarMode",
+        "Unbind",
+        "WindowHandle"
+      ]
+    },
+    {
+      "path": "go.mod",
+      "type": "asset",
+      "language": "unknown",
+      "purpose": "",
+      "exports": []
+    },
+    {
+      "path": "proc_hide_other.go",
+      "type": "source",
+      "language": "go",
+      "purpose": "",
+      "exports": []
+    },
+    {
+      "path": "proc_hide_windows.go",
+      "type": "source",
+      "language": "go",
+      "purpose": "",
+      "exports": []
+    },
+    {
+      "path": "README.md",
+      "type": "doc",
+      "language": "unknown",
+      "purpose": "",
+      "exports": []
+    },
+    {
+      "path": "window_other.go",
+      "type": "source",
+      "language": "go",
+      "purpose": "",
+      "exports": []
+    },
+    {
+      "path": "window_windows.go",
+      "type": "source",
+      "language": "go",
+      "purpose": "",
+      "exports": []
+    },
+    {
+      "path": ".github/workflows/build.yml",
+      "type": "config",
+      "language": "unknown",
+      "purpose": "",
+      "exports": []
+    },
+    {
+      "path": "assets/default.html",
+      "type": "asset",
+      "language": "unknown",
+      "purpose": "",
+      "exports": []
+    },
+    {
+      "path": "assets/freedom.js",
+      "type": "source",
+      "language": "js",
+      "purpose": "",
+      "exports": []
+    },
+    {
+      "path": "examples/hello/index.html",
+      "type": "asset",
+      "language": "unknown",
+      "purpose": "",
+      "exports": []
+    },
+    {
+      "path": "examples/hello/main.go",
+      "type": "source",
+      "language": "go",
+      "purpose": "",
+      "exports": []
+    },
+    {
+      "path": "examples/multiproc/index.html",
+      "type": "asset",
+      "language": "unknown",
+      "purpose": "",
+      "exports": []
+    },
+    {
+      "path": "examples/multiproc/main.go",
+      "type": "source",
+      "language": "go",
+      "purpose": "",
+      "exports": []
+    },
+    {
+      "path": "examples/multiproc/backends/go_backend.exe",
+      "type": "asset",
+      "language": "unknown",
+      "purpose": "",
+      "exports": []
+    },
+    {
+      "path": "examples/multiproc/backends/go_backend.go",
+      "type": "source",
+      "language": "go",
+      "purpose": "",
+      "exports": []
+    },
+    {
+      "path": "examples/multiproc/backends/node_backend.mjs",
+      "type": "source",
+      "language": "js",
+      "purpose": "",
+      "exports": []
+    },
+    {
+      "path": "examples/multiproc/backends/py_backend.py",
+      "type": "source",
+      "language": "py",
+      "purpose": "",
+      "exports": [
+        "emit_tick",
+        "handle"
+      ]
+    },
+    {
+      "path": "examples/multiproc/backends/rust_backend.exe",
+      "type": "asset",
+      "language": "unknown",
+      "purpose": "",
+      "exports": []
+    },
+    {
+      "path": "examples/multiproc/backends/rust_backend.rs",
+      "type": "source",
+      "language": "rs",
+      "purpose": "",
+      "exports": [
+        "escape",
+        "get_id",
+        "get_params",
+        "get_str_field",
+        "handle",
+        "main",
+        "next_elem"
+      ]
+    },
+    {
+      "path": "freedom-cli/package.json",
+      "type": "config",
+      "language": "unknown",
+      "purpose": "",
+      "exports": []
+    },
+    {
+      "path": "freedom-cli/postinstall.js",
+      "type": "source",
+      "language": "js",
+      "purpose": "",
+      "exports": []
+    },
+    {
+      "path": "freedom-cli/README.md",
+      "type": "doc",
+      "language": "unknown",
+      "purpose": "",
+      "exports": []
+    },
+    {
+      "path": "freedom-cli/bin/freedom.js",
+      "type": "source",
+      "language": "js",
+      "purpose": "",
+      "exports": []
+    },
+    {
+      "path": "freedom-cli/lib/build.js",
+      "type": "source",
+      "language": "js",
+      "purpose": "前端打包与平台分发：vite 单文件构建缓存（源码 mtime 指纹）、多平台并行分发（Promise.all 异步 IO）、壳复制与 resources 写入",
+      "exports": [
+        "build",
+        "parsePlatforms"
+      ]
+    },
+    {
+      "path": "freedom-cli/lib/cli.js",
+      "type": "source",
+      "language": "js",
+      "purpose": "CLI 命令分发：init/build/titlebar/config/shell/tutorial/tui/help，build 支持 --platform 与 --no-cache",
+      "exports": [
+        "run"
+      ]
+    },
+    {
+      "path": "freedom-cli/lib/config.js",
+      "type": "source",
+      "language": "js",
+      "purpose": "",
+      "exports": []
+    },
+    {
+      "path": "freedom-cli/lib/init.js",
+      "type": "source",
+      "language": "js",
+      "purpose": "",
+      "exports": []
+    },
+    {
+      "path": "freedom-cli/lib/utils.js",
+      "type": "source",
+      "language": "js",
+      "purpose": "",
+      "exports": []
+    },
+    {
+      "path": "freedom-cli/templates/go/gen_config.go",
+      "type": "source",
+      "language": "go",
+      "purpose": "",
+      "exports": []
+    },
+    {
+      "path": "freedom-cli/templates/go/go.mod",
+      "type": "asset",
+      "language": "unknown",
+      "purpose": "",
+      "exports": []
+    },
+    {
+      "path": "freedom-cli/templates/go/main.go",
+      "type": "source",
+      "language": "go",
+      "purpose": "",
+      "exports": []
+    },
+    {
+      "path": "freedom-cli/templates/go/pkg/freedom/assets_embed.go",
+      "type": "source",
+      "language": "go",
+      "purpose": "",
+      "exports": []
+    },
+    {
+      "path": "freedom-cli/templates/go/pkg/freedom/backend.go",
+      "type": "source",
+      "language": "go",
+      "purpose": "",
+      "exports": [
+        "Backend"
+      ]
+    },
+    {
+      "path": "freedom-cli/templates/go/pkg/freedom/backend_proc.go",
+      "type": "source",
+      "language": "go",
+      "purpose": "",
+      "exports": [
+        "Close",
+        "Handle",
+        "NewProcBackend",
+        "OnEvent",
+        "ProcBackend",
+        "SetTimeout"
+      ]
+    },
+    {
+      "path": "freedom-cli/templates/go/pkg/freedom/bridge.go",
+      "type": "source",
+      "language": "go",
+      "purpose": "",
+      "exports": [
+        "Bind",
+        "Close",
+        "EmbedBackend",
+        "Handle",
+        "NewEmbedBackend",
+        "Unbind"
+      ]
+    },
+    {
+      "path": "freedom-cli/templates/go/pkg/freedom/center_other.go",
+      "type": "source",
+      "language": "go",
+      "purpose": "",
+      "exports": []
+    },
+    {
+      "path": "freedom-cli/templates/go/pkg/freedom/center_windows.go",
+      "type": "source",
+      "language": "go",
+      "purpose": "",
+      "exports": []
+    },
+    {
+      "path": "freedom-cli/templates/go/pkg/freedom/freedom.go",
+      "type": "source",
+      "language": "go",
+      "purpose": "",
+      "exports": [
+        "App",
+        "Bind",
+        "Config",
+        "Emit",
+        "New",
+        "OnReady",
+        "Quit",
+        "Run",
+        "TitleBarMode",
+        "Unbind",
+        "WindowHandle"
+      ]
+    },
+    {
+      "path": "freedom-cli/templates/go/pkg/freedom/proc_hide_other.go",
+      "type": "source",
+      "language": "go",
+      "purpose": "",
+      "exports": []
+    },
+    {
+      "path": "freedom-cli/templates/go/pkg/freedom/proc_hide_windows.go",
+      "type": "source",
+      "language": "go",
+      "purpose": "",
+      "exports": []
+    },
+    {
+      "path": "freedom-cli/templates/go/pkg/freedom/window_other.go",
+      "type": "source",
+      "language": "go",
+      "purpose": "",
+      "exports": []
+    },
+    {
+      "path": "freedom-cli/templates/go/pkg/freedom/window_windows.go",
+      "type": "source",
+      "language": "go",
+      "purpose": "",
+      "exports": []
+    },
+    {
+      "path": "freedom-cli/templates/go/pkg/freedom/assets/freedom.js",
+      "type": "source",
+      "language": "js",
+      "purpose": "",
+      "exports": []
+    },
+    {
+      "path": "freedom-cli/templates/project/.gitignore",
+      "type": "asset",
+      "language": "unknown",
+      "purpose": "",
+      "exports": []
+    },
+    {
+      "path": "freedom-cli/templates/project/freedom.config.js",
+      "type": "source",
+      "language": "js",
+      "purpose": "",
+      "exports": []
+    },
+    {
+      "path": "freedom-cli/templates/project/index.html",
+      "type": "asset",
+      "language": "unknown",
+      "purpose": "",
+      "exports": []
+    },
+    {
+      "path": "freedom-cli/templates/project/package.json",
+      "type": "config",
+      "language": "unknown",
+      "purpose": "",
+      "exports": []
+    },
+    {
+      "path": "freedom-cli/templates/project/vite.config.js",
+      "type": "source",
+      "language": "js",
+      "purpose": "",
+      "exports": []
+    },
+    {
+      "path": "freedom-cli/templates/project/src/main.js",
+      "type": "source",
+      "language": "js",
+      "purpose": "",
+      "exports": []
+    },
+    {
+      "path": "freedom-cli/tutorial/tutorial.html",
+      "type": "asset",
+      "language": "unknown",
+      "purpose": "",
+      "exports": []
+    },
+    {
+      "path": "freedom-cli/lib/shell.js",
+      "type": "source",
+      "language": "js",
+      "purpose": "预编译壳管理：listLocal/hasShell/downloadShell/buildShell，含 30s 下载超时",
+      "exports": [
+        "listLocal",
+        "hasShell",
+        "downloadShell",
+        "buildShell",
+        "releaseRepo",
+        "releaseTag"
+      ]
+    },
+    {
+      "path": "freedom-cli/lib/tui.js",
+      "type": "source",
+      "language": "js",
+      "purpose": "零依赖 TUI 交互界面：基于 readline+ANSI 的菜单/多选/输入/确认组件，以及 build/init/config/shell/tutorial 五个子流程",
+      "exports": [
+        "tui",
+        "TUI"
+      ]
+    },
+    {
+      "path": "freedom-cli/lib/security.js",
+      "type": "source",
+      "language": "js",
+      "purpose": "安全模式 none/basic/high：resources 资源加密（app.bin）与反调试",
+      "exports": []
+    },
+    {
+      "path": "freedom-cli/lib/update.js",
+      "type": "source",
+      "language": "js",
+      "purpose": "npm registry 版本检测与自动更新（freedom update / 启动自检）",
+      "exports": [
+        "checkUpdate",
+        "maybeAutoUpdate",
+        "formatUpdateResult"
+      ]
+    },
+    {
+      "path": "freedom-cli/lib/dmg.js",
+      "type": "source",
+      "language": "js",
+      "purpose": "macOS DMG 镜像打包支持",
+      "exports": []
+    },
+    {
+      "path": "freedom-cli/lib/theme.js",
+      "type": "source",
+      "language": "js",
+      "purpose": "TUI 主题与着色（Claude Code 风格界面）",
+      "exports": []
+    }
+  ],
+  "modules": [
+    {
+      "name": "freedom-core",
+      "path": ".",
+      "responsibility": "Go 核心运行时：webview 封装、前后端 bridge、后端进程管理、窗口与进程隐藏",
+      "dependencies": [
+        "github.com/webview/webview_go"
+      ],
+      "consumers": []
+    },
+    {
+      "name": "freedom-cli",
+      "path": "freedom-cli",
+      "responsibility": "Node CLI 脚手架 v1.12.17：init/build/config/shell/tutorial/tui/update + 安全模式（资源加密/反调试）+ 预编译壳分发",
+      "dependencies": [
+        "github.com/webview/webview_go"
+      ],
+      "consumers": []
+    },
+    {
+      "name": "frontend",
+      "path": "frontend",
+      "responsibility": "前端模板源",
+      "dependencies": [],
+      "consumers": []
+    },
+    {
+      "name": "examples",
+      "path": "examples",
+      "responsibility": "示例项目（hello / multiproc）",
+      "dependencies": [],
+      "consumers": []
+    }
+  ],
+  "callGraph": {
+    "Backend": {
+      "definedIn": "backend.go",
+      "calls": [],
+      "calledBy": [
+        "freedom-cli/templates/go/pkg/freedom/backend.go",
+        "freedom-cli/templates/go/pkg/freedom/freedom.go",
+        "bridge.go",
+        "examples/multiproc/main.go",
+        "freedom-cli/lib/build.js",
+        "freedom.go",
+        "freedom-cli/templates/go/pkg/freedom/bridge.go",
+        "freedom-cli/templates/go/pkg/freedom/backend_proc.go",
+        "backend.go:self",
+        "backend_proc.go",
+        "backend_proc_test.go"
+      ]
+    },
+    "Close": {
+      "definedIn": "backend_proc.go",
+      "calls": [],
+      "calledBy": [
+        "backend.go",
+        "freedom-cli/templates/go/pkg/freedom/backend.go",
+        "freedom-cli/templates/go/pkg/freedom/freedom.go",
+        "bridge.go",
+        "freedom-cli/templates/project/src/main.js",
+        "freedom-cli/templates/go/pkg/freedom/window_windows.go",
+        "freedom.go",
+        "examples/hello/main.go",
+        "freedom-cli/templates/go/pkg/freedom/bridge.go",
+        "freedom-cli/templates/go/pkg/freedom/backend_proc.go",
+        "window_windows.go",
+        "backend_proc_test.go",
+        "backend_proc.go:self"
+      ]
+    },
+    "Handle": {
+      "definedIn": "backend_proc.go",
+      "calls": [],
+      "calledBy": [
+        "backend.go",
+        "freedom-cli/templates/go/pkg/freedom/backend.go",
+        "freedom-cli/templates/go/pkg/freedom/freedom.go",
+        "bridge.go",
+        "freedom-cli/templates/go/pkg/freedom/window_windows.go",
+        "freedom.go",
+        "freedom-cli/templates/go/pkg/freedom/bridge.go",
+        "freedom-cli/templates/go/pkg/freedom/backend_proc.go",
+        "window_windows.go",
+        "backend_proc_test.go",
+        "backend_proc.go:self"
+      ]
+    },
+    "NewProcBackend": {
+      "definedIn": "backend_proc.go",
+      "calls": [],
+      "calledBy": [
+        "examples/multiproc/main.go",
+        "backend_proc_test.go",
+        "backend_proc.go:self",
+        "freedom-cli/templates/go/pkg/freedom/backend_proc.go"
+      ]
+    },
+    "OnEvent": {
+      "definedIn": "backend_proc.go",
+      "calls": [],
+      "calledBy": [
+        "freedom-cli/templates/go/pkg/freedom/freedom.go",
+        "freedom.go",
+        "freedom-cli/templates/go/pkg/freedom/backend_proc.go",
+        "backend_proc_test.go",
+        "backend_proc.go:self"
+      ]
+    },
+    "ProcBackend": {
+      "definedIn": "backend_proc.go",
+      "calls": [],
+      "calledBy": [
+        "backend.go",
+        "freedom-cli/templates/go/pkg/freedom/backend.go",
+        "freedom-cli/templates/go/pkg/freedom/freedom.go",
+        "examples/multiproc/main.go",
+        "freedom.go",
+        "freedom-cli/templates/go/pkg/freedom/backend_proc.go",
+        "backend_proc_test.go",
+        "backend_proc.go:self"
+      ]
+    },
+    "SetTimeout": {
+      "definedIn": "backend_proc.go",
+      "calls": [],
+      "calledBy": [
+        "backend_proc_test.go",
+        "backend_proc.go:self",
+        "freedom-cli/templates/go/pkg/freedom/backend_proc.go"
+      ]
+    },
+    "TestProcBackendGo": {
+      "definedIn": "backend_proc_test.go",
+      "calls": [],
+      "calledBy": []
+    },
+    "TestProcBackendNode": {
+      "definedIn": "backend_proc_test.go",
+      "calls": [],
+      "calledBy": []
+    },
+    "TestProcBackendPython": {
+      "definedIn": "backend_proc_test.go",
+      "calls": [],
+      "calledBy": []
+    },
+    "TestProcBackendRust": {
+      "definedIn": "backend_proc_test.go",
+      "calls": [],
+      "calledBy": []
+    },
+    "Bind": {
+      "definedIn": "bridge.go",
+      "calls": [],
+      "calledBy": [
+        "backend.go",
+        "freedom-cli/templates/go/pkg/freedom/backend.go",
+        "freedom-cli/templates/go/pkg/freedom/freedom.go",
+        "freedom-cli/templates/go/pkg/freedom/assets/freedom.js",
+        "assets/freedom.js",
+        "bridge.go:self",
+        "freedom.go",
+        "examples/hello/main.go",
+        "freedom-cli/templates/go/pkg/freedom/bridge.go",
+        "assets_embed.go"
+      ]
+    },
+    "EmbedBackend": {
+      "definedIn": "bridge.go",
+      "calls": [],
+      "calledBy": [
+        "freedom-cli/templates/go/pkg/freedom/backend.go",
+        "backend.go",
+        "freedom-cli/templates/go/pkg/freedom/freedom.go",
+        "bridge.go:self",
+        "freedom.go",
+        "freedom-cli/templates/go/pkg/freedom/bridge.go"
+      ]
+    },
+    "NewEmbedBackend": {
+      "definedIn": "bridge.go",
+      "calls": [],
+      "calledBy": [
+        "freedom.go",
+        "freedom-cli/templates/go/pkg/freedom/bridge.go",
+        "freedom-cli/templates/go/pkg/freedom/freedom.go",
+        "bridge.go:self"
+      ]
+    },
+    "Unbind": {
+      "definedIn": "bridge.go",
+      "calls": [],
+      "calledBy": [
+        "freedom.go",
+        "freedom-cli/templates/go/pkg/freedom/bridge.go",
+        "freedom-cli/templates/go/pkg/freedom/freedom.go",
+        "bridge.go:self"
+      ]
+    },
+    "App": {
+      "definedIn": "freedom.go",
+      "calls": [],
+      "calledBy": [
+        "window_other.go",
+        "freedom-cli/templates/go/pkg/freedom/freedom.go",
+        "freedom-cli/templates/go/gen_config.go",
+        "freedom-cli/templates/go/pkg/freedom/center_other.go",
+        "freedom-cli/templates/go/pkg/freedom/center_windows.go",
+        "freedom-cli/templates/go/pkg/freedom/window_other.go",
+        "center_other.go",
+        "freedom-cli/templates/go/pkg/freedom/window_windows.go",
+        "center_windows.go",
+        "freedom-cli/templates/go/pkg/freedom/backend_proc.go",
+        "window_windows.go",
+        "backend_proc.go",
+        "freedom.go:self"
+      ]
+    },
+    "Config": {
+      "definedIn": "freedom.go",
+      "calls": [],
+      "calledBy": [
+        "freedom-cli/templates/go/pkg/freedom/freedom.go",
+        "examples/multiproc/main.go",
+        "freedom-cli/lib/utils.js",
+        "freedom-cli/templates/go/gen_config.go",
+        "freedom-cli/templates/go/main.go",
+        "freedom-cli/lib/build.js",
+        "freedom-cli/lib/config.js",
+        "freedom-cli/templates/project/vite.config.js",
+        "examples/hello/main.go",
+        "freedom-cli/lib/cli.js",
+        "freedom.go:self"
+      ]
+    },
+    "Emit": {
+      "definedIn": "freedom.go",
+      "calls": [],
+      "calledBy": [
+        "freedom-cli/templates/go/pkg/freedom/freedom.go",
+        "freedom-cli/templates/go/pkg/freedom/assets/freedom.js",
+        "assets/freedom.js",
+        "examples/hello/main.go",
+        "freedom.go:self"
+      ]
+    },
+    "New": {
+      "definedIn": "freedom.go",
+      "calls": [],
+      "calledBy": [
+        "freedom-cli/templates/go/pkg/freedom/freedom.go",
+        "bridge.go",
+        "examples/multiproc/main.go",
+        "freedom-cli/templates/go/main.go",
+        "freedom-cli/templates/go/pkg/freedom/center_windows.go",
+        "freedom-cli/templates/go/pkg/freedom/window_windows.go",
+        "center_windows.go",
+        "examples/hello/main.go",
+        "examples/multiproc/backends/go_backend.go",
+        "freedom-cli/templates/go/pkg/freedom/bridge.go",
+        "freedom-cli/templates/go/pkg/freedom/backend_proc.go",
+        "window_windows.go",
+        "backend_proc.go",
+        "backend_proc_test.go",
+        "freedom.go:self"
+      ]
+    },
+    "OnReady": {
+      "definedIn": "freedom.go",
+      "calls": [],
+      "calledBy": [
+        "freedom-cli/templates/go/pkg/freedom/freedom.go",
+        "freedom.go:self"
+      ]
+    },
+    "Quit": {
+      "definedIn": "freedom.go",
+      "calls": [],
+      "calledBy": [
+        "freedom-cli/templates/go/pkg/freedom/freedom.go",
+        "freedom.go:self"
+      ]
+    },
+    "Run": {
+      "definedIn": "freedom.go",
+      "calls": [],
+      "calledBy": [
+        "freedom-cli/templates/go/pkg/freedom/freedom.go",
+        "examples/multiproc/main.go",
+        "freedom-cli/templates/go/main.go",
+        "examples/hello/main.go",
+        "freedom-cli/templates/go/pkg/freedom/backend_proc.go",
+        "backend_proc.go",
+        "freedom.go:self"
+      ]
+    },
+    "TitleBarMode": {
+      "definedIn": "freedom.go",
+      "calls": [],
+      "calledBy": [
+        "window_other.go",
+        "freedom-cli/templates/go/pkg/freedom/freedom.go",
+        "freedom-cli/templates/go/pkg/freedom/window_windows.go",
+        "freedom-cli/templates/go/pkg/freedom/window_other.go",
+        "window_windows.go",
+        "freedom.go:self"
+      ]
+    },
+    "WindowHandle": {
+      "definedIn": "freedom.go",
+      "calls": [],
+      "calledBy": [
+        "window_windows.go",
+        "freedom-cli/templates/go/pkg/freedom/freedom.go",
+        "freedom-cli/templates/go/pkg/freedom/window_windows.go",
+        "freedom.go:self"
+      ]
+    },
+    "emit_tick": {
+      "definedIn": "examples/multiproc/backends/py_backend.py",
+      "calls": [],
+      "calledBy": [
+        "examples/multiproc/backends/py_backend.py:self"
+      ]
+    },
+    "handle": {
+      "definedIn": "examples/multiproc/backends/py_backend.py",
+      "calls": [],
+      "calledBy": [
+        "examples/multiproc/backends/py_backend.py:self",
+        "examples/multiproc/backends/rust_backend.rs"
+      ]
+    },
+    "escape": {
+      "definedIn": "examples/multiproc/backends/rust_backend.rs",
+      "calls": [],
+      "calledBy": [
+        "examples/multiproc/backends/rust_backend.rs:self"
+      ]
+    },
+    "get_id": {
+      "definedIn": "examples/multiproc/backends/rust_backend.rs",
+      "calls": [],
+      "calledBy": [
+        "examples/multiproc/backends/rust_backend.rs:self"
+      ]
+    },
+    "get_params": {
+      "definedIn": "examples/multiproc/backends/rust_backend.rs",
+      "calls": [],
+      "calledBy": [
+        "examples/multiproc/backends/rust_backend.rs:self"
+      ]
+    },
+    "get_str_field": {
+      "definedIn": "examples/multiproc/backends/rust_backend.rs",
+      "calls": [],
+      "calledBy": [
+        "examples/multiproc/backends/rust_backend.rs:self"
+      ]
+    },
+    "main": {
+      "definedIn": "examples/multiproc/backends/rust_backend.rs",
+      "calls": [],
+      "calledBy": [
+        "freedom-cli/templates/project/freedom.config.js",
+        "examples/multiproc/main.go",
+        "freedom-cli/templates/go/gen_config.go",
+        "freedom-cli/templates/go/main.go",
+        "freedom-cli/lib/build.js",
+        "examples/hello/main.go",
+        "examples/multiproc/backends/go_backend.go"
+      ]
+    },
+    "next_elem": {
+      "definedIn": "examples/multiproc/backends/rust_backend.rs",
+      "calls": [],
+      "calledBy": [
+        "examples/multiproc/backends/rust_backend.rs:self"
+      ]
+    },
+    "downloadShell": {
+      "definedIn": "freedom-cli/lib/shell.js",
+      "calls": [
+        "releaseUrl",
+        "localShellPath"
+      ],
+      "calledBy": [
+        "build.js:emitPlatform"
+      ]
+    },
+    "emitPlatform": {
+      "definedIn": "freedom-cli/lib/build.js",
+      "calls": [
+        "run",
+        "hasShell"
+      ],
+      "calledBy": [
+        "build"
+      ]
+    },
+    "parsePlatforms": {
+      "definedIn": "freedom-cli/lib/build.js",
+      "calls": [],
+      "calledBy": [
+        "build.js:build"
+      ]
+    },
+    "tui": {
+      "definedIn": "freedom-cli/lib/tui.js",
+      "calls": [
+        "buildFlow",
+        "initFlow",
+        "configFlow",
+        "shellFlow",
+        "tutorialFlow"
+      ],
+      "calledBy": [
+        "run"
+      ]
+    },
+    "buildFlow": {
+      "definedIn": "freedom-cli/lib/tui.js",
+      "calls": [
+        "TUI.menu",
+        "TUI.input",
+        "TUI.confirm",
+        "run"
+      ],
+      "calledBy": [
+        "tui"
+      ]
+    },
+    "initFlow": {
+      "definedIn": "freedom-cli/lib/tui.js",
+      "calls": [
+        "TUI.menu",
+        "TUI.input",
+        "TUI.confirm",
+        "run"
+      ],
+      "calledBy": [
+        "tui"
+      ]
+    },
+    "configFlow": {
+      "definedIn": "freedom-cli/lib/tui.js",
+      "calls": [
+        "TUI.menu",
+        "TUI.input",
+        "TUI.confirm",
+        "run"
+      ],
+      "calledBy": [
+        "tui"
+      ]
+    },
+    "shellFlow": {
+      "definedIn": "freedom-cli/lib/tui.js",
+      "calls": [
+        "TUI.menu",
+        "TUI.input",
+        "TUI.confirm",
+        "run"
+      ],
+      "calledBy": [
+        "tui"
+      ]
+    },
+    "tutorialFlow": {
+      "definedIn": "freedom-cli/lib/tui.js",
+      "calls": [
+        "TUI.menu",
+        "TUI.input",
+        "TUI.confirm",
+        "run"
+      ],
+      "calledBy": [
+        "tui"
+      ]
+    },
+    "viteNeedsRebuild": {
+      "definedIn": "freedom-cli/lib/build.js",
+      "calls": [
+        "collectViteSources",
+        "maxMtime",
+        "viteCacheMarker"
+      ],
+      "calledBy": [
+        "build"
+      ]
+    },
+    "writeViteCacheMarker": {
+      "definedIn": "freedom-cli/lib/build.js",
+      "calls": [
+        "collectViteSources",
+        "maxMtime"
+      ],
+      "calledBy": [
+        "build"
+      ]
+    }
+  },
+  "configs": [
+    {
+      "path": ".github/workflows/build.yml",
+      "keys": [],
+      "purpose": ""
+    },
+    {
+      "path": "freedom-cli/package.json",
+      "keys": [],
+      "purpose": ""
+    },
+    {
+      "path": "freedom-cli/templates/project/package.json",
+      "keys": [],
+      "purpose": ""
+    }
+  ],
+  "dependencies": {
+    "runtime": [
+      "github.com/webview/webview_go"
+    ],
+    "dev": []
+  }
+}

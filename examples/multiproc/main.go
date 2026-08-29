@@ -14,12 +14,29 @@ import (
 	_ "embed"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"freedom"
 )
 
 //go:embed index.html
 var indexHTML string
+
+// resolveBackend 解析后端路径：先按当前工作目录（cd examples/multiproc && go run . 场景），
+// 再按 exe 所在目录（build.ps1 产出的 dist 布局：multiproc.exe 与 backends/ 同级，
+// 支持从任意目录直接运行 dist\multiproc.exe），都找不到时原样返回以保留启动报错。
+func resolveBackend(rel string) string {
+	if _, err := os.Stat(rel); err == nil {
+		return rel
+	}
+	if exe, err := os.Executable(); err == nil {
+		p := filepath.Join(filepath.Dir(exe), rel)
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return rel
+}
 
 func main() {
 	lang := "go"
@@ -30,16 +47,16 @@ func main() {
 	var backend freedom.Backend
 	switch lang {
 	case "node":
-		backend = freedom.NewProcBackend("node", "./backends/node_backend.mjs")
+		backend = freedom.NewProcBackend("node", resolveBackend("./backends/node_backend.mjs"))
 	case "python", "py":
-		backend = freedom.NewProcBackend("python", "./backends/py_backend.py")
+		backend = freedom.NewProcBackend("python", resolveBackend("./backends/py_backend.py"))
 	case "rust":
 		// Rust 后端（零依赖单文件）：cd backends && rustc -O -o rust_backend.exe rust_backend.rs
-		backend = freedom.NewProcBackend("./backends/rust_backend.exe")
+		backend = freedom.NewProcBackend(resolveBackend("./backends/rust_backend.exe"))
 	case "go":
-		backend = freedom.NewProcBackend("./backends/go_backend.exe")
+		backend = freedom.NewProcBackend(resolveBackend("./backends/go_backend.exe"))
 	default:
-		fmt.Printf("未知后端语言 %q，可用: go / node / python\n", lang)
+		fmt.Printf("未知后端语言 %q，可用: go / node / python / rust\n", lang)
 		os.Exit(1)
 	}
 

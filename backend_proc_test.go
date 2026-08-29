@@ -2,7 +2,9 @@ package freedom
 
 import (
 	"encoding/json"
+	"os"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -39,6 +41,14 @@ func binPath(name string) string {
 func testProcBackend(t *testing.T, cmd ...string) {
 	t.Helper()
 
+	// 编译型后端以本地可执行文件路径传入：缺失时跳过而非报错
+	//（产物需先经 build.ps1 / build.sh 或 CI 构建步骤产出）。
+	if len(cmd) == 1 && (strings.ContainsAny(cmd[0], "/\\") || strings.HasSuffix(cmd[0], ".exe")) {
+		if _, err := os.Stat(cmd[0]); err != nil {
+			t.Skipf("compiled backend %q not found, run build.ps1/build.sh first: %v", cmd[0], err)
+		}
+	}
+
 	p := NewProcBackend(cmd...)
 	p.SetTimeout(5 * time.Second)
 
@@ -59,7 +69,7 @@ func testProcBackend(t *testing.T, cmd ...string) {
 		t.Fatalf("Greet: unexpected error: %v", err)
 	}
 	s, ok := res.(string)
-	if !ok || s == "" || s[:6] != "Hello," {
+	if !ok || !strings.HasPrefix(s, "Hello,") {
 		t.Fatalf("Greet result invalid: %#v", res)
 	}
 	t.Logf("Greet -> %v", s)

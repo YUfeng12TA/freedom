@@ -3,6 +3,7 @@ package freedom
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -30,6 +31,7 @@ type ProcBackend struct {
 	cmd     *exec.Cmd
 	stdin   io.WriteCloser
 	mu      sync.Mutex
+	writeMu sync.Mutex // 串行化 stdin 写入；与 mu 分离，避免大消息阻塞写管道时与 readLoop/Close 形成环形死锁
 	pending map[int64]chan procResp
 	nextID  int64
 	closed  bool
@@ -87,6 +89,10 @@ func (p *ProcBackend) OnEvent(fn func(event string, data interface{})) {
 func (p *ProcBackend) start() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.closed {
+		// closed 后再 start 会拉起一个永远无人 Wait/Kill 的孤儿子进程，必须拒绝。
+		return fmt.Errorf("freedom: proc backend already closed")
+	}
 	if p.stdin != nil {
 		return nil // 已启动
 	}
@@ -126,8 +132,14 @@ func (p *ProcBackend) Handle(method string, params []json.RawMessage) (interface
 	p.pending[id] = ch
 	msg := procMessage{ID: id, Method: method, Params: paramsJSON}
 	line, _ := json.Marshal(msg)
-	_, err = p.stdin.Write(append(line, '\n'))
+	stdin := p.stdin
 	p.mu.Unlock()
+
+	// 写管道不持 mu：大消息阻塞在 Write 时，readLoop/Close 仍可拿锁推进，
+	// 超时唤醒路径也不会被卡死（写失败由下方 cancel 兜底唤醒）。
+	p.writeMu.Lock()
+	_, err = stdin.Write(append(line, '\n'))
+	p.writeMu.Unlock()
 
 	if err != nil {
 		p.cancel(id, fmt.Errorf("freedom: proc backend write: %w", err))
@@ -212,7 +224,10 @@ func (p *ProcBackend) finish(msg procMessage) {
 func (p *ProcBackend) dispatchEvent(event string, dataJSON json.RawMessage) {
 	var data interface{}
 	if len(dataJSON) > 0 {
-		_ = json.Unmarshal(dataJSON, &data)
+		if err := json.Unmarshal(dataJSON, &data); err != nil {
+			// 非 JSON 事件负载降级为原始字符串，保留信息而非静默丢弃。
+			data = string(dataJSON)
+		}
 	}
 	p.mu.Lock()
 	fn := p.onEvent
@@ -232,17 +247,28 @@ func (p *ProcBackend) Close() error {
 	p.closed = true
 	cmd := p.cmd
 	if p.stdin != nil {
-		_ = p.stdin.Close() // stdin EOF，后端可自行退出
+		if err := p.stdin.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
+			fmt.Fprintf(os.Stderr, "freedom: close backend stdin: %v\n", err)
+		}
 	}
 	p.mu.Unlock()
 
 	done := make(chan struct{})
-	go func() { _ = cmd.Wait(); close(done) }()
+	go func() {
+		// 优雅关闭/强杀场景下 ExitError（非零退出码）属预期结果，不视为异常。
+		var ee *exec.ExitError
+		if err := cmd.Wait(); err != nil && !errors.As(err, &ee) {
+			fmt.Fprintf(os.Stderr, "freedom: backend wait: %v\n", err)
+		}
+		close(done)
+	}()
 	select {
 	case <-done:
 	case <-time.After(3 * time.Second):
 		if cmd.Process != nil {
-			_ = cmd.Process.Kill()
+			if err := cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+				fmt.Fprintf(os.Stderr, "freedom: backend kill: %v\n", err)
+			}
 			<-done
 		}
 	}

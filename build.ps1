@@ -16,6 +16,14 @@ param(
 )
 $ErrorActionPreference = "Stop"
 
+# $ErrorActionPreference 对原生命令（go/rustc）不生效，必须显式检查 $LASTEXITCODE，
+# 否则编译失败会静默继续并以"构建完成"收场。
+function Invoke-Native {
+    param([string]$Description, [scriptblock]$Command)
+    & $Command
+    if ($LASTEXITCODE -ne 0) { throw "$Description 失败（退出码 $LASTEXITCODE）" }
+}
+
 $root = $PSScriptRoot
 $dist = Join-Path $root "dist"
 $bk = Join-Path $dist "backends"
@@ -35,8 +43,8 @@ $env:CGO_ENABLED = "1"
 Push-Location $root
 try {
     # GUI 子系统（-H windowsgui）：运行时壳层与后端均不弹出 cmd 黑窗
-    go build -ldflags "-H windowsgui" -o (Join-Path $dist "hello.exe") ./examples/hello
-    go build -ldflags "-H windowsgui" -o (Join-Path $dist "multiproc.exe") ./examples/multiproc
+    Invoke-Native "go build hello" { go build -ldflags "-H windowsgui" -o (Join-Path $dist "hello.exe") ./examples/hello }
+    Invoke-Native "go build multiproc" { go build -ldflags "-H windowsgui" -o (Join-Path $dist "multiproc.exe") ./examples/multiproc }
 } finally {
     Pop-Location
 }
@@ -45,7 +53,7 @@ try {
 Write-Host "==> go build Go 后端"
 Push-Location $root
 try {
-    go build -o (Join-Path $bk "go_backend.exe") ./examples/multiproc/backends
+    Invoke-Native "go build go_backend" { go build -o (Join-Path $bk "go_backend.exe") ./examples/multiproc/backends }
 } finally {
     Pop-Location
 }
@@ -61,7 +69,7 @@ if ($hasRust -and -not $SkipRust) {
     Write-Host "==> rustc 编译 Rust 后端"
     Push-Location (Join-Path $root "examples\multiproc\backends")
     try {
-        rustc -O -o (Join-Path $bk "rust_backend.exe") rust_backend.rs
+        Invoke-Native "rustc rust_backend" { rustc -O -o (Join-Path $bk "rust_backend.exe") rust_backend.rs }
     } finally {
         Pop-Location
     }

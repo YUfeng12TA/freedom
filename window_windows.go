@@ -17,7 +17,7 @@ var (
 	procGetWindowLongPtr = user32win.NewProc("GetWindowLongPtrW")
 	procSetWindowLongPtr = user32win.NewProc("SetWindowLongPtrW")
 	procShowWindow       = user32win.NewProc("ShowWindow")
-	procCloseWindow      = user32win.NewProc("CloseWindow")
+	procPostMessage      = user32win.NewProc("PostMessageW")
 	procIsZoomed         = user32win.NewProc("IsZoomed")
 	procSetWindowPos     = user32win.NewProc("SetWindowPos")
 	procSetWindowText    = user32win.NewProc("SetWindowTextW")
@@ -42,6 +42,8 @@ const (
 	swpNoSize       = 0x0001
 	swpNoZOrder     = 0x0004
 	swpNoActivate   = 0x0010
+
+	wmClose = 0x0010 // WM_CLOSE：请求窗口正常关闭（触发 DestroyWindow 释放 WebView 资源）
 )
 
 // gwlStyle = GWL_STYLE（-16）。用变量声明，避免 uintptr 常量转换溢出。
@@ -89,7 +91,9 @@ func windowControl(hwnd uintptr, action string, mode TitleBarMode) (interface{},
 		}
 		return nil, nil
 	case "close":
-		procCloseWindow.Call(hwnd)
+		// 发送 WM_CLOSE 走正常关闭流程（触发 DestroyWindow，释放 WebView 资源）。
+		// 不能使用 user32.CloseWindow——该 API 的语义是最小化窗口而非关闭。
+		procPostMessage.Call(hwnd, wmClose, 0, 0)
 		return nil, nil
 	case "isMaximized":
 		return isZoomed(hwnd), nil

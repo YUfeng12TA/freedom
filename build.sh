@@ -6,10 +6,12 @@
 #   Node.js（脚本后端，可选）
 #   Python3（脚本后端，可选）
 #   rustc（Rust 后端，可选，零依赖单文件）
-#   Linux 还需 WebKitGTK/GTK 开发库（webview_go 的 CGO 依赖）：
-#     Debian/Ubuntu:  sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev \
+#   Linux 还需 WebKitGTK/GTK 开发库（webview_go 的 CGO 依赖，pkg-config 包名为
+#   webkit2gtk-4.0，注意不是 4.1；Ubuntu 24.04+/Debian 13+ 已移除 4.0 包，请用
+#   Ubuntu 22.04 或旧版发行版构建）：
+#     Debian/Ubuntu:  sudo apt install libwebkit2gtk-4.0-dev libgtk-3-dev \
 #                            libayatana-appindicator3-dev build-essential
-#     Fedora:         sudo dnf install webkit2gtk4.1-devel gtk3-devel
+#     Fedora:         sudo dnf install webkit2gtk4.0-devel gtk3-devel
 #   macOS 需 Xcode Command Line Tools（自带 WKWebView）
 #
 # 产物输出到 dist/：

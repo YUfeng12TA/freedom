@@ -6,6 +6,10 @@ import readline from "node:readline";
 
 const rl = readline.createInterface({ input: process.stdin, terminal: false });
 
+// stdin EOF（壳关闭 stdin）即优雅退出：setInterval 会保持事件循环存活，
+// 不显式退出会让壳侧每次关闭都等满超时后被强杀。
+rl.on("close", () => process.exit(0));
+
 // 定时推送 tick 事件。
 let count = 0;
 setInterval(() => {

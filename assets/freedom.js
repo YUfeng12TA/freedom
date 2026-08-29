@@ -69,7 +69,7 @@
     if (max) max.addEventListener('click', function () {
       self.isMaximized().then(function (m) {
         if (m) self.unmaximize(); else self.maximize();
-      });
+      }).catch(function () { /* 桥接未就绪（如窗口销毁中）时忽略本次点击 */ });
     });
     if (close) close.addEventListener('click', function () { self.close(); });
   };

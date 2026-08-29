@@ -1,0 +1,276 @@
+{
+  "version": 1,
+  "lastUpdated": "2026-08-29T19:10:01+08:00",
+  "edges": [
+    {
+      "from": "B01",
+      "rel": "root_at",
+      "to": "FILE:.github/workflows/build.yml",
+      "note": ""
+    },
+    {
+      "from": "B02",
+      "rel": "root_at",
+      "to": "FILE:backend_proc.go",
+      "note": ""
+    },
+    {
+      "from": "B03",
+      "rel": "root_at",
+      "to": "FILE:window_windows.go",
+      "note": ""
+    },
+    {
+      "from": "B04",
+      "rel": "root_at",
+      "to": "FILE:assets/default.html",
+      "note": ""
+    },
+    {
+      "from": "B05",
+      "rel": "root_at",
+      "to": "FILE:freedom.go",
+      "note": ""
+    },
+    {
+      "from": "B06",
+      "rel": "root_at",
+      "to": "FILE:freedom-cli/templates/go/webview_go/libs/webview/include/webview.h",
+      "note": ""
+    },
+    {
+      "from": "B07",
+      "rel": "root_at",
+      "to": "FILE:freedom-cli/templates/go/webview_go/webview.go",
+      "note": ""
+    },
+    {
+      "from": "B08",
+      "rel": "root_at",
+      "to": "FILE:freedom-cli/templates/go/pkg/freedom/window_windows.go",
+      "note": ""
+    },
+    {
+      "from": "B09",
+      "rel": "root_at",
+      "to": "FILE:freedom-cli/lib/config.js",
+      "note": ""
+    },
+    {
+      "from": "B10",
+      "rel": "root_at",
+      "to": "FILE:freedom-cli/lib/tui.js",
+      "note": ""
+    },
+    {
+      "from": "B11",
+      "rel": "root_at",
+      "to": "FILE:freedom-cli/lib/config.js",
+      "note": ""
+    },
+    {
+      "from": "B12",
+      "rel": "root_at",
+      "to": "FILE:freedom-cli/lib/tui.js",
+      "note": ""
+    },
+    {
+      "from": "B13",
+      "rel": "root_at",
+      "to": "FILE:freedom-cli/lib/shell.js",
+      "note": ""
+    },
+    {
+      "from": "B14",
+      "rel": "root_at",
+      "to": "FILE:.github/workflows/build.yml",
+      "note": ""
+    },
+    {
+      "from": "B15",
+      "rel": "root_at",
+      "to": "FILE:build.ps1",
+      "note": ""
+    },
+    {
+      "from": "B16",
+      "rel": "root_at",
+      "to": "FILE:build.sh",
+      "note": ""
+    },
+    {
+      "from": "B17",
+      "rel": "root_at",
+      "to": "FILE:README.md",
+      "note": ""
+    },
+    {
+      "from": "B18",
+      "rel": "root_at",
+      "to": "FILE:README.md",
+      "note": ""
+    },
+    {
+      "from": "B19",
+      "rel": "root_at",
+      "to": "FILE:backend_proc.go",
+      "note": ""
+    },
+    {
+      "from": "B20",
+      "rel": "root_at",
+      "to": "FILE:freedom.go",
+      "note": ""
+    },
+    {
+      "from": "B21",
+      "rel": "root_at",
+      "to": "FILE:freedom.go",
+      "note": ""
+    },
+    {
+      "from": "B22",
+      "rel": "root_at",
+      "to": "FILE:center_windows.go",
+      "note": ""
+    },
+    {
+      "from": "B23",
+      "rel": "root_at",
+      "to": "FILE:backend_proc_test.go",
+      "note": ""
+    },
+    {
+      "from": "B24",
+      "rel": "root_at",
+      "to": "FILE:assets/freedom.js",
+      "note": ""
+    },
+    {
+      "from": "B25",
+      "rel": "root_at",
+      "to": "FILE:freedom-cli/lib/cli.js",
+      "note": ""
+    },
+    {
+      "from": "B26",
+      "rel": "root_at",
+      "to": "FILE:freedom-cli/lib/cli.js",
+      "note": ""
+    },
+    {
+      "from": "B27",
+      "rel": "root_at",
+      "to": "FILE:freedom-cli/lib/build.js",
+      "note": ""
+    },
+    {
+      "from": "B28",
+      "rel": "root_at",
+      "to": "FILE:freedom-cli/bin/freedom.js",
+      "note": ""
+    },
+    {
+      "from": "B29",
+      "rel": "root_at",
+      "to": "FILE:freedom-cli/lib/config.js",
+      "note": ""
+    },
+    {
+      "from": "B30",
+      "rel": "root_at",
+      "to": "FILE:freedom-cli/templates/go/pkg/freedom/window_windows.go",
+      "note": ""
+    },
+    {
+      "from": "B31",
+      "rel": "root_at",
+      "to": "FILE:freedom-cli/templates/go/webview_go/glue.c",
+      "note": ""
+    },
+    {
+      "from": "B32",
+      "rel": "root_at",
+      "to": "FILE:freedom-cli/templates/go/webview_go/libs/webview/include/webview.h",
+      "note": ""
+    },
+    {
+      "from": "B33",
+      "rel": "root_at",
+      "to": "FILE:freedom-cli/templates/go/main.go",
+      "note": ""
+    },
+    {
+      "from": "B34",
+      "rel": "root_at",
+      "to": "FILE:README.md",
+      "note": ""
+    },
+    {
+      "from": "B35",
+      "rel": "root_at",
+      "to": "FILE:README.md",
+      "note": ""
+    },
+    {
+      "from": "B36",
+      "rel": "root_at",
+      "to": "FILE:README.md",
+      "note": ""
+    },
+    {
+      "from": "B37",
+      "rel": "root_at",
+      "to": "FILE:README.md",
+      "note": ""
+    },
+    {
+      "from": "B38",
+      "rel": "root_at",
+      "to": "FILE:examples/multiproc/backends/node_backend.mjs",
+      "note": ""
+    },
+    {
+      "from": "B39",
+      "rel": "root_at",
+      "to": "FILE:examples/multiproc/main.go",
+      "note": ""
+    },
+    {
+      "from": "B40",
+      "rel": "root_at",
+      "to": "FILE:freedom-cli/templates/go/",
+      "note": ""
+    },
+    {
+      "from": "DEC-1",
+      "rel": "decision_for",
+      "to": "MOD:freedom-cli",
+      "note": "v1.1.10 预编译壳分发"
+    },
+    {
+      "from": "DEC-1",
+      "rel": "decision_for",
+      "to": "MOD:freedom-core",
+      "note": "壳经 resources/config.json 拉起后端"
+    },
+    {
+      "from": "DEC-2",
+      "rel": "decision_for",
+      "to": "MOD:freedom-cli",
+      "note": "多平台产物隔离输出"
+    },
+    {
+      "from": "DEC-3",
+      "rel": "decision_for",
+      "to": "MOD:freedom-cli",
+      "note": "Promise.all 并行分发"
+    },
+    {
+      "from": "DEC-4",
+      "rel": "decision_for",
+      "to": "MOD:freedom-cli",
+      "note": "mtime 指纹构建缓存"
+    }
+  ]
+}
