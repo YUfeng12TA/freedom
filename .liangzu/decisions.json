@@ -1,6 +1,6 @@
 {
   "version": 4,
-  "lastUpdated": "2026-08-29T19:10:01+08:00",
+  "lastUpdated": "2026-08-29T21:20:00+08:00",
   "decisions": [
     {
       "date": "2026-08-19",
@@ -34,6 +34,15 @@
       "alternatives": [
         "内容 hash（需读全部文件，慢）",
         "vite 自带增量缓存（仍要走一次 vite 进程，收益小）"
+      ]
+    },
+    {
+      "date": "2026-08-29T21:20:00+08:00",
+      "decision": "新建 image-generator MCP 插件（.claude/plugins/image-generator，stdlib 零依赖手写 JSON-RPC，对齐 image-analyzer 模式），文生图走 OpenAI Images 兼容云端端点（apihub.agnes-ai.com，模型 agnes-image-2.1-flash），图片落盘后仅回传 file_path+尺寸等元数据；配套 ZCode 技能 SKILL.md 提供 MCP 与脚本直调双路径",
+      "rationale": "最简优先：复制已验证的 image-analyzer 协议骨架与 .env/主备模型配置模式，零新依赖、零 GPU 要求、国内直连（本机代理通道不稳定为实测事实）；不回传 base64 防 AI 上下文爆炸；本地 Stable Diffusion 降为未来可选 provider（留 model 参数位），当前不引入 ComfyUI 部署",
+      "alternatives": [
+        "本地 Stable Diffusion/ComfyUI 封装（部署重、GPU 未知、周期天级，留作 provider 扩展）",
+        "完整 MCP SDK（引入依赖，analyzer 先例证明手写三方法足够）"
       ]
     }
   ]

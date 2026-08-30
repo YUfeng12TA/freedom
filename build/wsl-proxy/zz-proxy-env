@@ -1,0 +1,2 @@
+# /etc/sudoers.d/zz-proxy-env —— 让 sudo 场景（apt/pip 等）继承代理变量
+Defaults env_keep += "http_proxy https_proxy all_proxy no_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY"

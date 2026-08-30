@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "lastUpdated": "2026-08-29T19:45:00+08:00",
+  "lastUpdated": "2026-08-29T21:00:00+08:00",
   "edges": [
     {
       "from": "B01",
@@ -318,6 +318,18 @@
       "from": "BUG-20260829-009",
       "rel": "root_at",
       "to": "FILE:backend_proc.go",
+      "note": ""
+    },
+    {
+      "from": "BUG-20260829-010",
+      "rel": "root_at",
+      "to": "FILE:examples/multiproc/index.html",
+      "note": ""
+    },
+    {
+      "from": "BUG-20260829-011",
+      "rel": "root_at",
+      "to": "FILE:examples/hello/index.html",
       "note": ""
     }
   ]

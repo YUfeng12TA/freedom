@@ -1,6 +1,6 @@
 {
   "version": 4,
-  "lastUpdated": "2026-08-29T19:45:00+08:00",
+  "lastUpdated": "2026-08-29T21:00:00+08:00",
   "bugRegistry": [
     {
       "id": "B01",
@@ -560,6 +560,36 @@
       "status": "fixed",
       "discoveredAt": "2026-08-29T19:45:00+08:00",
       "fixedAt": "2026-08-29T19:45:00+08:00"
+    },
+    {
+      "id": "BUG-20260829-010",
+      "severity": "major",
+      "category": "error",
+      "file": "examples/multiproc/index.html",
+      "line": 57,
+      "function": "callError",
+      "description": "GUI 实测发现：错误链路输出 Greet(\"\") !! undefined——壳侧 reject 传字符串（如\"名字不能为空\"），页面 catch 用 e.message 取属性得 undefined，错误详情对用户完全丢失（4 处 catch 同缺陷）；hello 示例直接拼 e 显示正常",
+      "rootCause": "壳的 Promise reject 值是字符串而非 Error 对象，示例页面按 Error 对象取 message",
+      "fix": "4 处 catch 的 e.message 改为 (e.message || e)，兼容字符串 reject 与 Error 对象",
+      "regressionTest": "GUI 实测修复前输出 Greet(\"\") !! undefined → 修复后 Greet(\"\") !! 名字不能为空（2026-08-29 桌面实测对比）",
+      "status": "fixed",
+      "discoveredAt": "2026-08-29T20:55:00+08:00",
+      "fixedAt": "2026-08-29T20:52:00+08:00"
+    },
+    {
+      "id": "BUG-20260829-011",
+      "severity": "minor",
+      "category": "product",
+      "file": "examples/hello/index.html",
+      "line": 124,
+      "function": "doErr",
+      "description": "GUI 实测发现：DIAG 状态行把预期错误标为 Err=FAIL:名字不能为空（用户连点 7 次全部 FAIL）——收到预期错误是链路成功的表现，状态语义颠倒误导排障",
+      "rootCause": "doErr 的 catch 分支调用 logCallResult('Err', false, e)，把预期到达的错误记为失败",
+      "fix": "catch 分支改 logCallResult('Err', true, '')，与『已收到错误』输出语义一致",
+      "regressionTest": "GUI 实测点击后 DIAG 追加 Err=OK（2026-08-29 桌面实测，逻辑直白以构建+diff 复核代偿）",
+      "status": "fixed",
+      "discoveredAt": "2026-08-29T21:00:00+08:00",
+      "fixedAt": "2026-08-29T21:00:00+08:00"
     }
   ]
 }

@@ -143,7 +143,7 @@
       logCallResult('Err', true, '');
       out(document.getElementById('err-out'), '意外成功：' + r);
     }).catch(function (e) {
-      logCallResult('Err', false, e);
+      logCallResult('Err', true, '');
       out(document.getElementById('err-out'), '已收到错误：' + e, true);
     });
   }

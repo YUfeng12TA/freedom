@@ -54,7 +54,7 @@
     try {
       var r = await window.freedom.call('Greet', name);
       logOut('Greet => ' + JSON.stringify(r));
-    } catch (e) { logOut('Greet !! ' + e.message); }
+    } catch (e) { logOut('Greet !! ' + (e.message || e)); }
   }
   async function callAdd() {
     var a = parseFloat(document.getElementById('a').value) || 0;
@@ -62,18 +62,18 @@
     try {
       var r = await window.freedom.call('Add', a, b);
       logOut('Add(' + a + ',' + b + ') => ' + r);
-    } catch (e) { logOut('Add !! ' + e.message); }
+    } catch (e) { logOut('Add !! ' + (e.message || e)); }
   }
   async function callWhoAmI() {
     try {
       var r = await window.freedom.call('WhoAmI');
       logOut('WhoAmI => ' + r);
-    } catch (e) { logOut('WhoAmI !! ' + e.message); }
+    } catch (e) { logOut('WhoAmI !! ' + (e.message || e)); }
   }
   async function callError() {
     try {
       await window.freedom.call('Greet', '');
-    } catch (e) { logOut('Greet("") !! ' + e.message); }
+    } catch (e) { logOut('Greet("") !! ' + (e.message || e)); }
   }
 
   // 订阅后端主动推送的 tick 事件。
