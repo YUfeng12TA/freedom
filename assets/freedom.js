@@ -140,6 +140,25 @@
     app: {
       launchArgs: function () { return sysCall('app.launchArgs', {}); },
     },
+    // ---- W3 数据层（对标 Tauri path / store / os / process）----
+    // kind ∈ config|data|cache|temp|home|exe；name 省略时用 AppID（目录名已消毒）。
+    path: function (kind, name) { return sysCall('path.get', { kind: kind, name: name || '' }); },
+    store: {
+      // 命名 JSON KV，落盘 <dataDir>/<name>.store.json，set 即持久化。
+      load: function (name) { return sysCall('store.load', { store: name || '' }); },
+      get: function (key, name) { return sysCall('store.get', { store: name || '', key: key }); },
+      set: function (key, value, name) { return sysCall('store.set', { store: name || '', key: key, value: value }); },
+      delete: function (key, name) { return sysCall('store.delete', { store: name || '', key: key }); },
+      keys: function (name) { return sysCall('store.keys', { store: name || '' }); },
+    },
+    os: {
+      info: function () { return sysCall('os.info', {}); }, // {platform,arch,hostname,osVersion,goVersion,numCPU}
+    },
+    process: {
+      id: function () { return sysCall('process.id', {}); },
+      exit: function (code) { return sysCall('process.exit', { code: code || 0 }); },
+      restart: function () { return sysCall('process.restart', {}); }, // 拉起新实例后退出的安全重启
+    },
     taskbar: {
       setProgress: function (value) { return sysCall('taskbar.progress', { value: value }); },
       setState: function (state) { return sysCall('taskbar.state', { state: state }); }, // normal|paused|error|indeterminate

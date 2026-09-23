@@ -17,10 +17,11 @@ import (
 //   - 全屏状态：setFullscreen 记录进入前的样式与矩形，退出时还原。
 
 const (
-	wmSize      = 0x0005
-	wmMove      = 0x0003
-	wmSetFocus  = 0x0007
-	wmKillFocus = 0x0008
+	wmSize         = 0x0005
+	wmMove           = 0x0003
+	wmExitSizeMove = 0x0212
+	wmSetFocus       = 0x0007
+	wmKillFocus      = 0x0008
 
 	sizeMaximized = 1
 	sizeMinimized = 2
@@ -102,6 +103,15 @@ func windowSubclassProc(hwnd, msg, wParam, lParam, subID, ref uintptr) uintptr {
 		rt.app.Emit("window.focused", nil)
 	case wmKillFocus:
 		rt.app.Emit("window.blurred", nil)
+	case wmExitSizeMove:
+		// 用户完成拖拽/缩放/最大化切换——window-state 记忆的落点。
+		// 异步落盘，避免文件 IO 卡 UI 线程。
+		app := rt.app
+		go app.saveWindowStateNow()
+	case wmDestroy:
+		// 同步保存：窗口销毁后几何不可得，且此处仍在 UI 线程消息循环内，
+		// 分发清理尚未开始（cleanup defer 在消息循环退出之后）。
+		rt.app.saveWindowStateNow()
 	case wmClose:
 		if rt.interceptClose.Load() {
 			// 吞掉默认关闭流程（不进 DefSubclassProc → webview 收不到），

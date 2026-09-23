@@ -65,6 +65,12 @@ type Config struct {
 	// HTML 返回要加载到窗口的前端页面内容（内存加载，无本地端口）。
 	// 为 nil 时使用框架内置的默认占位页。
 	HTML func() (string, error)
+	// AppID 是应用标识，决定数据/配置目录名与单实例窗口类标题。
+	// 为空时回退可执行文件名（去扩展名）。一经发布不要更改，否则用户数据"丢失"。
+	AppID string
+	// RememberWindowState 为 true 时窗口位置/尺寸/最大化状态跨启动记忆
+	// （存于 <dataDir>/window-state.json；Windows 生效，其他平台暂不持久化）。
+	RememberWindowState bool
 }
 
 // App 是 Freedom 应用实例。
@@ -193,6 +199,8 @@ func (a *App) Run() {
 	a.applyTitleBar()
 	// 窗口事件与关闭拦截（Windows 经 WndProc 子类化；其他平台 no-op）。
 	a.installWindowEvents()
+	// 恢复上次退出的窗口几何（仅 Config.RememberWindowState 时生效）。
+	a.restoreWindowState()
 
 	// 注入前端 SDK：window.freedom 全局对象。
 	w.Init(jsSDK)

@@ -16,3 +16,8 @@
   - WM_CLOSE 拦截需原子标志，桥接 goroutine 写、UI 线程读。
   - webview_go Bind 的 JS 参数→Go 形参：paramsJSON 用 string（AGENTS 约定）。
   - Toast 通知纯 Go 无 WinRT 绑定的取道：PowerShell 投影 Windows.UI.Notifications（零依赖，代价：子进程）。
+- W3: wmDestroy 常量 msgwindow_windows.go 已声明，events_windows.go 复用它（重复声明=编译错）。
+- W3: 窗口状态保存点选 WM_EXITSIZEMOVE（异步 go 落盘）+ WM_DESTROY（同步，几何销毁后不可得）；全屏中跳过 persist，防还原成占屏普通窗。
+- W3: restore 前用 stateOnScreen(listMonitors, 8px 容差) 校验坐标，拔副屏后只恢复尺寸不恢复虚空坐标。
+- W3: restartProcess 需 DETACHED_PROCESS|CREATE_NEW_PROCESS_GROUP（spawn_windows.go），否则新实例随旧控制台退出被连坐。
+- W3: GOOS=linux/darwin 交叉编译在 webview_go 依赖处失败（无 cgo/webkit 头），属环境限制非本仓库缺陷；*_other.go 侧改动靠人工对账。

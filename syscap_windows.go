@@ -14,8 +14,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"unsafe"
@@ -613,6 +611,10 @@ func (a *App) sysCapCall(method string, paramsJSON string) (result interface{}, 
 		}
 		return false, false
 	}
+	// 平台无关方法（path/store/os/process）优先由 sysGeneric 处理。
+	if res, ok, err := a.sysGeneric(method, args); ok {
+		return res, err
+	}
 	hwnd := a.WindowHandle()
 
 	switch method {
@@ -737,20 +739,4 @@ func (a *App) sysCapCall(method string, paramsJSON string) (result interface{}, 
 	default:
 		return nil, fmt.Errorf("freedom: unknown sys method %q", method)
 	}
-}
-
-// defaultAppID 以可执行文件名（去扩展名）作为自启注册表项名的默认值。
-func defaultAppID() string {
-	exe, err := os.Executable()
-	if err != nil {
-		return "FreedomApp"
-	}
-	base := filepath.Base(exe)
-	if ext := filepath.Ext(base); ext != "" {
-		base = base[:len(base)-len(ext)]
-	}
-	if base == "" {
-		return "FreedomApp"
-	}
-	return base
 }
