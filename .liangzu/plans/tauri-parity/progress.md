@@ -7,5 +7,5 @@
 | W2 系统集成 | 编译+测试全绿；other 占位一致 | done（E2: 提交 f134423，TestParseHotkey/TestValidScheme/TestToastEscaping 过） |
 | W3 数据层 | 单测全绿 | done（E3: `go test -race ./` ok 5.322s；store_test 5 用例全绿；node --test 3/3；win/linux/darwin 三目标 build 通过） |
 | W4 后端健壮性 | backend_proc_test.go 新用例全绿 | done（E4: go test -race 全绿 7.055s；新增 CrashRestartExhaustion/CleanExitNoRestart/GivesUpAfterMaxRetries 3 用例） |
-| W5 SDK | `node --test tests/` 全绿 + 构建 | 未开工 |
+| W5 SDK | `node --test tests/` 全绿 + 构建 | done（E5: node --test 7/7 绿（新增 sdk-surface 4 用例）+ go build/go test ok；顺带修复 once() 退订 bug 与 bugs.json 台账损坏，登记 B-20260923-001/002） |
 | W6 审查+安全+更新差距 | 审查清单落 findings，bugs 无 open critical/major | 未开工 |

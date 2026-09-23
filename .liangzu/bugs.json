@@ -1,7 +1,7 @@
 {
   "version": 4,
   "subKind": "bugs",
-  "lastUpdated": "2026-09-10T12:10:00+08:00,
+  "lastUpdated": "2026-09-23T21:00:00+08:00",
   "bugRegistry": [
     {
       "id": "B01",
@@ -35,7 +35,7 @@
       "status": "fixed",
       "fix": "close 动作改 PostMessageW(WM_CLOSE) 走正常关闭流程（触发 DestroyWindow 释放 WebView 资源），移除语义为最小化的 CloseWindow",
       "regressionTest": "go build + 关闭链路复核（window_windows.go:91-96）",
-      "fixedAt": "2026-08-29T19:10:01+08:00
+      "fixedAt": "2026-08-29T19:10:01+08:00"
     },
     {
       "id": "B03b",
@@ -53,7 +53,7 @@
       "summary": "__freedom__ping 经 bridge 路由但未注册进后端，自检必现桥接异常（5 处副本）",
       "status": "fixed",
       "fix": "bridge() 内置 __freedom__ping 兜底返回 pong，JS 直调与桥接路由两条链路行为一致",
-      "regressionTest": "go test -run TestProcBackend -v "2026-08-29 实测）",
+      "regressionTest": "go test -run TestProcBackend -v ./...（四语言 IPC 全绿，2026-08-29 实测）",
       "fixedAt": "2026-08-29T19:10:01+08:00"
     },
     {
@@ -68,7 +68,26 @@
       "fixedAt": "2026-08-29T19:10:1+08:00"
     },
     {
-      "corruption": true,
+      "id": "B-20260923-001",
+      "sev": "major",
+      "file": "assets/freedom.js",
+      "line": 38,
+      "summary": "once() 用 on() 返回的 unlisten 闭包退订，删不掉注册的 wrapper——once 每次都触发",
+      "status": "fixed",
+      "fix": "once 改为持有注册进数组的 fn 自身退订（off(event, fn)）",
+      "regressionTest": "node --test \"tests/*.test.mjs\" → W5 once 用例（2026-09-23 实测 7/7 绿）",
+      "fixedAt": "2026-09-23T21:00:00+08:00"
+    },
+    {
+      "id": "B-20260923-002",
+      "sev": "minor",
+      "file": ".liangzu/bugs.json",
+      "line": 4,
+      "summary": "bugs.json 台账自身损坏：两处字符串缺收尾引号 + 尾部 {corruption:true,} 非法条目，JSON 解析失败",
+      "status": "fixed",
+      "fix": "补齐引号、删除损坏标记条目；node JSON.parse 校验通过",
+      "regressionTest": "node -e JSON.parse(readFileSync(...)) 退出码 0（2026-09-23 实测）",
+      "fixedAt": "2026-09-23T21:00:00+08:00"
     }
   ]
 }

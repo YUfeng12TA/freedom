@@ -33,13 +33,15 @@
   }
 
   // 一次性订阅：触发一次后自动退订（对标 Tauri listen+unlisten）。
+  // 注意：必须用"注册进数组的那个 wrapper"退订——on() 返回的是 unlisten
+  // 闭包而非回调本身，拿它去 off() 删不掉监听器（旧 bug，tests/sdk-surface 锁定）。
   function once(event, cb) {
     if (typeof cb !== 'function') return function () {};
-    var un = on(event, function (data) {
-      off(event, un);
+    var fn = function (data) {
+      off(event, fn);
       cb(data);
-    });
-    return un;
+    };
+    return on(event, fn);
   }
 
   // 后端通过 app.Emit(event, data) 触发（Eval 调用本函数）。
