@@ -32,6 +32,16 @@
     if (i >= 0) l.splice(i, 1);
   }
 
+  // 一次性订阅：触发一次后自动退订（对标 Tauri listen+unlisten）。
+  function once(event, cb) {
+    if (typeof cb !== 'function') return function () {};
+    var un = on(event, function (data) {
+      off(event, un);
+      cb(data);
+    });
+    return un;
+  }
+
   // 后端通过 app.Emit(event, data) 触发（Eval 调用本函数）。
   function emit(event, data) {
     var l = listeners[event] || [];
@@ -45,6 +55,7 @@
     invoke: call,
     on: on,
     off: off,
+    once: once,
     emit: emit,
     window: {
       // 窗口控制（无边框/隐藏标题栏模式下前端自绘按钮使用）。
@@ -53,11 +64,55 @@
       maximize: function () { return windowAction('maximize'); },
       unmaximize: function () { return windowAction('unmaximize'); },
       toggleMaximize: function () { return windowAction('toggleMaximize'); },
-      close: function () { return windowAction('close'); },
+      // close(force)：force=true 时绕过 interceptClose 拦截直接关闭。
+      close: function (force) { return windowAction('close', { force: !!force }); },
       isMaximized: function () { return windowAction('isMaximized'); },
       isFrameless: function () { return windowAction('isFrameless'); },
+      // —— W1 对标 Tauri：位置 / 尺寸（物理像素）——
+      setPosition: function (x, y) { return windowAction('setPosition', { x: x, y: y }); },
+      setSize: function (width, height) { return windowAction('setSize', { width: width, height: height }); },
+      getPosition: function () { return windowAction('getPosition'); },
+      getSize: function () { return windowAction('getSize'); },
+      innerSize: function () { return windowAction('innerSize'); },
+      center: function () { return windowAction('center'); },
+      setTitle: function (title) { return windowAction('setTitle', { title: String(title) }); },
+      // —— 可见性 / 层级 / 焦点 ——
+      show: function () { return windowAction('show'); },
+      hide: function () { return windowAction('hide'); },
+      focus: function () { return windowAction('focus'); },
+      isVisible: function () { return windowAction('isVisible'); },
+      isFocused: function () { return windowAction('isFocused'); },
+      isMinimized: function () { return windowAction('isMinimized'); },
+      setAlwaysOnTop: function (on) { return windowAction('setAlwaysOnTop', { on: !!on }); },
+      setSkipTaskbar: function (on) { return windowAction('setSkipTaskbar', { on: !!on }); },
+      // —— 行为开关 ——
+      setResizable: function (on) { return windowAction('setResizable', { on: !!on }); },
+      setMaximizable: function (on) { return windowAction('setMaximizable', { on: !!on }); },
+      setMinimizable: function (on) { return windowAction('setMinimizable', { on: !!on }); },
+      // —— 全屏 / 关闭拦截 ——
+      setFullscreen: function (on) { return windowAction('setFullscreen', { on: !!on }); },
+      enterFullscreen: function () { return windowAction('setFullscreen', { on: true }); },
+      exitFullscreen: function () { return windowAction('setFullscreen', { on: false }); },
+      isFullscreen: function () { return windowAction('isFullscreen'); },
+      // 拦截系统/按钮关闭：开启后关闭动作变为 window.closeRequested 事件，
+      // 前端处理后以 close(true) 放行或不做操作保持窗口存活。
+      interceptClose: function (on) { return windowAction('interceptClose', { on: !!on }); },
+      // 聚合信息：title/outerX/outerY/outerWidth/outerHeight/innerWidth/innerHeight/
+      // scaleFactor/visible/focused/maximized/minimized/alwaysOnTop/skipTaskbar/frameless/fullscreen。
+      getInfo: function () { return windowAction('getInfo'); },
+      // 显示器列表（经 sys 桥接）：[{x,y,width,height,workX,workY,workWidth,workHeight,scaleFactor,isPrimary}]
+      monitors: function () { return sysCall('window.monitors', {}); },
     },
   };
+
+  // sys 桥接：原生系统能力（taskbar.* / window.* / dialog.*）。
+  // W5 会扩展为 freedom.sys 命名空间，先行提供内部包装。
+  function sysCall(method, args) {
+    if (typeof window.__freedom_sys !== 'function') {
+      return Promise.reject(new Error('[freedom] 未检测到原生系统能力桥接。'));
+    }
+    return window.__freedom_sys(method, JSON.stringify(args || {}));
+  }
 
   // 前端自绘按钮的便捷绑定：把按钮 DOM 接到窗口控制。
   // freedom.window.bindButtons({ min: '#minBtn', max: '#maxBtn', close: '#closeBtn' })
@@ -75,12 +130,13 @@
     if (close) close.addEventListener('click', function () { self.close().catch(ignoreErr); });
   };
 
-  function windowAction(action) {
-    // __freedom_window 是 webview_go Bind 注入的异步全局函数（返回 Promise）
+  function windowAction(action, args) {
+    // __freedom_window 是 webview_go Bind 注入的异步全局函数（返回 Promise）。
+    // Go 侧签名为 (action, paramsJSON)，paramsJSON 恒为 JSON object 字符串。
     if (typeof window.__freedom_window !== 'function') {
       return Promise.reject(new Error('[freedom] 未检测到原生窗口控制桥接。'));
     }
-    return window.__freedom_window(action);
+    return window.__freedom_window(action, JSON.stringify(args || {}));
   }
 
   Object.defineProperty(freedom, 'isDesktop', {

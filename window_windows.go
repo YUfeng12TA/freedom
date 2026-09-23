@@ -3,6 +3,7 @@
 package freedom
 
 import (
+	"encoding/json"
 	"fmt"
 	"syscall"
 	"unsafe"
@@ -36,6 +37,27 @@ var (
 
 	dwmapi                     = syscall.NewLazyDLL("dwmapi.dll")
 	procDwmExtendFrameIntoArea = dwmapi.NewProc("DwmExtendFrameIntoClientArea")
+
+	// 以下 proc 供 events_windows.go（窗口事件/全屏）与 windowControl 扩展动作使用。
+	comctl32 = syscall.NewLazyDLL("comctl32.dll")
+
+	procSetWindowSubclass = comctl32.NewProc("SetWindowSubclass")
+	procDefSubclassProc   = comctl32.NewProc("DefSubclassProc")
+
+	procGetWindowRect   = user32win.NewProc("GetWindowRect")
+	procGetClientRect   = user32win.NewProc("GetClientRect")
+	procBringWindowToTop    = user32win.NewProc("BringWindowToTop")
+	procIsIconic            = user32win.NewProc("IsIconic")
+	procIsWindowVisible     = user32win.NewProc("IsWindowVisible")
+	procGetForegroundWindow = user32win.NewProc("GetForegroundWindow")
+	procGetDpiForWindow     = user32win.NewProc("GetDpiForWindow")
+	procGetWindowTextLength = user32win.NewProc("GetWindowTextLengthW")
+	procGetWindowText       = user32win.NewProc("GetWindowTextW")
+	// 显示器枚举（sysCapCall 的 window.monitors 使用）。
+	procEnumDisplayMonitors = user32win.NewProc("EnumDisplayMonitors")
+
+	shcore                = syscall.NewLazyDLL("shcore.dll")
+	procGetDpiForMonitor  = shcore.NewProc("GetDpiForMonitor")
 )
 
 const (
@@ -84,10 +106,12 @@ func refreshFrame(hwnd uintptr) {
 }
 
 // windowControl 处理前端 window.freedom.window.* 请求（Windows 实现）。
-func windowControl(hwnd uintptr, action string, mode TitleBarMode) (interface{}, error) {
+// paramsJSON 为动作参数（JSON object，可空），与 sysCapCall 的 params 风格一致。
+func windowControl(hwnd uintptr, action string, mode TitleBarMode, paramsJSON string) (interface{}, error) {
 	if hwnd == 0 {
 		return nil, fmt.Errorf("window not ready")
 	}
+	p := parseWinParams(paramsJSON)
 	switch action {
 	case "minimize":
 		procShowWindow.Call(hwnd, swMinimize)
@@ -106,6 +130,12 @@ func windowControl(hwnd uintptr, action string, mode TitleBarMode) (interface{},
 		}
 		return nil, nil
 	case "close":
+		// force=true 时先解除关闭拦截，保证前端确认后能真正关闭。
+		if force, _ := p.boolean("force"); force {
+			if rt, err := runtimeFor(hwnd); err == nil {
+				rt.interceptClose.Store(false)
+			}
+		}
 		// 发送 WM_CLOSE 走正常关闭流程（触发 DestroyWindow，释放 WebView 资源）。
 		// 不能使用 user32.CloseWindow——该 API 的语义是最小化窗口而非关闭。
 		procPostMessage.Call(hwnd, wmClose, 0, 0)
@@ -116,9 +146,282 @@ func windowControl(hwnd uintptr, action string, mode TitleBarMode) (interface{},
 		// 仅 frameless 返回 true：hidden 模式保留 DWM 原生按钮，
 		// 前端若据 isFrameless 自绘按钮会与原生按钮重叠。
 		return mode == TitleBarFrameless, nil
+
+	// ---- W1 对标 Tauri：位置 / 尺寸 ----
+	case "setPosition":
+		r, err := getWindowRect(hwnd)
+		if err != nil {
+			return nil, err
+		}
+		x, okx := p.intv("x")
+		y, oky := p.intv("y")
+		if !okx || !oky {
+			return nil, fmt.Errorf("setPosition requires x,y")
+		}
+		procMoveWindow.Call(hwnd, uintptr(int32(x)), uintptr(int32(y)),
+			uintptr(r.right-r.left), uintptr(r.bottom-r.top), 1)
+		return nil, nil
+	case "setSize":
+		r, err := getWindowRect(hwnd)
+		if err != nil {
+			return nil, err
+		}
+		w, okw := p.intv("width")
+		h, okh := p.intv("height")
+		if !okw || !okh {
+			return nil, fmt.Errorf("setSize requires width,height")
+		}
+		procMoveWindow.Call(hwnd, uintptr(r.left), uintptr(r.top), uintptr(int32(w)), uintptr(int32(h)), 1)
+		return nil, nil
+	case "getPosition":
+		r, err := getWindowRect(hwnd)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]int{"x": int(r.left), "y": int(r.top)}, nil
+	case "getSize":
+		r, err := getWindowRect(hwnd)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]int{"width": int(r.right - r.left), "height": int(r.bottom - r.top)}, nil
+	case "innerSize":
+		r := getClientRect(hwnd)
+		return map[string]int{"width": int(r.right - r.left), "height": int(r.bottom - r.top)}, nil
+	case "center":
+		r, err := getWindowRect(hwnd)
+		if err != nil {
+			return nil, err
+		}
+		x, y := centeredForWindow(hwnd, int(r.right-r.left), int(r.bottom-r.top))
+		procMoveWindow.Call(hwnd, uintptr(int32(x)), uintptr(int32(y)),
+			uintptr(r.right-r.left), uintptr(r.bottom-r.top), 1)
+		return nil, nil
+	case "setTitle":
+		s, ok := p.strv("title")
+		if !ok {
+			return nil, fmt.Errorf("setTitle requires title")
+		}
+		ptr, err := syscall.UTF16PtrFromString(s)
+		if err != nil {
+			return nil, fmt.Errorf("setTitle: title must not contain NUL")
+		}
+		procSetWindowText.Call(hwnd, uintptr(unsafe.Pointer(ptr)))
+		return nil, nil
+
+	// ---- W1：可见性 / 层级 / 焦点 ----
+	case "show":
+		procShowWindow.Call(hwnd, swShow)
+		return nil, nil
+	case "hide":
+		procShowWindow.Call(hwnd, swHide)
+		return nil, nil
+	case "focus":
+		if isIconic(hwnd) {
+			procShowWindow.Call(hwnd, swRestore)
+		}
+		procBringWindowToTop.Call(hwnd)
+		procSetForegroundWindow.Call(hwnd)
+		return nil, nil
+	case "isVisible":
+		r, _, _ := procIsWindowVisible.Call(hwnd)
+		return r != 0, nil
+	case "isFocused":
+		fg, _, _ := procGetForegroundWindow.Call()
+		return fg == hwnd, nil
+	case "isMinimized":
+		return isIconic(hwnd), nil
+	case "setAlwaysOnTop":
+		on, ok := p.boolean("on")
+		if !ok {
+			return nil, fmt.Errorf("setAlwaysOnTop requires on")
+		}
+		top := hwndNotopmost
+		if on {
+			top = hwndTopmost
+		}
+		procSetWindowPos.Call(hwnd, top, 0, 0, 0, 0, swpNoMove|swpNoSize|swpNoActivate)
+		return nil, nil
+	case "setSkipTaskbar":
+		on, ok := p.boolean("on")
+		if !ok {
+			return nil, fmt.Errorf("setSkipTaskbar requires on")
+		}
+		ex, _, _ := procGetWindowLongPtr.Call(hwnd, uintptr(int(gwlExStyle)))
+		if on {
+			ex |= wsExToolwindow
+		} else {
+			ex &^= wsExToolwindow
+		}
+		procSetWindowLongPtr.Call(hwnd, uintptr(int(gwlExStyle)), ex)
+		// 任务栏按钮变化需 SWP_FRAMECHANGED + 显示标志才能即时生效。
+		procSetWindowPos.Call(hwnd, 0, 0, 0, 0, 0,
+			swpFrameChanged|swpNoMove|swpNoSize|swpNoZOrder|swpNoActivate|swpShowWindow)
+		return nil, nil
+
+	// ---- W1：行为开关 ----
+	case "setResizable":
+		on, ok := p.boolean("on")
+		if !ok {
+			return nil, fmt.Errorf("setResizable requires on")
+		}
+		style := getWindowStyle(hwnd)
+		if on {
+			style |= wsThickFrame
+		} else {
+			style &^= wsThickFrame
+		}
+		setWindowStyle(hwnd, style)
+		refreshFrame(hwnd)
+		return nil, nil
+	case "setMaximizable":
+		on, ok := p.boolean("on")
+		if !ok {
+			return nil, fmt.Errorf("setMaximizable requires on")
+		}
+		style := getWindowStyle(hwnd)
+		if on {
+			style |= wsMaximizeBox
+		} else {
+			style &^= wsMaximizeBox
+		}
+		setWindowStyle(hwnd, style)
+		refreshFrame(hwnd)
+		return nil, nil
+	case "setMinimizable":
+		on, ok := p.boolean("on")
+		if !ok {
+			return nil, fmt.Errorf("setMinimizable requires on")
+		}
+		style := getWindowStyle(hwnd)
+		if on {
+			style |= wsMinimizeBox
+		} else {
+			style &^= wsMinimizeBox
+		}
+		setWindowStyle(hwnd, style)
+		refreshFrame(hwnd)
+		return nil, nil
+
+	// ---- W1：全屏 / 关闭拦截 ----
+	case "setFullscreen":
+		on, ok := p.boolean("on")
+		if !ok {
+			return nil, fmt.Errorf("setFullscreen requires on")
+		}
+		return nil, setFullscreen(hwnd, on)
+	case "isFullscreen":
+		rt, err := runtimeFor(hwnd)
+		if err != nil {
+			return false, nil
+		}
+		return rt.getFullscreen(), nil
+	case "interceptClose":
+		on, ok := p.boolean("on")
+		if !ok {
+			return nil, fmt.Errorf("interceptClose requires on")
+		}
+		rt, err := runtimeFor(hwnd)
+		if err != nil {
+			return nil, err
+		}
+		rt.interceptClose.Store(on)
+		return nil, nil
+
+	// ---- W1：信息查询 ----
+	case "getInfo":
+		return getWindowInfo(hwnd, mode)
 	default:
 		return nil, fmt.Errorf("unknown window action %q", action)
 	}
+}
+
+// getWindowInfo 聚合窗口状态（物理像素；scaleFactor 为 DPI 缩放）。
+func getWindowInfo(hwnd uintptr, mode TitleBarMode) (map[string]interface{}, error) {
+	r, err := getWindowRect(hwnd)
+	if err != nil {
+		return nil, err
+	}
+	cr := getClientRect(hwnd)
+	ex, _, _ := procGetWindowLongPtr.Call(hwnd, uintptr(int(gwlExStyle)))
+	vis, _, _ := procIsWindowVisible.Call(hwnd)
+	fg, _, _ := procGetForegroundWindow.Call()
+	rt, rtErr := runtimeFor(hwnd)
+	return map[string]interface{}{
+		"title":       getWindowText(hwnd),
+		"outerX":      int(r.left),
+		"outerY":      int(r.top),
+		"outerWidth":  int(r.right - r.left),
+		"outerHeight": int(r.bottom - r.top),
+		"innerWidth":  int(cr.right - cr.left),
+		"innerHeight": int(cr.bottom - cr.top),
+		"scaleFactor": windowScaleFactor(hwnd),
+		"visible":     vis != 0,
+		"focused":     fg == hwnd,
+		"maximized":   isZoomed(hwnd),
+		"minimized":   isIconic(hwnd),
+		"alwaysOnTop": ex&wsExTopmost != 0,
+		"skipTaskbar": ex&wsExToolwindow != 0,
+		"frameless":   mode == TitleBarFrameless,
+		"fullscreen":  rtErr == nil && rt.getFullscreen(),
+	}, nil
+}
+
+func isIconic(hwnd uintptr) bool {
+	r, _, _ := procIsIconic.Call(hwnd)
+	return r != 0
+}
+
+// getWindowText 读取窗口标题（GetWindowTextW）。
+func getWindowText(hwnd uintptr) string {
+	n, _, _ := procGetWindowTextLength.Call(hwnd)
+	if n == 0 {
+		return ""
+	}
+	buf := make([]uint16, n+1)
+	procGetWindowText.Call(hwnd, uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
+	return syscall.UTF16ToString(buf)
+}
+
+// winParams 是窗口动作的 JSON 参数对象。
+type winParams map[string]json.RawMessage
+
+func parseWinParams(paramsJSON string) winParams {
+	var p winParams
+	if len(paramsJSON) > 0 && paramsJSON != "null" {
+		_ = json.Unmarshal([]byte(paramsJSON), &p)
+	}
+	return p
+}
+
+func (p winParams) intv(k string) (int, bool) {
+	if v, ok := p[k]; ok {
+		var f float64
+		if json.Unmarshal(v, &f) == nil {
+			return int(f), true
+		}
+	}
+	return 0, false
+}
+
+func (p winParams) strv(k string) (string, bool) {
+	if v, ok := p[k]; ok {
+		var s string
+		if json.Unmarshal(v, &s) == nil {
+			return s, true
+		}
+	}
+	return "", false
+}
+
+func (p winParams) boolean(k string) (bool, bool) {
+	if v, ok := p[k]; ok {
+		var b bool
+		if json.Unmarshal(v, &b) == nil {
+			return b, true
+		}
+	}
+	return false, false
 }
 
 func isZoomed(hwnd uintptr) bool {

@@ -39,3 +39,23 @@ func TestCenteredPositionClampBothSides(t *testing.T) {
 		t.Fatalf("normal window y not centered: center offset %d", dy)
 	}
 }
+
+// W1 回归：centeredInRect 纯函数——副屏负坐标、超界 clamp、常规居中。
+func TestCenteredInRect(t *testing.T) {
+	cases := []struct {
+		name                        string
+		left, top, ww, wh, w, h     int
+		x, y                        int
+	}{
+		{"常规", 0, 0, 1920, 1080, 800, 600, 560, 240},
+		{"副屏负坐标", -1920, 0, 1920, 1080, 800, 600, -1360, 240},
+		{"超宽贴左缘", 0, 0, 1000, 1000, 3000, 5000, 0, 0},
+		{"恰好等于工作区", 100, 100, 800, 600, 800, 600, 100, 100},
+	}
+	for _, c := range cases {
+		x, y := centeredInRect(c.left, c.top, c.ww, c.wh, c.w, c.h)
+		if x != c.x || y != c.y {
+			t.Errorf("%s: got (%d,%d), want (%d,%d)", c.name, x, y, c.x, c.y)
+		}
+	}
+}

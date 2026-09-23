@@ -157,6 +157,7 @@ func (a *App) Run() {
 		if err := a.backend.Close(); err != nil {
 			fmt.Fprintf(os.Stderr, "freedom: backend close: %v\n", err)
 		}
+		a.uninstallWindowEvents()
 		// 销毁前摘除引用：Run 返回后 Emit/Quit/WindowHandle 不得再触碰已销毁的 webview。
 		a.setView(nil)
 		w.Destroy()
@@ -181,6 +182,8 @@ func (a *App) Run() {
 	}
 	a.applyCenter()
 	a.applyTitleBar()
+	// 窗口事件与关闭拦截（Windows 经 WndProc 子类化；其他平台 no-op）。
+	a.installWindowEvents()
 
 	// 注入前端 SDK：window.freedom 全局对象。
 	w.Init(jsSDK)
@@ -196,8 +199,13 @@ func (a *App) Run() {
 		fmt.Printf("freedom: failed to bind ping: %v\n", err)
 		return
 	}
-	// 框架内置方法：窗口控制（无边框模式下前端自绘按钮使用）。
-	// 支持动作：minimize / maximize / unmaximize / toggleMaximize / close / isMaximized / isFrameless。
+	// 框架内置方法：窗口控制（无边框模式下前端自绘按钮使用 + 运行时窗口能力）。
+	// 支持动作：minimize / maximize / unmaximize / toggleMaximize / close / isMaximized /
+	// isFrameless / setPosition / setSize / getPosition / getSize / innerSize / center /
+	// setTitle / show / hide / focus / isVisible / isFocused / isMinimized /
+	// setAlwaysOnTop / setSkipTaskbar / setResizable / setMaximizable / setMinimizable /
+	// setFullscreen / isFullscreen / interceptClose / getInfo。
+	// 第二参数为 JSON object 字符串（SDK 始终传入，可解析为空对象）。
 	if err := w.Bind("__freedom_window", a.windowControl); err != nil {
 		fmt.Printf("freedom: failed to bind window control: %v\n", err)
 		return
@@ -313,7 +321,7 @@ func (a *App) WindowHandle() uintptr {
 
 // windowControl 处理前端 window.freedom.window.* 的窗口控制请求。
 // 具体实现按平台分文件：window_windows.go（Windows）/ window_other.go（macOS、Linux）。
-func (a *App) windowControl(action string) (result interface{}, err error) {
+func (a *App) windowControl(action string, paramsJSON string) (result interface{}, err error) {
 	// H1：windowControl 直接经 w.Bind 暴露给前端，不经 bridge 的 recover 兜底；
 	// 平台实现（如 appIcon → dibToPNG 解析越界）一旦 panic 会直接崩掉整个壳进程。
 	// 这里统一加 recover，把 panic 转成错误回传前端（页面 catch 后提示，进程不崩）。
@@ -323,7 +331,7 @@ func (a *App) windowControl(action string) (result interface{}, err error) {
 			err = fmt.Errorf("freedom: window action %q panicked: %v", action, r)
 		}
 	}()
-	return windowControl(a.WindowHandle(), action, a.cfg.TitleBar)
+	return windowControl(a.WindowHandle(), action, a.cfg.TitleBar, paramsJSON)
 }
 
 // resolveHTML 依据配置返回页面内容。

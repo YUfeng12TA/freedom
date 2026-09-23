@@ -626,6 +626,8 @@ func (a *App) sysCapCall(method string, paramsJSON string) (result interface{}, 
 		return nil, taskbarSetOverlay(hwnd, nil)
 
 	// ---- 窗口效果 ----
+	case "window.monitors":
+		return listMonitors(), nil
 	case "window.backdrop":
 		return nil, windowSetBackdrop(hwnd, argStr("mode"))
 	case "window.corner":

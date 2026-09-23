@@ -49,62 +49,47 @@ func (a *App) applyCenter() {
 // 保证窗口整体落在工作区内、可被拖拽恢复。副屏坐标可为负，故以工作区
 // 边界而非 0 为基准。
 func (a *App) centeredPosition(hwnd uintptr) (int, int) {
+	return centeredForWindow(hwnd, a.cfg.Width, a.cfg.Height)
+}
+
+// centeredForWindow 供运行时 window.center 动作使用：以窗口当前实际外框尺寸
+// （而非 Config 初始尺寸）在所在显示器工作区居中。
+func centeredForWindow(hwnd uintptr, w, h int) (int, int) {
 	if mon, _, _ := procMonitorFromWindow.Call(hwnd, monitorDefaultTonearest); mon != 0 {
 		var mi monitorInfo
 		mi.cbSize = uint32(unsafe.Sizeof(mi))
 		if r, _, _ := procGetMonitorInfo.Call(mon, uintptr(unsafe.Pointer(&mi))); r != 0 {
-			left := int(mi.rcWork.left)
-			top := int(mi.rcWork.top)
-			ww := int(mi.rcWork.right - mi.rcWork.left)
-			wh := int(mi.rcWork.bottom - mi.rcWork.top)
-			x := left + (ww-a.cfg.Width)/2
-			y := top + (wh-a.cfg.Height)/2
-			// 上界不得小于下界：窗口大于工作区时 left+ww-w 会越过 left，
-			// 上下界互打架会把坐标钳回负值。此时贴左上缘即可。
-			upperX := left + ww - a.cfg.Width
-			if upperX < left {
-				upperX = left
-			}
-			upperY := top + wh - a.cfg.Height
-			if upperY < top {
-				upperY = top
-			}
-			if x < left {
-				x = left
-			}
-			if x > upperX {
-				x = upperX
-			}
-			if y < top {
-				y = top
-			}
-			if y > upperY {
-				y = upperY
-			}
-			return x, y
+			return centeredInRect(int(mi.rcWork.left), int(mi.rcWork.top),
+				int(mi.rcWork.right-mi.rcWork.left), int(mi.rcWork.bottom-mi.rcWork.top), w, h)
 		}
 	}
 	sw, _, _ := procGetSystemMetrics.Call(smCxScreen)
 	sh, _, _ := procGetSystemMetrics.Call(smCyScreen)
-	x := int(sw/2) - a.cfg.Width/2
-	y := int(sh/2) - a.cfg.Height/2
-	// 上界不小于下界 0（窗口大于屏幕时贴左上缘，不允许负值）。
-	upperX := int(sw) - a.cfg.Width
-	if upperX < 0 {
-		upperX = 0
+	return centeredInRect(0, 0, int(sw), int(sh), w, h)
+}
+
+// centeredInRect 在矩形 (left,top,ww,wh) 内居中 w×h，双向 clamp 保证整体落入矩形。
+func centeredInRect(left, top, ww, wh, w, h int) (int, int) {
+	x := left + (ww-w)/2
+	y := top + (wh-h)/2
+	// 上界不得小于下界：窗口大于工作区时 left+ww-w 会越过 left，
+	// 上下界互打架会把坐标钳回负值。此时贴左上缘即可。
+	upperX := left + ww - w
+	if upperX < left {
+		upperX = left
 	}
-	upperY := int(sh) - a.cfg.Height
-	if upperY < 0 {
-		upperY = 0
+	upperY := top + wh - h
+	if upperY < top {
+		upperY = top
 	}
-	if x < 0 {
-		x = 0
+	if x < left {
+		x = left
 	}
 	if x > upperX {
 		x = upperX
 	}
-	if y < 0 {
-		y = 0
+	if y < top {
+		y = top
 	}
 	if y > upperY {
 		y = upperY
