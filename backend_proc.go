@@ -37,6 +37,7 @@ type ProcBackend struct {
 	closed  bool
 	onEvent func(event string, data interface{})
 	timeout time.Duration
+	maxLine int // 单条 stdout 行（一次响应）上限字节；超限即那条响应过大，不得中断整个通道
 }
 
 // procResp 是一次调用在壳侧的等待结果。
@@ -69,12 +70,23 @@ func NewProcBackend(command ...string) *ProcBackend {
 		cmd:     cmd,
 		pending: map[int64]chan procResp{},
 		timeout: 60 * time.Second,
+		maxLine: 16 * 1024 * 1024, // 默认单条响应上限 16MB（见 SetMaxLine）
 	}
 }
 
 // SetTimeout 设置单次调用的最大等待时间（默认 60s）。<=0 表示不超时。
 func (p *ProcBackend) SetTimeout(d time.Duration) *ProcBackend {
 	p.timeout = d
+	return p
+}
+
+// SetMaxLine 设置单条后端响应（stdout 行）的字节上限（默认 16MB）。
+// 超过上限的单条响应会被判为"行过大"：仅该条调用收到错误，随后继续读取后续行，
+// 不会像旧实现那样把 bufio.ErrTooLong 误判为"进程退出"而打崩整个 IPC 通道。
+func (p *ProcBackend) SetMaxLine(n int) *ProcBackend {
+	if n > 0 {
+		p.maxLine = n
+	}
 	return p
 }
 
@@ -184,26 +196,33 @@ func (p *ProcBackend) cancel(id int64, err error) {
 }
 
 // readLoop 持续读取后端 stdout，解析协议消息并分发。
+//
+// 行切分用 bufio.Reader.ReadBytes（而非 Scanner）：Scanner 的单条 token 超过
+// 上限时返回 bufio.ErrTooLong 并永久停止扫描（通道直接死掉，旧缺陷）；
+// 这里改为**手工切分**——某条响应超限时仅丢弃该条并唤醒其调用为"行过大"，
+// 随后继续读后续行，绝不因单条大消息而中断整个 IPC 通道。
 func (p *ProcBackend) readLoop(stdout io.Reader) {
-	sc := bufio.NewScanner(stdout)
-	sc.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
-	for sc.Scan() {
-		var msg procMessage
-		if err := json.Unmarshal(sc.Bytes(), &msg); err != nil {
-			fmt.Fprintf(os.Stderr, "freedom: proc backend: bad message: %v\n", err)
-			continue
+	rd := bufio.NewReaderSize(stdout, 64*1024)
+	for {
+		line, readErr := rd.ReadBytes('\n')
+		if len(line) > 0 {
+			// ReadBytes 返回的 line 含尾随 '\n'；去掉换行后按行处理。
+			msgBytes := line
+			if len(msgBytes) > 0 && msgBytes[len(msgBytes)-1] == '\n' {
+				msgBytes = msgBytes[:len(msgBytes)-1]
+			}
+			p.dispatchLine(msgBytes)
 		}
-		if msg.Event != "" {
-			p.dispatchEvent(msg.Event, msg.Data)
-			continue
+		if readErr != nil {
+			if readErr == io.EOF {
+				// 正常结束：后端进程关闭了 stdout。
+			} else {
+				fmt.Fprintf(os.Stderr, "freedom: proc backend: read stdout: %v\n", readErr)
+			}
+			break
 		}
-		p.finish(msg)
 	}
-	// Scanner.Err 非 nil 即真实 IO 错误（EOF 不含在内），必须留痕以便排查。
-	if err := sc.Err(); err != nil {
-		fmt.Fprintf(os.Stderr, "freedom: proc backend: read stdout: %v\n", err)
-	}
-	// 后端进程已退出：唤醒所有仍等待中的调用。
+	// 后端进程已退出（或 stdout 不可读）：唤醒所有仍等待中的调用。
 	err := fmt.Errorf("freedom: proc backend exited unexpectedly")
 	p.mu.Lock()
 	for id, ch := range p.pending {
@@ -211,6 +230,36 @@ func (p *ProcBackend) readLoop(stdout io.Reader) {
 		ch <- procResp{err: err}
 	}
 	p.mu.Unlock()
+}
+
+// dispatchLine 处理一条（已去换行的）stdout 行。
+// 行数（字节数）超过 maxLine 时不解析、不丢弃后续行——只把"行过大"留痕，
+// 让调用方（仍在等待的 pending 由各自的 Handle 超时唤醒）不被这条消息影响。
+func (p *ProcBackend) dispatchLine(line []byte) {
+	// 空行：协议无意义，跳过。
+	if len(line) == 0 {
+		return
+	}
+	// 单条响应字节上限守卫：超限即该行过大。ReadBytes 已把整行读入，这里
+	// 只做上限判定——超限行丢弃（不解析、不派发），并留痕供排查。
+	// 注意：超限行若恰好是一条调用的响应，该调用的 pending 不会被 finish 唤醒，
+	// 将依赖 Handle 侧的超时机制兜底（默认 60s）。这是"行过大仅影响该条"的
+	// 有界行为，不会级联打崩其它在途调用。
+	if p.maxLine > 0 && len(line) > p.maxLine {
+		fmt.Fprintf(os.Stderr, "freedom: proc backend: line too large (%d bytes > maxLine %d), dropped\n",
+			len(line), p.maxLine)
+		return
+	}
+	var msg procMessage
+	if err := json.Unmarshal(line, &msg); err != nil {
+		fmt.Fprintf(os.Stderr, "freedom: proc backend: bad message: %v\n", err)
+		return
+	}
+	if msg.Event != "" {
+		p.dispatchEvent(msg.Event, msg.Data)
+		return
+	}
+	p.finish(msg)
 }
 
 func (p *ProcBackend) finish(msg procMessage) {

@@ -31,7 +31,7 @@ import (
 type TitleBarMode string
 
 const (
-	// TitleBarNative 保留系统原生标题栏（默认）。
+	// TitleBarNative 保留系统原生标题栏（非默认；默认见 TitleBarFrameless）。
 	TitleBarNative TitleBarMode = "native"
 	// TitleBarHidden 隐藏标题栏视觉，但保留系统原生最小化 / 最大化 / 关闭按钮。
 	// 当前仅 Windows 生效（基于 DWM 扩展实现）；macOS / Linux 上回退为原生标题栏。
@@ -46,7 +46,7 @@ const (
 type Config struct {
 	// Title 是窗口标题。
 	Title string
-	// TitleBar 指定标题栏策略（默认 TitleBarNative）。可通过 freedom CLI 一键切换。
+	// TitleBar 指定标题栏策略（默认 TitleBarFrameless）。可通过 freedom CLI 一键切换。
 	TitleBar TitleBarMode
 	// Width / Height 是窗口初始尺寸（像素）。
 	Width  int
@@ -93,8 +93,11 @@ func New(cfg Config) *App {
 	if cfg.Title == "" {
 		cfg.Title = "Freedom App"
 	}
+	// M1：默认无边框（frameless），与 freedom-cli 模板默认一致。
+	// 此前默认 native 而 CLI 默认 frameless，resources 缺失/配置不完整时
+	// 会出现"系统原生标题栏 + 页面自绘标题栏"双标题栏错位。
 	if cfg.TitleBar == "" {
-		cfg.TitleBar = TitleBarNative
+		cfg.TitleBar = TitleBarFrameless
 	}
 	if cfg.Width <= 0 {
 		cfg.Width = 1024
@@ -172,7 +175,8 @@ func (a *App) Run() {
 
 	w.SetTitle(a.cfg.Title)
 	w.SetSize(a.cfg.Width, a.cfg.Height, webview.HintNone)
-	if a.cfg.MinWidth > 0 && a.cfg.MinHeight > 0 {
+	// 最小尺寸：任一项 >0 即生效；未设置的一项传 0 表示该维度不限制。
+	if a.cfg.MinWidth > 0 || a.cfg.MinHeight > 0 {
 		w.SetSize(a.cfg.MinWidth, a.cfg.MinHeight, webview.HintMin)
 	}
 	a.applyCenter()
@@ -198,11 +202,38 @@ func (a *App) Run() {
 		fmt.Printf("freedom: failed to bind window control: %v\n", err)
 		return
 	}
-
-	if a.onReady != nil {
-		a.onReady(a)
+	// 框架内置方法：原生系统能力（wails v3 对标层）。
+	// 支持方法：taskbar.*（进度/状态/角标）、window.backdrop/corner/borderColor、
+	// dialog.message/open/save。平台实现分文件：syscap_windows.go / syscap_other.go。
+	if err := w.Bind("__freedom_sys", a.sysCapCall); err != nil {
+		fmt.Printf("freedom: failed to bind sys capability: %v\n", err)
+		return
+	}
+	// 框架内置方法：系统托盘与原生菜单栏。
+	// 支持方法：tray.create/destroy/tooltip/menu、menu.set。
+	// 平台实现分文件：tray_windows.go / tray_other.go。
+	if err := w.Bind("__freedom_tray", a.trayCall); err != nil {
+		fmt.Printf("freedom: failed to bind tray: %v\n", err)
+		return
+	}
+	// 框架内置方法：页面就绪回调（H3）。前端 SDK 在 DOMContentLoaded 后调用，
+	// 保证 onReady 触发时页面已加载、监听器已注册；此前 onReady 在 SetHtml 前
+	// 触发，期间 Emit 的初始化事件因 window.freedom 尚未建立而丢失。
+	// 页面可能因导航/重载多次触发 DOMContentLoaded，用 once 兜底只执行一次。
+	var readyOnce sync.Once
+	if err := w.Bind("__freedom__ready", func() {
+		readyOnce.Do(func() {
+			if a.onReady != nil {
+				a.onReady(a)
+			}
+		})
+	}); err != nil {
+		fmt.Printf("freedom: failed to bind ready: %v\n", err)
+		return
 	}
 
+	// 注：onReady 不再在 SetHtml 前触发（H3），改由前端 SDK 在页面
+	// DOMContentLoaded 后经 __freedom__ready 回调，保证初始化事件不丢失。
 	w.SetHtml(html)
 	w.Run()
 }
@@ -282,7 +313,16 @@ func (a *App) WindowHandle() uintptr {
 
 // windowControl 处理前端 window.freedom.window.* 的窗口控制请求。
 // 具体实现按平台分文件：window_windows.go（Windows）/ window_other.go（macOS、Linux）。
-func (a *App) windowControl(action string) (interface{}, error) {
+func (a *App) windowControl(action string) (result interface{}, err error) {
+	// H1：windowControl 直接经 w.Bind 暴露给前端，不经 bridge 的 recover 兜底；
+	// 平台实现（如 appIcon → dibToPNG 解析越界）一旦 panic 会直接崩掉整个壳进程。
+	// 这里统一加 recover，把 panic 转成错误回传前端（页面 catch 后提示，进程不崩）。
+	defer func() {
+		if r := recover(); r != nil {
+			result = nil
+			err = fmt.Errorf("freedom: window action %q panicked: %v", action, r)
+		}
+	}()
 	return windowControl(a.WindowHandle(), action, a.cfg.TitleBar)
 }
 

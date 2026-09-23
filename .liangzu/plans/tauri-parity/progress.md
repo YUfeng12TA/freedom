@@ -1,0 +1,11 @@
+# progress — tauri-parity
+
+| 步骤 | 验收判据（逐字抄 task_plan） | 状态 |
+|---|---|---|
+| W0 规划落盘 | `ls .liangzu/plans/tauri-parity` 含 task_plan.md/findings.md/progress.md | done（本文件落盘，三件套齐） |
+| W1 窗口能力 | `go build ./... && go test ./...` 全绿 | 未开工 |
+| W2 系统集成 | 编译+测试全绿；other 占位一致 | 未开工 |
+| W3 数据层 | 单测全绿 | 未开工 |
+| W4 后端健壮性 | backend_proc_test.go 新用例全绿 | 未开工 |
+| W5 SDK | `node --test tests/` 全绿 + 构建 | 未开工 |
+| W6 审查+安全+更新差距 | 审查清单落 findings，bugs 无 open critical/major | 未开工 |

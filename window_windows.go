@@ -13,6 +13,7 @@ import (
 
 var (
 	user32win = syscall.NewLazyDLL("user32.dll")
+	kernel32  = syscall.NewLazyDLL("kernel32.dll")
 
 	procGetWindowLongPtr = user32win.NewProc("GetWindowLongPtrW")
 	procSetWindowLongPtr = user32win.NewProc("SetWindowLongPtrW")
@@ -21,6 +22,17 @@ var (
 	procIsZoomed         = user32win.NewProc("IsZoomed")
 	procSetWindowPos     = user32win.NewProc("SetWindowPos")
 	procSetWindowText    = user32win.NewProc("SetWindowTextW")
+	// 以下 proc 供 center_windows.go 的 applyCenter 使用（窗口居中），
+	// 统一在此声明，避免多文件各自 NewLazyDLL/NewProc 重复加载 user32。
+	procGetSystemMetrics  = user32win.NewProc("GetSystemMetrics")
+	procMonitorFromWindow = user32win.NewProc("MonitorFromWindow")
+	procGetMonitorInfo    = user32win.NewProc("GetMonitorInfoW")
+	procMoveWindow        = user32win.NewProc("MoveWindow")
+	// 以下 proc 供 tray_windows.go / syscap_windows.go 使用（图标加载与释放），
+	// 与模板 window_windows.go 保持一致，避免多文件重复声明。
+	procGetModuleHandle = kernel32.NewProc("GetModuleHandleW")
+	procLoadImage       = user32win.NewProc("LoadImageW")
+	procDestroyIcon     = user32win.NewProc("DestroyIcon")
 
 	dwmapi                     = syscall.NewLazyDLL("dwmapi.dll")
 	procDwmExtendFrameIntoArea = dwmapi.NewProc("DwmExtendFrameIntoClientArea")
@@ -44,6 +56,9 @@ const (
 	swpNoActivate   = 0x0010
 
 	wmClose = 0x0010 // WM_CLOSE：请求窗口正常关闭（触发 DestroyWindow 释放 WebView 资源）
+
+	smCXSmall = 13 // SM_CXSMICON
+	smCYSmall = 14 // SM_CYSMICON
 )
 
 // gwlStyle = GWL_STYLE（-16）。用变量声明，避免 uintptr 常量转换溢出。
@@ -109,6 +124,27 @@ func windowControl(hwnd uintptr, action string, mode TitleBarMode) (interface{},
 func isZoomed(hwnd uintptr) bool {
 	r, _, _ := procIsZoomed.Call(hwnd)
 	return r != 0
+}
+
+// loadExeIcon 从 exe 内嵌的 RT_GROUP_ICON 资源加载 HICON。
+// rcedit 注入的 group icon 资源 ID 固定为 0（LoadImageW 需按该 ID 加载；
+// 历史按 ID=1 硬编码导致加载失败，故此处显式用 0）。
+// 调用方用完须 procDestroyIcon 释放；加载失败返回 0。
+// 供 tray_windows.go 托盘图标与 syscap_windows.go 窗口效果使用。
+func loadExeIcon(cx, cy uintptr) uintptr {
+	hInst, _, _ := procGetModuleHandle.Call(0)
+	if hInst == 0 {
+		return 0
+	}
+	// 先按 rcedit 注入约定 RT_GROUP_ICON ID=0 加载；失败回退 ID=1（M3：
+	// 与 appIcon 的 RT_ICON ID 假设解耦，兼容不同注入工具的资源 ID）。
+	for _, id := range []uintptr{0, 1} {
+		// LoadImageW(hInst, MAKEINTRESOURCE(id), IMAGE_ICON, cx, cy, LR_DEFAULTCOLOR)
+		if r, _, _ := procLoadImage.Call(hInst, id, 1 /*IMAGE_ICON*/, cx, cy, 0 /*LR_DEFAULTCOLOR*/); r != 0 {
+			return r
+		}
+	}
+	return 0
 }
 
 // applyTitleBar 依据配置调整窗口标题栏（Windows 实现）。

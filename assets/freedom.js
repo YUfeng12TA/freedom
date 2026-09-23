@@ -95,4 +95,18 @@
   window.go = go;
 
   window.freedom = freedom;
+
+  // H3：页面就绪回调。Go 侧 onReady 改为在 __freedom__ready 被调用时触发
+  //（此前在 SetHtml 前触发，期间 Emit 的初始化事件因 SDK 尚未建立而丢失）。
+  // DOMContentLoaded 后上报就绪；若脚本执行时 DOM 已加载完成则立即上报。
+  function signalReady() {
+    if (typeof window.__freedom__ready === 'function') {
+      try { window.__freedom__ready(); } catch (e) { /* 忽略 */ }
+    }
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', signalReady);
+  } else {
+    signalReady();
+  }
 })();

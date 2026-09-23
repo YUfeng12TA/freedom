@@ -1,6 +1,6 @@
 {
   "version": 4,
-  "lastUpdated": "2026-08-29T21:20:00+08:00",
+  "lastUpdated": "2026-08-31T14:20:00+08:00",
   "decisions": [
     {
       "date": "2026-08-19",
@@ -43,6 +43,15 @@
       "alternatives": [
         "本地 Stable Diffusion/ComfyUI 封装（部署重、GPU 未知、周期天级，留作 provider 扩展）",
         "完整 MCP SDK（引入依赖，analyzer 先例证明手写三方法足够）"
+      ]
+    },
+    {
+      "date": "2026-08-31T14:20:00+08:00",
+      "decision": "SUPER TIANSHU 马里奥式 50 关游戏（mario/）整目录删除：构建、试玩、闭环与缺陷修复（含 dieT 连扣修复）均已完成并实证后，用户裁定废弃并清理全部产物；相关 map/bugs 登记同步清除",
+      "rationale": "用户明确指令『删除马里奥游戏并清理全部废弃文件』；一图鉴不载已不存在之物",
+      "alternatives": [
+        "保留源码留档（被否：用户要求全删）",
+        "仅删 dist 产物留源码（被否：全删）"
       ]
     }
   ]
