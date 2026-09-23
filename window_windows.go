@@ -56,8 +56,46 @@ var (
 	// 显示器枚举（sysCapCall 的 window.monitors 使用）。
 	procEnumDisplayMonitors = user32win.NewProc("EnumDisplayMonitors")
 
-	shcore                = syscall.NewLazyDLL("shcore.dll")
-	procGetDpiForMonitor  = shcore.NewProc("GetDpiForMonitor")
+	shcore               = syscall.NewLazyDLL("shcore.dll")
+	procGetDpiForMonitor = shcore.NewProc("GetDpiForMonitor")
+
+	// 以下 proc 供 W2 系统集成（msgwindow/剪贴板/通知/外壳/注册表）使用，
+	// 按约定集中在本文件声明，其他文件复用。
+	procRegisterHotKey   = user32win.NewProc("RegisterHotKey")
+	procUnregisterHotKey = user32win.NewProc("UnregisterHotKey")
+	procPostQuitMessage  = user32win.NewProc("PostQuitMessage")
+	procGetMessageW      = user32win.NewProc("GetMessageW")
+	procTranslateMessage = user32win.NewProc("TranslateMessage")
+	procDispatchMessageW = user32win.NewProc("DispatchMessageW")
+
+	procOpenClipboard         = user32win.NewProc("OpenClipboard")
+	procCloseClipboard        = user32win.NewProc("CloseClipboard")
+	procGetClipboardData      = user32win.NewProc("GetClipboardData")
+	procEmptyClipboard        = user32win.NewProc("EmptyClipboard")
+	procSetClipboardData      = user32win.NewProc("SetClipboardData")
+	procIsClipboardFormatAvai = user32win.NewProc("IsClipboardFormatAvailable")
+
+	// Global* 复用上方 kernel32 声明。
+	procGlobalAlloc  = kernel32.NewProc("GlobalAlloc")
+	procGlobalLock   = kernel32.NewProc("GlobalLock")
+	procGlobalUnlock = kernel32.NewProc("GlobalUnlock")
+	procGlobalSize   = kernel32.NewProc("GlobalSize")
+	procGlobalFree   = kernel32.NewProc("GlobalFree")
+
+	procFindWindowW        = user32win.NewProc("FindWindowW")
+	procSendMessageTimeoutW = user32win.NewProc("SendMessageTimeoutW")
+
+	procShellExecuteW = shell32.NewProc("ShellExecuteW")
+	shlwapi            = syscall.NewLazyDLL("shlwapi.dll")
+	procSHDeleteKeyW   = shlwapi.NewProc("SHDeleteKeyW")
+
+	advapi32              = syscall.NewLazyDLL("advapi32.dll")
+	procRegOpenKeyExW     = advapi32.NewProc("RegOpenKeyExW")
+	procRegCreateKeyExW   = advapi32.NewProc("RegCreateKeyExW")
+	procRegSetValueExW    = advapi32.NewProc("RegSetValueExW")
+	procRegQueryValueExW  = advapi32.NewProc("RegQueryValueExW")
+	procRegDeleteValueW   = advapi32.NewProc("RegDeleteValueW")
+	procRegCloseKey       = advapi32.NewProc("RegCloseKey")
 )
 
 const (

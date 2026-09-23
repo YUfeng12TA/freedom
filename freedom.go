@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"sync/atomic"
 	"unsafe"
 
 	webview "github.com/webview/webview_go"
@@ -74,6 +75,11 @@ type App struct {
 	backend Backend
 	onReady func(a *App)
 }
+
+// appForEvents 指向当前运行的 App，供平台层回调（单实例/热键等）向 Emit 事件。
+var appForEvents atomic.Pointer[App]
+
+func currentApp() *App { return appForEvents.Load() }
 
 // setView / getView 提供 view 字段的并发安全访问。
 func (a *App) setView(w webview.WebView) {
@@ -141,6 +147,9 @@ func (a *App) Unbind(name string) {
 
 // Run 启动窗口并进入主事件循环，阻塞直到窗口被关闭。
 func (a *App) Run() {
+	// 平台层回调（单实例转发/热键）经 currentApp 找到本实例推送事件。
+	appForEvents.Store(a)
+	defer appForEvents.Store(nil)
 	html, err := a.resolveHTML()
 	if err != nil {
 		fmt.Printf("freedom: failed to resolve HTML: %v\n", err)

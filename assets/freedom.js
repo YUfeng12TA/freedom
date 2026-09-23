@@ -102,8 +102,75 @@
       getInfo: function () { return windowAction('getInfo'); },
       // 显示器列表（经 sys 桥接）：[{x,y,width,height,workX,workY,workWidth,workHeight,scaleFactor,isPrimary}]
       monitors: function () { return sysCall('window.monitors', {}); },
+      // 窗口视觉效果（Win11）：backdrop: auto|none|solid|mica|acrylic；corner: round|roundSmall|square|default；borderColor: 0x00BBGGRR
+      setBackdrop: function (mode) { return sysCall('window.backdrop', { mode: mode }); },
+      setCorner: function (mode) { return sysCall('window.corner', { mode: mode }); },
+      setBorderColor: function (color) { return sysCall('window.borderColor', { color: color }); },
+    },
+    // ---- W2 系统集成命名空间（均经 __freedom_sys / __freedom_tray 桥接）----
+    sys: sysCall,
+    clipboard: {
+      readText: function () { return sysCall('clipboard.read', {}); },
+      writeText: function (text) { return sysCall('clipboard.write', { text: String(text) }); },
+    },
+    shell: {
+      // 用系统默认程序打开 URL/文件（openExternal）。
+      open: function (target) { return sysCall('shell.open', { target: String(target) }); },
+    },
+    notification: {
+      show: function (title, body) { return sysCall('notification.show', { title: String(title), body: String(body || '') }); },
+    },
+    shortcut: {
+      // combo 形如 "ctrl+alt+k"；触发时收到事件 freedom.on('shortcut.triggered', ({id}) => ...)。
+      register: function (id, combo) { return sysCall('shortcut.register', { id: id, combo: combo }); },
+      unregister: function (id) { return sysCall('shortcut.unregister', { id: id }); },
+      list: function () { return sysCall('shortcut.list', {}); },
+    },
+    autostart: {
+      isEnabled: function (name) { return sysCall('autostart.get', { name: name || '' }); },
+      set: function (enabled, opts) { return sysCall('autostart.set', { name: (opts && opts.name) || '', enabled: !!enabled, args: (opts && opts.args) || '' }); },
+      enable: function (opts) { return this.set(true, opts); },
+      disable: function (opts) { return this.set(false, opts); },
+    },
+    protocol: {
+      // URL Scheme 注册（deep link）；拉起参数经 'app.secondInstance' 事件或 app.launchArgs() 获取。
+      register: function (scheme, displayName) { return sysCall('protocol.register', { scheme: scheme, name: displayName || '' }); },
+      unregister: function (scheme) { return sysCall('protocol.unregister', { scheme: scheme }); },
+    },
+    app: {
+      launchArgs: function () { return sysCall('app.launchArgs', {}); },
+    },
+    taskbar: {
+      setProgress: function (value) { return sysCall('taskbar.progress', { value: value }); },
+      setState: function (state) { return sysCall('taskbar.state', { state: state }); }, // normal|paused|error|indeterminate
+      clear: function () { return sysCall('taskbar.clear', {}); },
+      setOverlay: function (iconDataURL) { return sysCall('taskbar.overlay', { icon: iconDataURL }); },
+      clearOverlay: function () { return sysCall('taskbar.clearOverlay', {}); },
+    },
+    dialog: {
+      message: function (opts) { return sysCall('dialog.message', opts || {}); },
+      open: function (opts) { return sysCall('dialog.open', opts || {}); },
+      save: function (opts) { return sysCall('dialog.save', opts || {}); },
+    },
+    tray: {
+      // create({icon: dataURL, tooltip})；事件：tray:click / tray:double-click / tray:menu({id})。
+      create: function (opts) { return trayCall('tray.create', opts || {}); },
+      destroy: function () { return trayCall('tray.destroy', {}); },
+      setTooltip: function (text) { return trayCall('tray.tooltip', { tooltip: text }); },
+      setMenu: function (items) { return trayCall('tray.menu', { items: items }); },
+    },
+    menu: {
+      // 原生菜单栏（挂主窗口）：items 同 tray.setMenu 结构；点击走 'tray:menu' 事件。
+      set: function (items) { return trayCall('menu.set', { items: items }); },
     },
   };
+
+  function trayCall(method, args) {
+    if (typeof window.__freedom_tray !== 'function') {
+      return Promise.reject(new Error('[freedom] 未检测到托盘桥接。'));
+    }
+    return window.__freedom_tray(method, JSON.stringify(args || {}));
+  }
 
   // sys 桥接：原生系统能力（taskbar.* / window.* / dialog.*）。
   // W5 会扩展为 freedom.sys 命名空间，先行提供内部包装。

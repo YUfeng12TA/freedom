@@ -14,6 +14,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"unsafe"
@@ -602,6 +604,15 @@ func (a *App) sysCapCall(method string, paramsJSON string) (result interface{}, 
 		}
 		return ""
 	}
+	argBool := func(k string) (bool, bool) {
+		if v, ok := args[k]; ok {
+			var b bool
+			if json.Unmarshal(v, &b) == nil {
+				return b, true
+			}
+		}
+		return false, false
+	}
 	hwnd := a.WindowHandle()
 
 	switch method {
@@ -665,7 +676,81 @@ func (a *App) sysCapCall(method string, paramsJSON string) (result interface{}, 
 		}
 		return syscallSaveDialog(hwnd, argStr("title"), argStr("defaultName"), filters)
 
+	// ---- W2 系统集成（对标 Tauri 官方插件）----
+	case "clipboard.read":
+		return clipboardReadText()
+	case "clipboard.write":
+		return nil, clipboardWriteText(argStr("text"))
+	case "shell.open":
+		return nil, shellOpen(argStr("target"))
+	case "notification.show":
+		return nil, showToast(argStr("title"), argStr("body"))
+	case "autostart.get":
+		name := argStr("name")
+		if name == "" {
+			name = defaultAppID()
+		}
+		return getAutostart(name)
+	case "autostart.set":
+		name := argStr("name")
+		if name == "" {
+			name = defaultAppID()
+		}
+		enabled, ok := argBool("enabled")
+		if !ok {
+			return nil, fmt.Errorf("freedom: autostart.set 缺少 enabled")
+		}
+		return nil, setAutostart(name, enabled, argStr("args"))
+	case "protocol.register":
+		return nil, registerProtocol(argStr("scheme"), argStr("name"))
+	case "protocol.unregister":
+		return nil, unregisterProtocol(argStr("scheme"))
+	case "app.launchArgs":
+		return launchArgsJSON(), nil
+	case "shortcut.register":
+		id := argStr("id")
+		combo := argStr("combo")
+		if id == "" || combo == "" {
+			return nil, fmt.Errorf("freedom: shortcut.register 需要 id 与 combo（如 ctrl+alt+k）")
+		}
+		mw, err := ensureMsgWindow("")
+		if err != nil {
+			return nil, err
+		}
+		mw.setOnHotkey(func(hid string) {
+			a.Emit("shortcut.triggered", map[string]interface{}{"id": hid})
+		})
+		return nil, mw.registerHotkey(id, combo)
+	case "shortcut.unregister":
+		mw, err := ensureMsgWindow("")
+		if err != nil {
+			return nil, err
+		}
+		return nil, mw.unregisterHotkey(argStr("id"))
+	case "shortcut.list":
+		mw, err := ensureMsgWindow("")
+		if err != nil {
+			return nil, err
+		}
+		return mw.hotkeyIDs(), nil
+
 	default:
 		return nil, fmt.Errorf("freedom: unknown sys method %q", method)
 	}
+}
+
+// defaultAppID 以可执行文件名（去扩展名）作为自启注册表项名的默认值。
+func defaultAppID() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return "FreedomApp"
+	}
+	base := filepath.Base(exe)
+	if ext := filepath.Ext(base); ext != "" {
+		base = base[:len(base)-len(ext)]
+	}
+	if base == "" {
+		return "FreedomApp"
+	}
+	return base
 }
