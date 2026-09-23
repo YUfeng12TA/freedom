@@ -185,7 +185,7 @@ func TestProbe4OversizedLine(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		p.readLoop(reader)
+		p.readLoop(p.gen, reader, nil, nil)
 		close(done)
 	}()
 

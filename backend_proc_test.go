@@ -2,12 +2,25 @@ package freedom
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 )
+
+// TestMain 兼作崩溃测试的"后端进程"分身：壳重启测试会把测试二进制自身
+// 当后端拉起，子进程检测到 FREEDOM_TEST_CRASHER 环境变量即以指定退出码退出，
+// 模拟后端崩溃（非 0）与正常结束（0）两种场景。
+func TestMain(m *testing.M) {
+	if code := os.Getenv("FREEDOM_TEST_CRASHER"); code != "" {
+		n, _ := strconv.Atoi(code)
+		os.Exit(n)
+	}
+	os.Exit(m.Run())
+}
 
 // 进程后端 IPC 协议测试：同一套断言分别跑 Go / Node / Python / Rust 四个后端，
 // 验证"任意语言后端"的调用、错误响应与事件推送三条链路全部打通。
@@ -55,7 +68,8 @@ func TestProcBackendReadLoopWakesPendingOnIOError(t *testing.T) {
 	p.pending[1] = ch
 	done := make(chan struct{})
 	go func() {
-		p.readLoop(errReader{})
+		// cmd/done 传 nil：只测"坏 reader 也须唤醒 pending"，不涉及进程回收。
+		p.readLoop(p.gen, errReader{}, nil, nil)
 		close(done)
 	}()
 	select {
@@ -148,5 +162,113 @@ func testProcBackend(t *testing.T, cmd ...string) {
 		t.Logf("received event: %s", ev)
 	case <-time.After(4 * time.Second):
 		t.Fatal("backend did not push tick event")
+	}
+}
+
+// ---- W4：崩溃自动重启策略 ----
+
+// crashEvents 收集事件流：凑满 want 个数提前收，或到 within 截止。
+// -race 下测试二进制分身冷启动约 1s，窗口必须比正常构建宽松。
+func crashEvents(t *testing.T, ch chan map[string]interface{}, within time.Duration, wantN int) []string {
+	t.Helper()
+	var got []string
+	deadline := time.After(within)
+	for len(got) < wantN {
+		select {
+		case e := <-ch:
+			data, _ := e["data"].(map[string]interface{})
+			// onEvent 直传 Go 值（不经 JSON），attempt 是 int 而非 float64。
+			got = append(got, fmt.Sprintf("%s|%v|%v", e["ev"], data["restarting"], data["attempt"]))
+		case <-deadline:
+			return got
+		}
+	}
+	return got
+}
+
+func startCrasherBackend(t *testing.T, exitCode string, maxRetries int) (*ProcBackend, chan map[string]interface{}) {
+	t.Helper()
+	t.Setenv("FREEDOM_TEST_CRASHER", exitCode) // 子进程（测试二进制分身）据此退出
+	p := NewProcBackend(os.Args[0])
+	p.SetTimeout(5 * time.Second)
+	p.SetRestartPolicy(RestartPolicy{
+		MaxRetries: maxRetries,
+		Backoff:    20 * time.Millisecond,
+		ResetAfter: time.Hour, // 单测内禁用计数重置，验证"连续崩溃"语义
+	})
+	events := make(chan map[string]interface{}, 32)
+	p.OnEvent(func(ev string, data interface{}) {
+		select {
+		case events <- map[string]interface{}{"ev": ev, "data": data}:
+		default:
+		}
+	})
+	if err := p.start(); err != nil {
+		t.Fatalf("start crasher backend: %v", err)
+	}
+	return p, events
+}
+
+// 崩溃→重启→再崩溃……直到 MaxRetries 用尽后停止；事件序列与计数必须符合契约。
+func TestProcBackendCrashRestartExhaustion(t *testing.T) {
+	p, events := startCrasherBackend(t, "3", 2)
+	defer func() { _ = p.Close() }()
+
+	got := crashEvents(t, events, 10*time.Second, 5)
+	want := []string{
+		"backend.crashed|true|1",
+		"backend.restarted|<nil>|1",
+		"backend.crashed|true|2",
+		"backend.restarted|<nil>|2",
+		"backend.crashed|false|3",
+	}
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Fatalf("event sequence mismatch:\n got %v\nwant %v", got, want)
+	}
+}
+
+// 退出码 0 = 后端主动正常结束：广播 backend.exited，绝不无限拉起。
+func TestProcBackendCleanExitNoRestart(t *testing.T) {
+	p, events := startCrasherBackend(t, "0", 5)
+	defer func() { _ = p.Close() }()
+
+	got := crashEvents(t, events, 10*time.Second, 1)
+	want := []string{"backend.exited|<nil>|<nil>"}
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Fatalf("clean exit should emit exactly backend.exited:\n got %v\nwant %v", got, want)
+	}
+	// 静默期：确认没有后续 restarted（正常结束不得被拉起）。
+	time.Sleep(500 * time.Millisecond)
+	select {
+	case e := <-events:
+		t.Fatalf("clean exit but got follow-up event: %v", e)
+	default:
+	}
+}
+
+// 重启次数耗尽后 Handle 调用快速失败（不挂死），Close 幂等可重入。
+func TestProcBackendGivesUpAfterMaxRetries(t *testing.T) {
+	p, events := startCrasherBackend(t, "1", 1)
+	deadline := time.Now().Add(10 * time.Second)
+	sawFinal := false
+	for time.Now().Before(deadline) && !sawFinal {
+		select {
+		case e := <-events:
+			data, _ := e["data"].(map[string]interface{})
+			if e["ev"] == "backend.crashed" && data["restarting"] == false {
+				sawFinal = true
+			}
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+	if !sawFinal {
+		t.Fatal("no terminal backend.crashed(restarting=false)")
+	}
+	if _, err := p.Handle("Ping", nil); err == nil {
+		t.Fatal("handle on dead backend must error")
+	}
+	_ = p.Close()
+	if err := p.Close(); err != nil {
+		t.Fatalf("second Close: %v", err)
 	}
 }

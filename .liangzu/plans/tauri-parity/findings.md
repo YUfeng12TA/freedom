@@ -21,3 +21,6 @@
 - W3: restore 前用 stateOnScreen(listMonitors, 8px 容差) 校验坐标，拔副屏后只恢复尺寸不恢复虚空坐标。
 - W3: restartProcess 需 DETACHED_PROCESS|CREATE_NEW_PROCESS_GROUP（spawn_windows.go），否则新实例随旧控制台退出被连坐。
 - W3: GOOS=linux/darwin 交叉编译在 webview_go 依赖处失败（无 cgo/webkit 头），属环境限制非本仓库缺陷；*_other.go 侧改动靠人工对账。
+- W4: Close 不再自己 Wait（防双重 Wait）——进程回收统一归 readLoop，Close 等 pdone 信号后必要时 Kill。
+- W4: -race 下把测试二进制当"后端分身"冷启动约 1s，事件收集窗口须 >=5s 且按期望个数提前收。
+- W4: onEvent 直传 Go 值不经 JSON——断言 attempt 用 %v 而非 float64 断言。

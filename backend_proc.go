@@ -28,6 +28,7 @@ import (
 // 壳启动后端进程时注入环境变量：FREEDOM_BACKEND=1、FREEDOM_IPC=stdio，
 // 后端可据此判断自己运行在 Freedom 壳内。
 type ProcBackend struct {
+	command []string // 启动 argv，重启策略据此重建子进程
 	cmd     *exec.Cmd
 	stdin   io.WriteCloser
 	mu      sync.Mutex
@@ -38,7 +39,33 @@ type ProcBackend struct {
 	onEvent func(event string, data interface{})
 	timeout time.Duration
 	maxLine int // 单条 stdout 行（一次响应）上限字节；超限即那条响应过大，不得中断整个通道
+
+	// —— W4 崩溃自愈（对标 Tauri shell spawn 的失败处理 / sidecar 重启）——
+	rp        RestartPolicy   // 重启策略（零值=不重启，保持旧行为）
+	gen       int             // 每次拉起递增；readLoop 据此识别"自己那一期"，过期实例不触发重启
+	pdone     chan struct{}   // 当前这期进程 Wait 完成后由 readLoop 关闭（Close 等它，不再自己 Wait，避免双重 Wait）
+	attempts  int             // 连续崩溃重启计数
+	startedAt time.Time       // 本期进程启动时刻（存活够久则重置 attempts）
 }
+
+// RestartPolicy 是后端进程崩溃后的自动重启策略（经 SetRestartPolicy 启用）。
+// 非零退出/被信号杀视为崩溃；退出码 0 视为后端主动结束，不重启。
+type RestartPolicy struct {
+	// MaxRetries 是"连续崩溃"允许的最大重启次数；0 表示禁用重启。
+	MaxRetries int
+	// Backoff 是首次重启前的等待时间，其后按 2 倍指数退避，封顶 30s。
+	// <=0 时取默认 250ms。
+	Backoff time.Duration
+	// ResetAfter 是进程存活超过该时长后清零连续崩溃计数（默认 60s），
+	// 让"运行几小时后崩一次"不被历史崩溃拖入重启耗尽。
+	ResetAfter time.Duration
+}
+
+const (
+	defaultRestartBackoff    = 250 * time.Millisecond
+	defaultRestartResetAfter = 60 * time.Second
+	maxRestartBackoff        = 30 * time.Second
+)
 
 // procResp 是一次调用在壳侧的等待结果。
 type procResp struct {
@@ -64,14 +91,28 @@ func NewProcBackend(command ...string) *ProcBackend {
 	if len(command) == 0 {
 		panic("freedom: NewProcBackend requires at least one command argument")
 	}
-	cmd := exec.Command(command[0], command[1:]...)
-	hideWindow(cmd) // Windows 下隐藏后端进程的 cmd 黑窗（跨平台空实现）
 	return &ProcBackend{
-		cmd:     cmd,
+		command: command,
 		pending: map[int64]chan procResp{},
 		timeout: 60 * time.Second,
 		maxLine: 16 * 1024 * 1024, // 默认单条响应上限 16MB（见 SetMaxLine）
 	}
+}
+
+// SetRestartPolicy 启用后端进程崩溃自动重启（默认关闭）。
+// 崩溃时向壳广播事件 "backend.crashed" {code, attempt, restarting}，
+// 重启成功拉起后广播 "backend.restarted" {attempt}。
+func (p *ProcBackend) SetRestartPolicy(rp RestartPolicy) *ProcBackend {
+	if rp.Backoff <= 0 {
+		rp.Backoff = defaultRestartBackoff
+	}
+	if rp.ResetAfter <= 0 {
+		rp.ResetAfter = defaultRestartResetAfter
+	}
+	p.mu.Lock()
+	p.rp = rp
+	p.mu.Unlock()
+	return p
 }
 
 // SetTimeout 设置单次调用的最大等待时间（默认 60s）。<=0 表示不超时。
@@ -108,21 +149,33 @@ func (p *ProcBackend) start() error {
 	if p.stdin != nil {
 		return nil // 已启动
 	}
-	p.cmd.Env = append(os.Environ(), "FREEDOM_BACKEND=1", "FREEDOM_IPC=stdio")
-	p.cmd.Stderr = os.Stderr // 后端 stderr 日志原样转发
-	stdin, err := p.cmd.StdinPipe()
+	return p.launchLocked()
+}
+
+// launchLocked 按 command 重建子进程并启动 readLoop。崩溃重启与首次启动共用。
+// 调用方须持有 p.mu。
+func (p *ProcBackend) launchLocked() error {
+	cmd := exec.Command(p.command[0], p.command[1:]...)
+	hideWindow(cmd) // Windows 下隐藏后端进程的 cmd 黑窗（跨平台空实现）
+	cmd.Env = append(os.Environ(), "FREEDOM_BACKEND=1", "FREEDOM_IPC=stdio")
+	cmd.Stderr = os.Stderr // 后端 stderr 日志原样转发
+	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return fmt.Errorf("freedom: proc backend stdin pipe: %w", err)
 	}
-	stdout, err := p.cmd.StdoutPipe()
+	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return fmt.Errorf("freedom: proc backend stdout pipe: %w", err)
 	}
-	if err := p.cmd.Start(); err != nil {
-		return fmt.Errorf("freedom: proc backend start %q: %w", p.cmd.Path, err)
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("freedom: proc backend start %q: %w", cmd.Path, err)
 	}
+	p.cmd = cmd
 	p.stdin = stdin
-	go p.readLoop(stdout)
+	p.gen++
+	p.pdone = make(chan struct{})
+	p.startedAt = time.Now()
+	go p.readLoop(p.gen, stdout, cmd, p.pdone)
 	return nil
 }
 
@@ -201,7 +254,7 @@ func (p *ProcBackend) cancel(id int64, err error) {
 // 上限时返回 bufio.ErrTooLong 并永久停止扫描（通道直接死掉，旧缺陷）；
 // 这里改为**手工切分**——某条响应超限时仅丢弃该条并唤醒其调用为"行过大"，
 // 随后继续读后续行，绝不因单条大消息而中断整个 IPC 通道。
-func (p *ProcBackend) readLoop(stdout io.Reader) {
+func (p *ProcBackend) readLoop(gen int, stdout io.Reader, cmd *exec.Cmd, done chan struct{}) {
 	rd := bufio.NewReaderSize(stdout, 64*1024)
 	for {
 		line, readErr := rd.ReadBytes('\n')
@@ -230,6 +283,85 @@ func (p *ProcBackend) readLoop(stdout io.Reader) {
 		ch <- procResp{err: err}
 	}
 	p.mu.Unlock()
+
+	if cmd == nil {
+		// 无真实子进程（协议层单测直接注入坏 reader）：唤醒 pending 即使命完成。
+		return
+	}
+	waitErr := cmd.Wait() // stdout 已 EOF，Wait 安全（见 os/exec StdoutPipe 约定）
+	if done != nil {
+		close(done) // 通知 Close()：本期进程已回收
+	}
+
+	p.mu.Lock()
+	if p.closed || p.gen != gen {
+		// 已 Close 或这是被重启淘汰的过期实例：不做崩溃处理。
+		p.mu.Unlock()
+		return
+	}
+	p.stdin = nil
+	p.cmd = nil
+	if p.rp.MaxRetries <= 0 {
+		p.mu.Unlock()
+		return
+	}
+	if waitErr == nil {
+		// 退出码 0：后端主动正常结束，不算崩溃、不重启（防退出型后端被无限拉起）。
+		p.mu.Unlock()
+		p.notifyFrontend("backend.exited", map[string]interface{}{"code": 0})
+		return
+	}
+	if time.Since(p.startedAt) >= p.rp.ResetAfter {
+		p.attempts = 0
+	}
+	p.attempts++
+	attempt := p.attempts
+	maxR := p.rp.MaxRetries
+	backoff := p.rp.Backoff << (attempt - 1)
+	if backoff > maxRestartBackoff || backoff <= 0 {
+		backoff = maxRestartBackoff
+	}
+	restarting := attempt <= maxR
+	p.mu.Unlock()
+
+	exitCode := -1
+	var ee *exec.ExitError
+	if errors.As(waitErr, &ee) {
+		exitCode = ee.ExitCode()
+	}
+	p.notifyFrontend("backend.crashed", map[string]interface{}{
+		"code": exitCode, "attempt": attempt, "restarting": restarting,
+	})
+	if !restarting {
+		return
+	}
+	time.AfterFunc(backoff, func() {
+		p.mu.Lock()
+		if p.closed || p.stdin != nil {
+			p.mu.Unlock()
+			return
+		}
+		launchErr := p.launchLocked()
+		p.mu.Unlock()
+		if launchErr != nil {
+			fmt.Fprintf(os.Stderr, "freedom: proc backend restart failed: %v\n", launchErr)
+			p.notifyFrontend("backend.crashed", map[string]interface{}{
+				"code": exitCode, "attempt": attempt, "restarting": false, "error": launchErr.Error(),
+			})
+			return
+		}
+		p.notifyFrontend("backend.restarted", map[string]interface{}{"attempt": attempt})
+	})
+}
+
+// notifyFrontend 经 onEvent 回调把框架级事件（backend.crashed 等）转发给壳（App.Emit）。
+func (p *ProcBackend) notifyFrontend(event string, data interface{}) {
+	p.mu.Lock()
+	fn := p.onEvent
+	p.mu.Unlock()
+	if fn != nil {
+		fn(event, data)
+	}
 }
 
 // dispatchLine 处理一条（已去换行的）stdout 行。
@@ -294,6 +426,7 @@ func (p *ProcBackend) dispatchEvent(event string, dataJSON json.RawMessage) {
 }
 
 // Close 终止后端进程。先关闭 stdin 通知其优雅退出，超时则强杀。线程安全。
+// 进程回收（Wait）统一由 readLoop 负责，Close 只等它的 done 信号，避免双重 Wait。
 func (p *ProcBackend) Close() error {
 	p.mu.Lock()
 	if p.closed {
@@ -302,26 +435,22 @@ func (p *ProcBackend) Close() error {
 	}
 	p.closed = true
 	cmd := p.cmd
-	if p.stdin != nil {
-		if err := p.stdin.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
+	stdin := p.stdin
+	done := p.pdone
+	if stdin != nil {
+		if err := stdin.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
 			fmt.Fprintf(os.Stderr, "freedom: close backend stdin: %v\n", err)
 		}
 	}
 	p.mu.Unlock()
 
-	done := make(chan struct{})
-	go func() {
-		// 优雅关闭/强杀场景下 ExitError（非零退出码）属预期结果，不视为异常。
-		var ee *exec.ExitError
-		if err := cmd.Wait(); err != nil && !errors.As(err, &ee) {
-			fmt.Fprintf(os.Stderr, "freedom: backend wait: %v\n", err)
-		}
-		close(done)
-	}()
+	if done == nil {
+		return nil // 从未成功启动过，没有子进程需要回收
+	}
 	select {
 	case <-done:
 	case <-time.After(3 * time.Second):
-		if cmd.Process != nil {
+		if cmd != nil && cmd.Process != nil {
 			if err := cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
 				fmt.Fprintf(os.Stderr, "freedom: backend kill: %v\n", err)
 			}
