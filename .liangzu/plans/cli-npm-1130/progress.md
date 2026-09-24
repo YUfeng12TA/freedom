@@ -16,3 +16,6 @@
 | R5 | Windows E2E（npm pack→init→vite→build→运行） | 明文：dist/myapp.exe 启动 TITLE=[myapp]（config.json overlay 生效）；high：仅 app.bin+.integrity 落盘、壳内存解密 TITLE=[myapp]；改名 renamed.exe 拒绝运行（HMAC）done |
 
 | R6a | CI 三平台失败根因修复（build.sh +x；tearing 守卫 destroy-pump UAF） | mode 100755 入库；B-20260924-028/029 登记；去守卫红（panic FAIL）+ 加守卫绿：Test{Main,}PendingDispatchFiresDuringDestroy、lifecycle -race count=2 ok、全量 go test ok、multiwin.exe 本地 smoke 3/3 SMOKE_OK、templates 快照同步编译过 done |
+
+| R6 | main+tag v1.13.0→7b79db1、CI run 35965094005 success、Release 395399461 资产三平台齐（darwin 资产 Mach-O arm64 文件头实验）、CLI 下载 URL 200、包内 win/linux/darwin 三壳重构建（含 UAF 修复，--version=1.13.0） | done |
+| R7 | npm whoami=yufengtadian 已过；publish 卡 E403 账号 2FA——需当次 OTP 或 bypass-2fa granular token（仅用户可提供） | 阻塞 |
