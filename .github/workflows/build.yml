@@ -24,7 +24,8 @@ jobs:
             exe: ""
             plat: darwin-arm64
           # webview_go 的 CGO 依赖 pkg-config 包 webkit2gtk-4.0，
-          # 其开发包自 Ubuntu 24.04 起已从官方源移除，故钉在 22.04。
+          # 其开发包自 Ubuntu 24.04 起已从官方源移除，故产物基线钉在 22.04
+          # （glibc 更老，产物能在更多发行版上跑）。4.1 构建路径由 linux-webkit241 门把关。
           - os: ubuntu-22.04
             shell: bash
             exe: ""
@@ -103,13 +104,41 @@ jobs:
         run: ./build.sh
 
       # 多窗口运行时冒烟：拉起主/次窗口回环断言，SMOKE_OK 为验收串。
-      # 仅 Windows 有显示服务可跑；Linux 二级窗口线程模型缺陷已登记（.liangzu/bugs.json），
-      # macOS runner 无头，两者诚实 skip。
+      # Windows 是硬门；macOS/Linux 首轮只做"主窗口存活不崩"取证，
+      # continue-on-error 是有意的：runner 的显示服务与 GPU 路径和本机 WSLg 不同，
+      # 在 runner 上跑到稳定后再转硬门（Linux 二级窗口另有 known 缺陷 B-20260924-022）。
       - name: Multiwin smoke (Windows)
         if: runner.os == 'Windows'
         shell: bash
         run: |
           ./dist/multiwin.exe | tee smoke.log; grep -q SMOKE_OK smoke.log
+
+      # 通用壳启动即渲染，最朴素的存活判据：跑 12s 还活着 = 通过；提前退出 = 崩溃。
+      # （macOS 无 timeout 命令，故用后台 + kill -0 探测，两平台共用一段脚本。）
+      - name: Shell liveness smoke (macOS / Linux)
+        if: runner.os != 'Windows'
+        continue-on-error: true
+        shell: bash
+        env:
+          DISPLAY: ${{ runner.os == 'Linux' && ':99' || '' }}
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            sudo apt-get update && sudo apt-get install -y xvfb
+            Xvfb :99 -screen 0 1280x800x24 >/tmp/xvfb.log 2>&1 &
+            sleep 2
+          fi
+          ./dist/hello > hello.log 2>&1 &
+          pid=$!
+          sleep 12
+          if kill -0 "$pid" 2>/dev/null; then
+            echo "SMOKE_OK: $RUNNER_OS 壳主窗口 12s 存活"
+            kill "$pid" 2>/dev/null
+            wait "$pid" 2>/dev/null || true
+          else
+            echo "::error::壳进程提前退出（$RUNNER_OS）"
+            tail -40 hello.log
+            exit 1
+          fi
 
       - uses: actions/upload-artifact@v4
         with:
@@ -124,6 +153,7 @@ jobs:
         env:
           SHELL_VERSION: ${{ steps.ver.outputs.version }}
         run: |
+          . ./tools/webkit-env.sh
           mkdir -p shell-asset
           LD="-s -w"
           [ -n "$SHELL_VERSION" ] && LD="$LD -X freedom.Version=${SHELL_VERSION#v}"
@@ -136,9 +166,99 @@ jobs:
           path: shell-asset/
           if-no-files-found: error
 
+  # Linux 依赖名兼容门：上游 webview_go 写死 webkit2gtk-4.0，而 Ubuntu 24.04+ 只留 4.1。
+  # 主 build 钉在 22.04（glibc 基线老、产物能在更多发行版上跑，且 4.0 在位），
+  # 这里用 24.04 + 仅装 4.1 复现新发行版用户的真实环境，验证 tools/webkit-env.sh 的
+  # 自动标签注入确实能编过、测过。本地等价取证见 WSL 里 ldd 链到 libwebkit2gtk-4.1.so.0。
+  linux-webkit241:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      - name: Install Linux deps (4.1 only)
+        run: |
+          sudo apt-get update
+          # 刻意不装 libwebkit2gtk-4.0-dev：24.04 上也已无此包
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
+            libayatana-appindicator3-dev build-essential pkg-config
+          pkg-config --exists webkit2gtk-4.0 && { echo "::error::环境里出现了 4.0，本门失去意义"; exit 1; } || true
+
+      # 探测必须命中：4.0 缺席 + 4.1 在位 → GOFLAGS 追加 -tags=webkit2_41
+      - name: Verify webkit tag auto-detection
+        shell: bash
+        run: |
+          . ./tools/webkit-env.sh
+          echo "GOFLAGS=$GOFLAGS"
+          case " $GOFLAGS " in
+            *-tags=webkit2_41*) ;;
+            *) echo "::error::未自动启用 webkit2_41 标签"; exit 1 ;;
+          esac
+
+      - name: Build and test with WebKitGTK 4.1
+        shell: bash
+        env:
+          CGO_ENABLED: "1"
+        run: |
+          . ./tools/webkit-env.sh
+          go build ./...
+          go test -count=1 ./...
+          go build -trimpath -ldflags "-s -w" -o /tmp/freedom-shell ./cmd/shell
+          ldd /tmp/freedom-shell | grep -q libwebkit2gtk-4.1.so || {
+            echo "::error::产物未链接 4.1"; ldd /tmp/freedom-shell; exit 1; }
+
+  # CLI 契约测试（Node 侧，无需 cgo/GUI）：平台别名归一、壳下载回退、FRDM2 跨语言黄金向量、
+  # SDK 面与 desktop/agents 冒烟。历史上这 44 条只在本地跑，CI 不拦——本 job 补上这道门。
+  # 与 linux-webkit241 分离：这里不装 GTK/WebKit，跑得快且失败原因不含糊。
+  cli-contract-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Run CLI/SDK contract tests
+        shell: bash
+        run: node --test tests/*.test.mjs
+
+      # 框架源码在 freedom-cli/templates/go/pkg/freedom 有一份逐文件副本（freedom shell build 用它编壳）。
+      # 该副本历史上靠人肉同步，改一边忘一边会让 npm 用户拿到旧框架——这里做全集双向比对钉死。
+      - name: Template mirror in sync
+        if: matrix.os == 'ubuntu-22.04'
+        shell: bash
+        run: |
+          fail=0
+          mir=freedom-cli/templates/go/pkg/freedom
+          for f in *.go; do
+            case "$f" in *_test.go) continue ;; esac
+            [ -f "$mir/$f" ] || { echo "::error::模板缺 $f（新增框架文件未同步）"; fail=1; continue; }
+            cmp -s "$f" "$mir/$f" || { echo "::error::模板 $f 与仓库根内容不一致"; fail=1; }
+          done
+          for f in "$mir"/*.go; do
+            b=$(basename "$f"); case "$b" in *_test.go) continue ;; esac
+            [ -f "$b" ] || { echo "::error::模板多出 $b（仓库根已删除）"; fail=1; }
+          done
+          diff -r third_party/webview_go freedom-cli/templates/go/third_party/webview_go \
+            || { echo "::error::third_party/webview_go 与模板副本不一致"; fail=1; }
+          # 只比 go:embed 真正需要的两份（模板副本刻意不入库 assets/*.png，那是 npm 体积）
+          for f in assets/freedom.js assets/default.html; do
+            cmp -s "$f" "$mir/$f" || { echo "::error::模板 $f 与仓库根不一致"; fail=1; }
+          done
+          [ "$fail" = 0 ] && echo "MIRROR_OK"
+          exit $fail
+
   # tag 推送时发布 Release：CLI 的 `freedom shell download <plat>` 依赖这些资产
   release:
     if: startsWith(github.ref, 'refs/tags/v')
+    # 只等 build：发布的是 build 产出的壳资产。webkit241 / cli-contract-tests 挂了会红整条
+    # workflow（不该被绕过），但没必要让它们阻塞已经构建好的资产上线。
     needs: build
     runs-on: ubuntu-22.04
     permissions:

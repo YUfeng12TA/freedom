@@ -141,8 +141,15 @@ app.Run()
 | --- | --- | --- | --- |
 | Windows | WebView2（Win11 自带） | 无 | `build.ps1` |
 | macOS | WKWebView | Xcode CLT | `build.sh` |
-| Linux | WebKitGTK | `libwebkit2gtk-4.0-dev libgtk-3-dev libayatana-appindicator3-dev
-  （注意是 4.0：webview_go 的 pkg-config 包为 webkit2gtk-4.0；该包在 Ubuntu 24.04+ 已移除，请用 22.04 构建）` | `build.sh` |
+| Linux | WebKitGTK | `libgtk-3-dev libayatana-appindicator3-dev build-essential` + WebKitGTK 开发库二选一：新发行版（Ubuntu 24.04+/Debian 13+）`libwebkit2gtk-4.1-dev`，老发行版 `libwebkit2gtk-4.0-dev` | `build.sh` |
+
+> Linux 依赖名自适应：`webkit2gtk-4.0` 与 `4.1` 是同一套 C API，但上游 webview_go 只写死 4.0，
+> 而 4.0 开发包在新发行版已移除。本仓库改用本地补丁副本 `third_party/webview_go`（改动清单见
+> `third_party/webview_go/FREEDOM-PATCH.md`），依赖名由构建标签选择：默认 4.0，`-tags webkit2_41`
+> 走 4.1。`build.sh` 与 `freedom shell build` 都会按 `pkg-config` 实测情况自动加这个标签，
+> 无需手工传参；裸 `go build` 想复用同一探测：`. ./tools/webkit-env.sh`（把标签追加进 `GOFLAGS`）。
+> `webkitgtk-6.0` 是另一套 API，暂不支持（需上游适配）。CI 的 `linux-webkit241` job 在只装 4.1 的
+> ubuntu-24.04 上把这条路径钉成硬门。
 
 GitHub Actions：`.github/workflows/build.yml` 在三个 runner 上分别编译壳层 + 编译型后端、
 跑四语言 IPC 协议测试并上传产物；推送 git tag 时同一 workflow 额外编译三平台**预编译通用壳**
@@ -173,6 +180,10 @@ macOS/Linux 交叉编译不可行（依赖系统 WebKit），必须走目标平�
 - **代码签名**（M6）：`build.ps1 -Sign` 对本机产出的全部 exe 做 Authenticode（signtool 探测 PATH/Windows Kits；证书经 `FREEDOM_SIGN_PFX[_PASSWORD]` 或 `FREEDOM_SIGN_THUMBPRINT` 环境变量注入，不落仓库；signtool 或证书缺席仅警告不失败）。updater 可选二级复核：`Update.RequireSignature` 开启后产物还须过 **WinVerifyTrust**（离线确定性，无网络吊销检查），非 Windows 平台开启该项直接拒绝安装。真证书签名验证 `阻塞:` 于代码签名证书（用户侧资产）。
 - **运行时引导探测**（M6）：Windows 侧 `os.info.webview2Runtime` 回显系统 WebView2 Runtime 版本（EdgeUpdate 注册表探测，HKCU 优先 HKLM 兜底，"N/A" 占位视为未检出），前端可据此预检环境并提示安装。
 - **零工具链打包（npm 线，freedom-cli v1.13.2）**：`npm i -g @yufengtadian/freedom-cli` → `freedom init` → `freedom build`。壳为预编译通用二进制（`cmd/shell`；win/linux 壳随包分发，其余平台从 GitHub Release 资产 `freedom-shell-<plat>` 按需下载，可用 `FREEDOM_SHELL_TAG` 覆盖版本），应用内容来自 exe 同目录 `resources/`（config.json / index.html），最终用户无需 Go/CGO 工具链。`security: 'high'` 时前端页面、配置与 `backend/**` 后端源码加密为单一 `app.bin`（FRDM2 容器：构建期随机盐 + PBKDF2-HMAC-SHA256 60 万次派生密钥 + Encrypt-then-MAC 覆盖头部）+ `.integrity` 清单，磁盘无明文源码；后端源码运行期解密到仅属主可访问的一次性临时目录、退出即删（残留由下次启动按 PID 回收），篡改 / 改名 / 整体替换即拒绝运行，并配合六道信号 anti-debug 与壳符号剥离（`-trimpath -s -w`）提高逆向成本（`resources.go` / `security.go` / `securetemp.go` / `anti_debug_*.go`，参数与 freedom-cli `lib/security.js` 跨语言同步互验）。
+- **反调试可关**：六道信号在自动化测试 / CI / 远程桌面 / 部分虚拟化环境可能误报，命中即静默退出（码 77）。
+  `Config.DisableAntiDebug = true` 或环境变量 `FREEDOM_DISABLE_ANTIDEBUG=1` 关掉探测，
+  容器解密与 `.integrity` 校验不受影响——那两道才是源码保护的本体（`anti_debug_test.go` 守着开关语义）。
+  刻意不提供 `resources/config.json` 里的这个开关：运行期可被替换的配置给第三方递刀。
 - **配置透传面（`resources/config.json` ↔ `runtimeConfigFile`）**：除窗口几何 / 标题栏 / debug 外，还透传 `url`（远程或 dev server 页面，仅 http/https 白名单，经 `w.Navigate` 加载，HMR 可用）、`singleInstance`（接线 `RequestSingleInstance`，二次启动转发参数并退出，前端收 `app.secondInstance`）、`updater{manifestURL,publicKey,requireSignature}`（`Config.Update`）。CLI 侧 `freedom dev` 即靠 `url` 字段把壳窗口指向 vite dev server；改契约须同步 `freedom-cli/lib/build.js` 的 `renderConfigJSON`（Go↔JS 双侧各有断言）。
 - **发布环（npm 线）**：`freedom keygen` 生成 ed25519 密钥对（私钥 `.freedom/keys/`，公钥进 `freedom.config.js`）→ `freedom build` 透传 updater 配置 → `freedom manifest --artifact <产物> --url <地址>` 产出签名 `latest.json`；`freedom build --installer` 另产便携 zip 与 NSIS 安装器（有 `makensis` 时直接编译 setup.exe）。Node 签名与 Go 验签由 `updater_jsinterop_test.go` 跨语言回归守着。
 
@@ -181,7 +192,14 @@ macOS/Linux 交叉编译不可行（依赖系统 WebKit），必须走目标平�
 ```bash
 # 先运行 build.ps1 / build.sh 产出编译型后端二进制（缺失时对应子测试自动跳过）
 go test -v ./...   # 同一套断言跑 Go / Node / Python / Rust 四个后端（调用/错误/事件）
+
+node --test tests/*.test.mjs   # CLI/SDK 契约测试（无需 cgo）：FRDM2 跨语言黄金向量、
+                               # 平台别名与壳下载回退、WebKitGTK 标签探测、desktop/agents 冒烟
 ```
+
+CI 门禁（`.github/workflows/build.yml`）：`build`（三平台编译 + vet + go test + 打包 + 冒烟 + 通用壳产物）、
+`linux-webkit241`（只装 4.1 的 ubuntu-24.04 硬门）、`cli-contract-tests`（上述 Node 套件 + 框架模板镜像一致性）、
+`release`（tag 时发布三平台壳资产）。贡献流程与本地命令见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ## 桌面系统能力（对标 Tauri v2，W1–W6 补齐）
 

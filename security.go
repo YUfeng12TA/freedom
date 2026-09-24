@@ -328,6 +328,24 @@ func hasSecureResources() bool {
 	return err == nil
 }
 
+// antiDebugEnabled 是 high 模式调试器探测的开关。
+//
+// 探测本身是 fail-safe 的（每个信号取不到数据一律按"未命中"处理），但六路信号里
+// IsDebuggerPresent / NtQueryInformationProcess 在部分合法环境本就会给出真值：
+// 逆向沙箱、EDR/杀软注入、某些虚拟化与远程桌面环境。被误判的用户需要一条**不必重新
+// 打包**就能脱身的路，所以除了发布方编译期的 Config.DisableAntiDebug，这里再认一个
+// 运行期环境变量。
+//
+// 关掉只影响"探测"这一道：容器解密、HMAC 认证与 .integrity 校验照常，
+// 源码保护的本体不在此。config.json 里刻意不给这个开关——非 high 产物的
+// config.json 是明文可改的，那样等于把防御交给攻击者。
+func (a *App) antiDebugEnabled() bool {
+	if a != nil && a.cfg.DisableAntiDebug {
+		return false
+	}
+	return os.Getenv("FREEDOM_DISABLE_ANTIDEBUG") != "1"
+}
+
 // loadSecureResources 尝试加载 high 模式加密资源。
 // 返回 (载荷, 是否命中, 错误)：resources/app.bin 不存在时命中=false（非 high 产物），
 // 命中但解密/校验失败时返回错误（拒绝静默回退明文，避免降级攻击）。

@@ -3,7 +3,8 @@
 ## Project
 
 - 对标 Wails / Tauri 的自研桌面壳：前端任意框架编译为单文件 `go:embed` 进壳（`SetHtml` 内存加载），后端任意语言经 **NDJSON/JSON-RPC over stdio** 子进程协议通信，渲染复用系统 WebView（Win: WebView2 / macOS: WKWebView / Linux: WebKitGTK）。
-- 纯 Go 壳层，基于 [webview_go](https://github.com/webview/webview_go)（go.mod `module freedom`，go 1.26）。
+- 纯 Go 壳层，基于 [webview_go](https://github.com/webview/webview_go) 的**本地补丁副本** `third_party/webview_go`
+  （go.mod `replace` 生效；上游 6173450d4dd6 + 两处改动，见其 `FREEDOM-PATCH.md`；go.mod `module freedom`，go 1.26）。
 - 入口：`examples/hello`（内嵌 Go 后端模式）、`examples/multiproc`（多语言进程后端模式，Go/Node/Python/Rust 一键切换）。框架本身是库，不产生自己的 main 包。
 
 ## Commands
@@ -11,6 +12,8 @@
 - 构建（Windows）：`.\build.ps1`（`-SkipRust` 可跳过 Rust；`-Sign` Authenticode 签名；`-Installer` 产 zip+nsi）；macOS/Linux：`./build.sh`。产物输出 `dist/`（hello.exe、multiproc.exe、multiwin.exe、dist/backends/*、SHA256SUMS.txt）。
 - 脚手架 CLI：`go run ./cmd/freedom new <dir> -backend embed|go|node|python|rust`、`go run ./cmd/freedom build <dir> [-gui] [-version x.y.z]`。
 - 测试：先跑 build 脚本产出编译型后端，再 `go test ./...`（`backend_proc_test.go` 用同一套断言跑四语言后端；对应二进制缺失时该子测试自动跳过，不是失败）。
+- CLI 契约测试（无需 cgo/GUI）：`node --test tests/*.test.mjs`（FRDM2 跨语言黄金向量、平台别名与壳下载回退、WebKitGTK 标签探测、desktop/agents 冒烟）；CI 的 `cli-contract-tests` job 三平台跑同一命令，并含 `Template mirror in sync` 步骤。
+- Linux WebKitGTK 依赖名：`webkit2gtk-4.0` / `4.1` 二选一，构建标签 `webkit2_41` 切换（`third_party/webview_go/webkit2_40.go`、`webkit2_41.go`）。`build.sh` 与 `freedom shell build` 自动探测注入；裸 `go build` 用 `. ./tools/webkit-env.sh` 把标签追加进 `GOFLAGS`。`webkitgtk-6.0` API 不同，不可只换包名。
 - 运行示例：`.\dist\multiproc.exe [go|node|python|rust]`。
 - lint：项目未配置 linter（无 .golangci.yml 等配置文件）。
 
@@ -36,7 +39,7 @@
 - `authenticode_windows.go` / `authenticode_other.go` — M6 WinVerifyTrust 离线 Authenticode 复核（`Update.RequireSignature` 可选启用；非 Windows 诚实报错）。
 - `cmd/freedom/` — M7 项目 CLI：`new <dir> -backend embed|go|node|python|rust` 生成骨架（go.mod 以 replace 指向框架目录），`build [dir] -gui -version X.Y.Z` 包装壳层构建（存在 `backends/go` 时一并编译）。
 - `cmd/shell/` — 预编译通用壳入口（零应用专属资源，内容全部来自 resources/）：CI tag 构建为 Release 资产 `freedom-shell-<plat>`，freedom-cli 按需下载或走包内自带壳。
-- `freedom-cli/` — npm 打包 CLI（@yufengtadian/freedom-cli，v1.13.1）：`bin/lib/postinstall/tutorial` 源自 npm 1.12.18 tarball 恢复（源码曾丢失），`templates/go` 为框架源码快照（`freedom shell build` 用），`shell/<plat>` 为随包壳二进制（.gitignore 排除入库、npm files 白名单打包）。
+- `freedom-cli/` — npm 打包 CLI（@yufengtadian/freedom-cli，v1.13.2）：`bin/lib/postinstall/tutorial` 源自 npm 1.12.18 tarball 恢复（源码曾丢失），`templates/go` 为框架源码快照（`freedom shell build` 用），`shell/<plat>` 为随包壳二进制（.gitignore 排除入库、npm files 白名单打包）。
 - `sysint_common.go` / `tray_common.go` — 无 build tag 的跨平台共享层：openExternal/scheme 白名单、deep-link 参数、dataURL 解析、菜单条目模型（Windows/Linux 两侧复用）。
 - `msgwindow_windows.go` / `singleinstance_windows.go` — 独立消息窗口线程（WM_HOTKEY/WM_COPYDATA）与 CreateMutexW 权威单实例锁。
 - `store.go` / `osver_windows.go` — 平台无关数据层（path/store/window-state/os/process，经 sysGeneric 分发）与 Windows 侧几何/版本支撑。

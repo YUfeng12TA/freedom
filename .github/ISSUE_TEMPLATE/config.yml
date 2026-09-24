@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 报告安全漏洞（请勿公开）
+    url: https://github.com/YUfeng12TA/freedom/security/advisories/new
+    about: 私有漏洞报告入口，需仓库管理员开启 Private vulnerability reporting；细节见 SECURITY.md
+  - name: 架构与模块拆解（知识图鉴）
+    url: https://github.com/YUfeng12TA/freedom/tree/main/.liangzu/views
+    about: 动手前的模块边界、历史缺陷与技术决策记录

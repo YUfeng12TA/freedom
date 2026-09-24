@@ -1,0 +1,75 @@
+name: 功能请求
+description: 提议一个新能力或改进（框架 / CLI / 打包产物）
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 你想解决什么问题
+      description: 先讲场景与痛点，再讲方案。没有场景的功能请求很难排优先级。
+      placeholder: |
+        我在 CI 里跑 high 模式产物，反调试误报导致随机失败……
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 期望的用法
+      description: 贴出你希望写出来的代码 / 命令行（API 形状比文字描述更有信息量）。
+      value: |
+        ```go
+        // 框架侧期望写法
+        ```
+        ```bash
+        # CLI 侧期望命令
+        ```
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: 影响的层面
+      multiple: true
+      options:
+        - 框架公共 API（Config / App / Window 方法）
+        - 前端 SDK（assets/freedom.js）
+        - IPC 协议（NDJSON / JSON-RPC）
+        - 系统集成能力（托盘 / 热键 / 通知 / 对话框 / 单实例）
+        - 安全模型（容器 / 反调试 / 能力白名单 / 更新验签）
+        - freedom-cli 命令与配置
+        - 构建产物与发布（安装包 / 签名 / notarization / CI）
+        - 文档与示例
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platforms
+    attributes:
+      label: 需要覆盖的平台
+      multiple: true
+      options:
+        - win-x64
+        - darwin-arm64
+        - linux-x64
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 备选方案与现在的绕法
+      description: 现在怎么绕过？其他工具（Electron / Tauri / Wails）怎么做？
+
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: 维护者已知边界（勾选表示已读）
+      options:
+        - label: macOS 能力面依赖实机验证，无 Apple 硬件时只能停在编译门
+          required: false
+        - label: 代码签名 / notarization 需要证书与开发者账号，属用户侧资产
+          required: false
+        - label: 渲染依赖系统 WebView，版本碎片化不由本项目控制
+          required: false

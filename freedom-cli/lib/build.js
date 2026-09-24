@@ -32,6 +32,7 @@ const {
   isMacPlat,
   platformExeName,
   nativePlatform,
+  normalizePlatform,
   localShellPath,
 } = require('./utils');
 const { hasShell, downloadShell, validateLocalShell } = require('./shell');
@@ -60,12 +61,12 @@ function run(cmd, args, opts = {}) {
   return res;
 }
 
-// --platform 解析：支持逗号 / 中英文逗号 / 空白分隔多平台；win|mac|linux|all 或平台 key（win-x64 等）。
+// --platform 解析：支持逗号 / 中英文逗号 / 空白分隔多平台；win|mac|linux|all 或平台 key
+// （win-x64 等，别名口径与 freedom shell 子命令统一走 utils.normalizePlatform）。
 // 多平台去重保留顺序。all 仅取可分发平台（DIST_PLATFORMS）：linux-arm64 无 CI 资产，
 // 若列入 all 会在 build 时 404 拖垮整个全量构建（历史 bug B41）。
 function parsePlatforms(raw) {
   if (!raw) return [nativePlatform()];
-  const keyMap = { win: 'win-x64', mac: 'darwin-arm64', linux: 'linux-x64' };
   const seen = [];
   const push = (p) => {
     if (!ALL_PLATFORMS.includes(p)) {
@@ -81,7 +82,7 @@ function parsePlatforms(raw) {
     if (v === 'all') {
       for (const p of DIST_PLATFORMS) push(p);
     } else {
-      push(keyMap[v] || v);
+      push(normalizePlatform(v) || v);
     }
   }
   if (seen.length === 0) {

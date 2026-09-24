@@ -1,7 +1,7 @@
 {
   "version": 4,
   "subKind": "bugs",
-  "lastUpdated": "2026-09-24",
+  "lastUpdated": "2026-09-24T12:53:22.000Z",
   "bugRegistry": [
     {
       "id": "B01",
@@ -484,6 +484,50 @@
       "fix": "本地编译统一 -trimpath -ldflags \"-s -w [-H windowsgui]\"，与 CI 口径对齐；反调试同步扩到六道信号（PEB.BeingDebugged 直读 + NtQueryInformationProcess 的 DebugPort/DebugObjectHandle/DebugFlags，编号与长度经本机实测校准 7/30/31 与 8/8/4），并在 high 资源解密前后各检测一次",
       "regressionTest": "go tool nm freedom-cli/shell/win-x64/freedom-shell.exe → exit 1「no symbols」；strings 找 freedom-shell::kdf-master 与密钥尾串均 0 命中；anti_debug_windows_test.go TestDebuggerPresentNoFalsePositive 断言无调试器下 debuggerPresent()=false 且逐类探测可用",
       "fixedAt": "2026-09-24T11:30:00.000Z"
+    },
+    {
+      "id": "B-20260924-037",
+      "sev": "major",
+      "file": "third_party/webview_go/webview.go + build.sh",
+      "line": 0,
+      "summary": "Linux 构建写死 webkit2gtk-4.0 依赖名（上游 webview_go 的 #cgo pkg-config），Ubuntu 24.04+/Debian 13+ 官方源已移除该开发包 → 新发行版用户按 README 装完依赖仍编不过，且无自动适配路径",
+      "status": "fixed",
+      "fix": "仓库内 vendor 副本 third_party/webview_go（go.mod + templates/go/go.mod 同步 replace）把依赖名抽成 webkit2_40.go（默认 !webkit2_41）/ webkit2_41.go 两个 build-tag 文件；新增 tools/webkit-env.sh 供裸 go build 复用探测；freedom-cli/lib/webkit.js 在「本机仅 4.1」时自动向 GOFLAGS 追加 -tags=webkit2_41；README/build.sh 依赖说明改为 4.0/4.1 二选一，并注明 webkitgtk-6.0 是另一套 API、不可只换包名",
+      "regressionTest": "tests/linux-webkit-tags.test.mjs 6 测试（探测真值表 / GOFLAGS 追加幂等 / FREEDOM_WEBKIT_FORCE_41 / 非 Linux no-op）；WSL Ubuntu 22.04 A/B 实测：默认构建 ldd 链 libwebkit2gtk-4.0.so + libsoup-2.4.so，加标签构建链 libwebkit2gtk-4.1.so + libsoup-3.0.so，两次均 BUILT；CI 新增 linux-webkit241 硬门（ubuntu-24.04 仅装 4.1，断言 4.0 缺席 → GOFLAGS 命中 → go build+test → ldd 含 4.1）",
+      "fixedAt": "2026-09-24T12:53:22.000Z"
+    },
+    {
+      "id": "B-20260924-038",
+      "sev": "minor",
+      "file": "freedom-cli/lib/shell.js + lib/utils.js",
+      "line": 0,
+      "summary": "平台名只认全名（win-x64/darwin-arm64/linux-x64），用户写 win / mac / mac-arm64 直接报「未知平台」；壳下载仅走 releases/download（302 到签名 S3），受限网络下卡死无回退——v1.13.2 发布当期实测 Linux 壳须经 Release API 取回；另交叉编译判断排在 Go 探测之后，无 Go 机器上错误语义漂移",
+      "status": "fixed",
+      "fix": "utils.normalizePlatform 统一族名/架构归一（win|windows|mac|macos|osx|ubuntu|debian、x86_64|amd64|aarch64…），组装出的 key 仍校验 ALL_PLATFORMS，不支持组合（darwin-x64/win-x86）返回 null 而非猜一个；build.js/cli.js 共用该归一并在错误文案里给别名示例；downloadShell 直连失败后回退 GitHub Release API 资产端点（Accept: application/octet-stream，可选 FREEDOM_GITHUB_TOKEN），两路都失败时分头列出端点与 FREEDOM_SHELL_DIR 手工放置路径；buildShell 把交叉编译判断前置于 Go 探测",
+      "regressionTest": "tests/cli-shell-platform.test.mjs 6 测试：别名表与 null 用例、buildShell('mac') 交叉编译语义（不依赖 Go 是否在位）、stub Release 服务器验证 API 回退落盘假 ELF、缺资产错误同时含两条路径、错误页 HTML 被「壳格式异常」拒绝；node --test tests/*.test.mjs 在 Windows（44/44）与 WSL（修复前 43/44 → 修复后 44/44）双平台通过",
+      "fixedAt": "2026-09-24T12:53:22.000Z"
+    },
+    {
+      "id": "B-20260924-039",
+      "sev": "minor",
+      "file": "security.go + freedom.go",
+      "line": 0,
+      "summary": "high 模式反调试六道信号无退出开关：CI / 自动化测试 / 远程桌面 / 部分虚拟化下若误报即静默 os.Exit(77)，用户只能改源码绕过，等于把可维护性问题变成源码分叉",
+      "status": "fixed",
+      "fix": "新增 Config.DisableAntiDebug 与 FREEDOM_DISABLE_ANTIDEBUG=1（经 (*App).antiDebugEnabled() 收口，Run 内解密前后两道探测共用）；只关探测，容器解密与 .integrity 校验不受影响；刻意不在 resources/config.json 开这个口子——运行期可替换的配置提供该开关等于给攻击者递刀",
+      "regressionTest": "anti_debug_test.go TestAntiDebugEnabledSwitch：默认开、config 关、env=1 关、env=0 仍开、secure 字段不受开关影响；Windows 与 WSL go test 双绿",
+      "fixedAt": "2026-09-24T12:53:22.000Z"
+    },
+    {
+      "id": "B-20260924-040",
+      "sev": "minor",
+      "file": ".github/workflows/build.yml",
+      "line": 0,
+      "summary": "44 条 Node 契约测试与「框架源码两份副本」的一致性只靠人肉遵守：CI 不跑 tests/*.test.mjs，templates/go/pkg/freedom 与仓库根漂移也无检查——npm 用户可能拿到旧框架而 CI 全绿",
+      "status": "fixed",
+      "fix": "新增 cli-contract-tests job（三 OS 矩阵跑 node --test tests/*.test.mjs），并在 ubuntu 侧加 Template mirror in sync 步骤：全量 .go 双向比对（缺/多/内容不一致）+ third_party/webview_go 整树 diff + 两份 embed 资源比对；release job 仍只 needs build（新门挂红会失败整条 workflow，但不必阻塞已构建好的资产上线）",
+      "regressionTest": "本地以同一段脚本正反两跑：干净态 MIRROR_OK / exit 0；给 templates/go/pkg/freedom/store.go 追加一行后 exit 1 且命中「模板 store.go 与仓库根内容不一致」，随后按备份还原并 cmp 确认字节一致；build.yml 经 yaml.safe_load 解析通过，jobs=build/linux-webkit241/cli-contract-tests/release",
+      "fixedAt": "2026-09-24T12:53:22.000Z"
     }
   ]
 }

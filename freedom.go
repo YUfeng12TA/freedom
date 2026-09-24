@@ -65,6 +65,11 @@ type Config struct {
 	MinHeight int
 	// Debug 为 true 时开启 WebView 开发者工具（目标平台支持时）。
 	Debug bool
+	// DisableAntiDebug 关闭 high 安全模式的调试器探测（见 antiDebugEnabled）。
+	// 默认 false：探测在位。仅在合法运行环境被误判（部分沙箱 / EDR / 虚拟化环境会让
+	// NtQueryInformationProcess 一类调用给出命中值）时由发布方显式置真。
+	// 关闭不影响容器解密与 .integrity 校验——那两道才是源码保护的本体。
+	DisableAntiDebug bool
 	// Backend 指定后端适配器。为空时默认使用内嵌 Go 后端（配合 Bind 使用）。
 	Backend Backend
 	// HTML 返回要加载到窗口的前端页面内容（内存加载，无本地端口）。
@@ -231,7 +236,7 @@ func (a *App) Unbind(name string) {
 func (a *App) Run() {
 	// high 产物：解密前先跑一次反调试（此时密钥与明文都还没进内存），
 	// 解密后再跑一次（兜住"启动后才附加调试器"）。非 high 应用不受影响。
-	if hasSecureResources() {
+	if hasSecureResources() && a.antiDebugEnabled() {
 		antiDebugCheck()
 	}
 	// 通用壳：先加载 exe 同目录 resources/ 覆盖窗口与后端配置（CLI build 写入；
@@ -249,7 +254,7 @@ func (a *App) Run() {
 	// high 模式的临时后端目录随进程退出清理（defer 早于后端 Close 注册 → 后于其执行）。
 	defer a.cleanupSecureBackend()
 	// high 模式：解密后复查调试器（见 Run 开头的"解密前一次"）。
-	if a.secure {
+	if a.secure && a.antiDebugEnabled() {
 		antiDebugCheck()
 	}
 	// 平台层回调（单实例转发/热键）经 currentApp 找到本实例推送事件。

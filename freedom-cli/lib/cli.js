@@ -462,21 +462,21 @@ async function runShell(rest) {
     case 'download': {
       const plat = rest[1];
       if (!plat) {
-        console.error(`${err('用法：')}${paint('freedom shell download <win-x64|darwin-arm64|linux-x64|linux-arm64>', C.fg.cyan)}`);
+        console.error(`${err('用法：')}${paint('freedom shell download <win|mac|linux|all 或 win-x64 / darwin-arm64 / linux-x64 / linux-arm64>', C.fg.cyan)}`);
         return 1;
       }
       const dest = await downloadShell(plat);
-      console.log(`${ok('已下载')} ${paint(plat, C.fg.magenta, C.bold)} ${dim('壳：')}${paint(dest, C.fg.white)}`);
+      console.log(`${ok('已下载')} ${paint(normalizePlatform(plat) || plat, C.fg.magenta, C.bold)} ${dim('壳：')}${paint(dest, C.fg.white)}`);
       return 0;
     }
     case 'build': {
       const plat = rest[1];
       if (!plat) {
-        console.error(`${err('用法：')}${paint('freedom shell build <win-x64|darwin-arm64|linux-x64|linux-arm64>', C.fg.cyan)}`);
+        console.error(`${err('用法：')}${paint('freedom shell build <win|mac|linux 或 win-x64 / darwin-arm64 / linux-x64 / linux-arm64>', C.fg.cyan)}`);
         return 1;
       }
       const dest = buildShell(plat);
-      console.log(`${ok('已编译')} ${paint(plat, C.fg.magenta, C.bold)} ${dim('壳：')}${paint(dest, C.fg.white)}`);
+      console.log(`${ok('已编译')} ${paint(normalizePlatform(plat) || plat, C.fg.magenta, C.bold)} ${dim('壳：')}${paint(dest, C.fg.white)}`);
       console.log(`  ${dim('提示：壳已预编译随包分发，一般无需本地编译。')}`);
       return 0;
     }

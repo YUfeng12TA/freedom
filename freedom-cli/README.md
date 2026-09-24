@@ -138,6 +138,13 @@ mac 用户解压 `.app.zip` 即得 `.app`，拖入 `/Applications` 即可直接�
 
 **预编译壳的来源与 CI**：`webview_go` 依赖各系统自带 WebView 框架，**无法交叉编译**，三平台壳必须在对应平台本机编译。自 v1.13.0 起由仓库 `.github/workflows/build.yml` 统一承担：推送 `vX.Y.Z` tag → 三平台 runner 编译通用壳 → `release` job 自动创建 GitHub Release 并上传资产 `freedom-shell-<plat>`，供 `freedom shell download` 按「`v<包版本>` tag + 同名资产」拉取（Intel Mac 已不支持，见 `nativePlatform()` 的明确报错）。发版顺序：先推 GitHub tag、等 Release 资产就绪，再 `npm publish` 同版本——保证 shell 下载默认源始终可用（紧急时可设 `FREEDOM_SHELL_TAG` 指向既有 tag）。
 
+**平台名写法与下载回退**：`--platform` 与 `freedom shell download/build` 接受别名与架构后缀——
+`win` / `windows` / `mac` / `macos` / `osx` / `ubuntu` / `linux-x86_64` / `mac-arm64` 等统一归一到
+`win-x64` / `darwin-arm64` / `linux-x64`；无法支持的组合（`win-x86`、`darwin-x64`、`plan9`）直接报「未知平台」并给出可选值，不做猜测。
+下载有两条路径：先试直连 `releases/download`，不通（超时 / 代理 / 网络策略）时自动回退 GitHub Release API 资产端点；
+两条都不通则错误信息分别给出两端点与手工放置目录（`FREEDOM_SHELL_DIR` 可覆写壳目录，私有镜像另见 `FREEDOM_SHELL_REPO` / `FREEDOM_SHELL_BASE` / `FREEDOM_GITHUB_API`），
+GitHub 限流时可带 `FREEDOM_GITHUB_TOKEN`。
+
 产物目录可在 `freedom.config.js` 的 `outDir` 中调整：默认 `'dist'`，设为 `'.'` 则直接输出到项目根目录（dist 的上级），设为任意相对 / 绝对路径亦可。输出到项目根目录时会自动跳过 `index.html` 副本，避免覆盖项目源文件。
 
 ```bash
@@ -213,7 +220,10 @@ freedom build                        # 读取配置中的 security 值
 - 另内置 **anti-debug**：`IsDebuggerPresent`、`CheckRemoteDebuggerPresent`、直读 `PEB.BeingDebugged`、`NtQueryInformationProcess` 的 `ProcessDebugPort` / `ProcessDebugObjectHandle` / `ProcessDebugFlags` 共六道独立信号，任一确证即静默退出（退出码 77），在资源解密前后各检测一次；所有探测遵循"取不到即视为未命中"，杜绝误杀；
 - 进程隐藏加固（`-H windowsgui`，无控制台窗口）。
 
-**加固上限说明**：`high` 大幅提高破解门槛，但**任何客户端可执行程序都无法做到绝对不可破解**——密钥最终存在于壳二进制与运行时内存中，反调试只抬升动态分析成本、不是不可绕过的墙。真正敏感的密钥与业务逻辑仍应留在服务端。
+**加固上限说明**：`high` 大幅提高破解门槛，但**任何客户端可执行程序都无法做到绝对不可破解**——密钥最终存在于壳二进制与运行时内存中，反调试只抬升动态分析成本、不是不可绕过的墙。真正敏感的密钥与业务逻辑仍应留在服务端。**误报可关**：反调试在 CI、自动化测试、远程桌面、部分虚拟化环境可能把正常运行判成被附加调试器
+（命中即静默退出，码 77）。这类场景设 `FREEDOM_DISABLE_ANTIDEBUG=1`，或在壳层源码里 `Config{DisableAntiDebug: true}`
+后 `freedom shell build`——只关探测，容器解密与 `.integrity` 完整性校验照旧生效（那两道才是源码保护的本体）。
+`resources/config.json` 里刻意不提供此开关：打包产物里的配置运行期可被第三方替换，给开关等于递刀。
 
 **互斥规则**：切换安全模式重新构建时，CLI 会自动清理另一模式的遗留产物（`app.bin`/`.integrity` 与明文 `index.html`/`config.json`/`backend/` 只能存其一），避免壳误加载旧资源。
 
@@ -231,7 +241,10 @@ window.freedom.window.minimize();                       // 窗口控制
 
 - Node.js >= 18
 - 不需要 Go 工具链（壳层为随包分发的预编译二进制）
-- 可选：`freedom shell build` 需本机 Go（含 CGO，Windows 需 MSVC 编译环境），仅用于亲自编译壳
+- 可选：`freedom shell build` 需本机 Go（含 CGO，Windows 需 MSVC 编译环境），仅用于亲自编译壳。
+  Linux 侧需 WebKitGTK + GTK3 开发库，`4.0` 与 `4.1` 二选一（Ubuntu 24.04+/Debian 13+ 只有 4.1：
+  `sudo apt install libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev`）；
+  仅有 4.1 时 `freedom shell build` 会自动为编译加 `-tags webkit2_41`，无需手工干预（探测见 `lib/webkit.js`）。
 - `.dmg` 打包需在 macOS 上执行（依赖系统 hdiutil）；`.app.zip` 在任意平台均可直接产出
 
 ## 命令

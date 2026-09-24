@@ -23,12 +23,25 @@ const {
   SHELL_EXE_NAME,
   localShellPath,
   nativePlatform,
+  normalizePlatform,
 } = require('./utils');
+const { applyWebkitTags } = require('./webkit');
 
 // GitHub Releases 下载源（可用环境变量覆盖）。
 // 资产命名约定：freedom-shell-<plat>（单文件二进制，不压缩）。
 function releaseRepo() {
   return process.env.FREEDOM_SHELL_REPO || 'YUfeng12TA/freedom';
+}
+
+// 直连下载域与 API 域（测试可指向本地桩服务；默认走 GitHub）。
+function releaseBase() {
+  return (process.env.FREEDOM_SHELL_BASE || 'https://github.com').replace(/\/+$/, '');
+}
+function apiBase() {
+  return (process.env.FREEDOM_GITHUB_API || 'https://api.github.com').replace(/\/+$/, '');
+}
+function shellAssetName(plat) {
+  return `freedom-shell-${plat}`;
 }
 
 // 远程壳下载的默认版本：与当前包版本保持一致。
@@ -46,7 +59,7 @@ function releaseTag() {
   return process.env.FREEDOM_SHELL_TAG || `v${pkgVersion()}`;
 }
 function releaseUrl(plat) {
-  return `https://github.com/${releaseRepo()}/releases/download/${releaseTag()}/freedom-shell-${plat}`;
+  return `${releaseBase()}/${releaseRepo()}/releases/download/${releaseTag()}/${shellAssetName(plat)}`;
 }
 
 // ---- 壳二进制平台格式校验 ----
@@ -193,13 +206,14 @@ function hasCurl() {
 }
 
 // 用 curl 下载到 dest；成功返回 null，失败返回错误信息
-function curlDownload(url, dest, proxy) {
+function curlDownload(url, dest, proxy, extraHeaders) {
   const args = [
     '-L', '--fail', '--silent', '--show-error',
     '--connect-timeout', '20', '--max-time', '180', '--retry', '2',
     '--output', dest,
   ];
   if (proxy) args.push('--proxy', proxy);
+  for (const h of extraHeaders || []) args.push('-H', h);
   if (process.platform === 'win32' && /^https:/i.test(url)) {
     args.push('--ssl-no-revoke'); // 规避 Windows schannel CRYPT_E_REVOCATION_OFFLINE
   }
@@ -212,67 +226,101 @@ function curlDownload(url, dest, proxy) {
   return null;
 }
 
+// 平台参数收口：win / mac / linux 等别名归一到平台 key，识别不了给可读错误。
+function requirePlatform(plat) {
+  const key = normalizePlatform(plat);
+  if (!key) {
+    throw new Error(
+      `未知平台：${plat}。可选：${ALL_PLATFORMS.join(' / ')}` +
+        `（也接受 win / mac / linux 别名，可带架构后缀，如 mac-arm64）`
+    );
+  }
+  return key;
+}
+
+// 单次 HTTP GET 到 Buffer：配了代理就走 curl（原生支持 socks5），否则用内置 fetch。
+// API 端点需要 Accept 头，故 headers 显式传入。
+async function httpGetBuffer(url, headers) {
+  const proxy = resolveProxy();
+  if (proxy) {
+    if (!hasCurl()) throw new Error(`已配置代理 ${proxy} 但本机无 curl`);
+    const tmp = path.join(os.tmpdir(), `freedom-dl-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    const err = curlDownload(url, tmp, proxy, Object.entries(headers || {}).map(([k, v]) => `${k}: ${v}`));
+    try {
+      if (err) throw new Error(err);
+      return fs.readFileSync(tmp);
+    } finally {
+      try { fs.unlinkSync(tmp); } catch (e) { /* 清理失败忽略 */ }
+    }
+  }
+  const res = await fetch(url, {
+    headers: Object.assign({ 'User-Agent': 'freedom-cli' }, headers),
+    redirect: 'follow',
+    signal: AbortSignal.timeout(60000),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return Buffer.from(await res.arrayBuffer());
+}
+
+// 从 release 资产列表里挑出本平台的壳资产（需带 API url 字段）。
+function selectReleaseAsset(assets, plat) {
+  const name = shellAssetName(plat);
+  return (Array.isArray(assets) ? assets : []).find(
+    (a) => a && a.name === name && typeof a.url === 'string'
+  ) || null;
+}
+
+// 经 GitHub Release API 取壳：先按 tag 查 release 拿资产 id，再以 octet-stream 拉字节。
+// 背景（实测）：releases/download 会 302 到 S3 签名域，受限网络下响应头拿得到、
+// body 永远不结束；api.github.com 的资产端点由 GitHub 自己代理字节流，可稳定取回。
+async function downloadShellViaApi(plat) {
+  const token = process.env.FREEDOM_GITHUB_TOKEN || process.env.GITHUB_TOKEN;
+  const auth = token ? { Authorization: `Bearer ${token}` } : {};
+  const metaUrl = `${apiBase()}/repos/${releaseRepo()}/releases/tags/${releaseTag()}`;
+  let meta;
+  try {
+    meta = JSON.parse((await httpGetBuffer(metaUrl, Object.assign({ Accept: 'application/json' }, auth))).toString('utf8'));
+  } catch (e) {
+    throw new Error(`查询 release 元数据失败（${metaUrl}）：${e.message}`);
+  }
+  const asset = selectReleaseAsset(meta && meta.assets, plat);
+  if (!asset) {
+    throw new Error(`${releaseTag()} 中没有资产 ${shellAssetName(plat)}`);
+  }
+  return await httpGetBuffer(asset.url, Object.assign({ Accept: 'application/octet-stream' }, auth));
+}
+
 // 下载指定平台壳到包内 shell/<plat>/
 // 返回下载后的绝对路径；失败抛错。
+// 两条路径：直连 releases/download（有代理时经 curl）→ 失败回退 Release API 资产端点。
 async function downloadShell(plat) {
-  if (!ALL_PLATFORMS.includes(plat)) {
-    throw new Error(`未知平台：${plat}。可选：${ALL_PLATFORMS.join(' / ')}`);
-  }
+  plat = requirePlatform(plat);
   const url = releaseUrl(plat);
   const dest = localShellPath(plat);
   fs.mkdirSync(path.dirname(dest), { recursive: true });
 
-  const proxy = resolveProxy();
-  let buf;
-  if (proxy) {
-    process.stdout.write(`[freedom] 下载壳 ${plat}（经代理 ${proxy}）<- ${url}\n`);
-    if (!hasCurl()) {
-      throw new Error(
-        `已配置下载代理 ${proxy} 但本机没有 curl，无法经代理下载壳。` +
-          `请安装 curl，或临时取消代理变量后直连重试。`
-      );
-    }
-    const tmp = `${dest}.tmp`;
-    const curlErr = curlDownload(url, tmp, proxy);
-    if (curlErr) {
-      try { fs.unlinkSync(tmp); } catch (e) { /* 清理失败忽略 */ }
-      throw new Error(
-        `${curlErr}\n下载地址 ${url} 不可达。` +
-          `请确认代理 ${proxy} 可用（可执行 curl --proxy ${proxy} ${url} -I 自测），` +
-          `或手动将壳二进制放入 ${localShellPath(plat)}。`
-      );
-    }
+  let buf = null;
+  let primaryErr = null;
+  try {
+    buf = await fetchShellDirect(plat, url);
+  } catch (e) {
+    primaryErr = e;
+    process.stdout.write(
+      `[freedom] 直连下载壳 ${plat} 未完成（${String(e.message).split('\n')[0]}），回退 GitHub API 资产端点…\n`
+    );
+  }
+  if (!buf) {
     try {
-      buf = fs.readFileSync(tmp);
-    } finally {
-      try { fs.unlinkSync(tmp); } catch (e) { /* 清理失败忽略 */ }
-    }
-  } else {
-    process.stdout.write(`[freedom] 下载壳 ${plat} <- ${url}\n`);
-    let res;
-    try {
-      // 30s 超时：网络挂起时明确报错，避免构建进程无限阻塞
-      res = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(30000) });
-    } catch (e) {
-      if (e.name === 'AbortError' || e.name === 'TimeoutError') {
-        throw new Error(
-          `下载壳 ${plat} 超时（30s）。请检查网络后重试，` +
-            `或设置代理变量 FREEDOM_SHELL_PROXY=socks5h://127.0.0.1:10808 重试，` +
-            `或手动将壳二进制放入 ${localShellPath(plat)}。`
-        );
-      }
+      buf = await downloadShellViaApi(plat);
+    } catch (apiErr) {
       throw new Error(
-        `下载壳 ${plat} 失败：${e.message}。请检查网络（必要时设置 FREEDOM_SHELL_PROXY 走代理），` +
-          `或手动将壳二进制放入 ${localShellPath(plat)}。`
+        `下载壳 ${plat} 失败：直连与 Release API 两条路径都不通。\n` +
+          `  直连 ${url}：${primaryErr ? primaryErr.message : '未返回数据'}\n` +
+          `  API ${apiBase()}/repos/${releaseRepo()}：${apiErr.message}\n` +
+          `可设置代理重试（FREEDOM_SHELL_PROXY=socks5h://127.0.0.1:10808），` +
+          `或手动将壳二进制放入 ${dest}。`
       );
     }
-    if (!res.ok) {
-      throw new Error(
-        `下载壳失败：HTTP ${res.status}。请确认 GitHub 仓库 ${releaseRepo()} 已发布 ` +
-          `${releaseTag()} 的资产 freedom-shell-${plat}，或手动将壳二进制放入 ${localShellPath(plat)}。`
-      );
-    }
-    buf = Buffer.from(await res.arrayBuffer());
   }
 
   // B13：下载后、落盘前校验格式/架构，防止代理劫持返回错误页或假壳被静默分发。
@@ -292,20 +340,58 @@ async function downloadShell(plat) {
   return dest;
 }
 
+// 直连路径：代理在位时用 curl（原生支持 socks5/http 代理），否则用内置 fetch。
+// 返回内容 Buffer；网络失败、超时、非 2xx 一律抛错（由 downloadShell 决定回退）。
+async function fetchShellDirect(plat, url, dest) {
+  const proxy = resolveProxy();
+  if (proxy) {
+    process.stdout.write(`[freedom] 下载壳 ${plat}（经代理 ${proxy}）<- ${url}\n`);
+    if (!hasCurl()) {
+      throw new Error(
+        `已配置下载代理 ${proxy} 但本机没有 curl，无法经代理下载壳。` +
+          `请安装 curl，或临时取消代理变量后直连重试。`
+      );
+    }
+    const tmp = `${dest}.tmp`;
+    const curlErr = curlDownload(url, tmp, proxy);
+    if (curlErr) {
+      try { fs.unlinkSync(tmp); } catch (e) { /* 清理失败忽略 */ }
+      throw new Error(
+        `${curlErr}\n下载地址 ${url} 不可达。` +
+          `请确认代理 ${proxy} 可用（可执行 curl --proxy ${proxy} ${url} -I 自测）。`
+      );
+    }
+    try {
+      return fs.readFileSync(tmp);
+    } finally {
+      try { fs.unlinkSync(tmp); } catch (e) { /* 清理失败忽略 */ }
+    }
+  }
+
+  process.stdout.write(`[freedom] 下载壳 ${plat} <- ${url}\n`);
+  let res;
+  try {
+    // 30s 超时：网络挂起时明确报错，避免构建进程无限阻塞
+    res = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(30000) });
+  } catch (e) {
+    if (e.name === 'AbortError' || e.name === 'TimeoutError') {
+      throw new Error('下载超时（30s）');
+    }
+    throw new Error(`请求失败：${e.message}`);
+  }
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const buf = Buffer.from(await res.arrayBuffer());
+  if (!buf.length) throw new Error('响应体为空');
+  return buf;
+}
+
 // 本地用 Go 编译指定平台壳（需要 Go + 该平台编译环境）。
 // Windows 产物以 GUI 子系统编译（-H windowsgui），运行时无 cmd 黑窗。
 function buildShell(plat) {
-  if (!ALL_PLATFORMS.includes(plat)) {
-    throw new Error(`未知平台：${plat}。可选：${ALL_PLATFORMS.join(' / ')}`);
-  }
-  const res = spawnSync('go', ['version'], { encoding: 'utf8' });
-  if (res.error || res.status !== 0) {
-    throw new Error('未检测到 Go 工具链。请先安装 Go（https://go.dev/dl/），或改用 freedom shell download。');
-  }
-  const dest = localShellPath(plat);
-  fs.mkdirSync(path.dirname(dest), { recursive: true });
-
+  plat = requirePlatform(plat);
   // 本机只能编译本机平台（webview_go 依赖系统 WebView 框架，无法交叉编译）。
+  // 这道判断刻意前置于 Go 探测：平台不匹配是与工具有关的硬事实，先报工具有关
+  // 的错误会把「装个 Go 也没用」的场景误导成装 Go 能解决。
   // 统一走 utils.nativePlatform：Intel Mac 会明确抛"已不支持"，避免两套映射语义不一（B44）。
   const native = nativePlatform();
   if (plat !== native) {
@@ -314,19 +400,34 @@ function buildShell(plat) {
         `请在目标平台执行 freedom shell build ${plat}，或用 freedom shell download ${plat} 拉取 CI 预编译产物。`
     );
   }
+  const res = spawnSync('go', ['version'], { encoding: 'utf8' });
+  if (res.error || res.status !== 0) {
+    throw new Error('未检测到 Go 工具链。请先安装 Go（https://go.dev/dl/），或改用 freedom shell download。');
+  }
+  const dest = localShellPath(plat);
+  fs.mkdirSync(path.dirname(dest), { recursive: true });
 
   const buildDir = goTemplateDir();
   // 剥离符号与调试信息（-s -w）+ 抹掉构建期绝对路径（-trimpath）：
   // 通用壳里编译进了 high 模式的密钥派生逻辑，函数名/DWARF 是给逆向者的地图。
   const ldflags = ['-s', '-w'];
   if (plat.startsWith('win')) ldflags.push('-H', 'windowsgui');
+  // Linux：新发行版只有 webkit2gtk-4.1，需要 -tags webkit2_41（探测与注入见 lib/webkit.js）。
+  const webkit = applyWebkitTags(process.env);
+  if (webkit.tags.length) {
+    process.stdout.write(`[freedom] 本机 WebKitGTK 仅有 4.1，构建加 -tags ${webkit.tags.join(',')}\n`);
+  }
   const build = spawnSync('go', ['build', '-trimpath', '-ldflags', ldflags.join(' '), '-o', dest, '.'], {
     cwd: buildDir,
     encoding: 'utf8',
-    env: { ...process.env, CGO_ENABLED: '1' },
+    env: Object.assign({ CGO_ENABLED: '1' }, webkit.env),
   });
   if (build.error || build.status !== 0) {
-    throw new Error(`Go 编译失败：\n${build.stdout}\n${build.stderr}`);
+    const hint = plat.startsWith('linux') && /webkit2gtk-4\.0/.test(`${build.stdout}${build.stderr}`)
+      ? `\n提示：本机未装 webkit2gtk-4.0/4.1 开发库。Ubuntu/Debian 执行 ` +
+        `sudo apt install libgtk-3-dev libwebkit2gtk-4.1-dev（老发行版用 4.0）后重试。`
+      : '';
+    throw new Error(`Go 编译失败：\n${build.stdout}\n${build.stderr}${hint}`);
   }
   return dest;
 }

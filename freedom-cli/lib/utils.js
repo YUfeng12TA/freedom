@@ -25,6 +25,9 @@ function goTemplateDir() {
 }
 
 function shellDir() {
+  // 壳目录可经 env 覆写（离线/测试注入假壳；与 FREEDOM_SHELL_REPO 等既有旋钮同族）。
+  const override = process.env.FREEDOM_SHELL_DIR;
+  if (override) return path.resolve(override);
   return path.join(PKG_ROOT, 'shell');
 }
 
@@ -81,6 +84,53 @@ function nativePlatform() {
   return `${plat}-${arch}`;
 }
 
+// 平台别名归一化：把口语写法（win / mac / linux / windows / osx / ubuntu）与架构同义词
+// （x86_64 / amd64 / aarch64）统一到 ALL_PLATFORMS 的 key，无法识别返回 null。
+// 缺架构时的默认值与历史 build.js keyMap 一致：win→x64、darwin→arm64（已不支持 Intel Mac）、
+// linux→x64。
+const PLAT_FAMILY = {
+  win: 'win', win32: 'win', win64: 'win', windows: 'win', pc: 'win',
+  mac: 'darwin', macos: 'darwin', 'mac-os': 'darwin', 'mac-os-x': 'darwin',
+  osx: 'darwin', darwin: 'darwin', apple: 'darwin',
+  linux: 'linux', lin: 'linux', ubuntu: 'linux', debian: 'linux',
+};
+const PLAT_ARCH = {
+  x64: 'x64', x86_64: 'x64', 'x86-64': 'x64', amd64: 'x64',
+  arm64: 'arm64', aarch64: 'arm64', 'aarch-64': 'arm64',
+};
+const PLAT_DEFAULT_ARCH = { win: 'x64', darwin: 'arm64', linux: 'x64' };
+
+function normalizePlatform(raw) {
+  if (typeof raw !== 'string') return null;
+  const s = raw.trim().toLowerCase().replace(/\s+/g, '-').replace(/_/g, '-');
+  if (!s) return null;
+  if (ALL_PLATFORMS.includes(s)) return s;
+  // 从右往左试两种切法（架构名自身可能带分隔符，如 x86-64；族名也一样，如 mac-os-x）：
+  // 先按最后一个分隔符切，切不出架构再按倒数第二个切，还不行就整串当族名。
+  let fam = s;
+  let arch;
+  const cuts = [];
+  const last = s.lastIndexOf('-');
+  if (last > 0) {
+    cuts.push([last, s.slice(last + 1)]);
+    const prev = s.lastIndexOf('-', last - 1);
+    if (prev > 0) cuts.push([prev, s.slice(prev + 1)]);
+  }
+  for (const [at, tail] of cuts) {
+    if (PLAT_ARCH[tail]) {
+      arch = PLAT_ARCH[tail];
+      fam = s.slice(0, at);
+      break;
+    }
+  }
+  const family = PLAT_FAMILY[fam];
+  if (!family) return null;
+  const key = `${family}-${arch || PLAT_DEFAULT_ARCH[family]}`;
+  // 归一后仍须落在支持矩阵里：darwin-x64（Intel Mac 已停止支持）之类的组合
+  // 不能因为"语法像对的"就放行。
+  return ALL_PLATFORMS.includes(key) ? key : null;
+}
+
 function localShellPath(plat) {
   return path.join(shellDir(), plat, SHELL_EXE_NAME[plat] || 'freedom-shell');
 }
@@ -134,6 +184,7 @@ module.exports = {
   isMacPlat,
   platformExeName,
   nativePlatform,
+  normalizePlatform,
   localShellPath,
   tutorialFile,
   loadConfig,
