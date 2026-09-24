@@ -37,3 +37,14 @@
 - E-M1-3 SDK：node --test 10/10（新增乱序回写/错误字符串拒绝/迟到回写丢弃 3 条 M1 契约测试）。
 - **环境坑（重要）**：本机把 ProgramData/choco、WinGet 下的 MinGW 全部静默清空（10:23 前还可用；choco --force 部署成功数分钟后目录消失，Temp 里的 16.1.0.7z 反而幸存）。恢复法：`7z x Temp\chocolatey\mingw\16.1.0\*.7z -o<repo>\.tools` → `.tools/mingw64/bin` 入 PATH 即恢复 CGO 构建；.tools/ 已进 .gitignore。若 .tools 也被清→Windows 原生验证移交 CI（ubuntu runner 交叉编译已验证可行路线见下）。
 - 交叉编译备注：WSL mingw-w64 v10 交叉编译 webview_go 失败于 WebView2.h 需 EventToken.h（老 mingw 头不全）；mingw-builds 16.1（.tools 这份）主机直接编过。posix-seh 版无 WinLibs 的 default-manifest.o 注入问题（未来若想要 manifest 进 syso 可重测，非本期范围）。
+
+## M2 完成证据（E-M2）与关键坑
+- 实现：window_mgr.go（WindowSpec/Window/App.NewWindow/registry/runWindow 独立消息泵/windowControlFor/windowManage/emitSecondary 广播）+ freedom.go 接线（winMu/windows/running、Run 注册 main+退出前 CloseWindows、Emit 广播次级）+ centerHWND 复用居中 + SDK window.id/list/create/closeWindow/focusWindow。
+- **坑1（级联 bug 根因）**：`WindowSpec.HTML` 是 Go 闭包，前端 `create` 经 JSON 传参根本无法携带 → JS 建的次级窗口回退加载主页面；主页面含开窗脚本即无限级联。修复：新增 `Page string \`json:"html"\`` 内联字段，页面来源优先序 URL > HTML 函数 > Page > 主页面。冒烟首跑"pong 收不到"即此坑（次级页实为主页面副本，表现为"次级桥收到 create"这一反常 DEBUG）。
+- **坑2（次级动作路由）**：windowManage（create/list/closeWindow/focusWindow）原先只挂主窗口闭包；次级窗口 `id()` 须报自身而非 main → windowControlFor 先拦 id/close，再走 windowManage，其余下沉平台层。
+- **事实（webview_go 绑定分派）**：binding_context{w,index} 按 (实例,名字) 注册、回调带实例指针，多实例安全；次级窗口消息泵为 webview.h 每实例自带 GetMessageW 循环（glue.c + libs/webview 头核实）。
+- **事实（node --test 目录跑）**：`node --test tests/` 在 Windows 下把目录解析成单条失败项，须逐文件或显式列文件跑（sdk-ready 3 + sdk-surface 7 = 10）。
+- E-M2-1 Windows 实跑双窗口冒烟：`build-tmp/multiwin.exe`（console 子系统）输出 `SMOKE window created: w1 / SMOKE async bridge call from secondary: ok / SMOKE secondary reaped: w1 / SMOKE_OK`，EXIT=0。
+- E-M2-2 单测：主机 `go test -race -count=1 .` ok 7.910s；WSL 原生 ok 5.870s（新增 TestWindowSpecPageDecode、TestSecondaryWindowControlFor + 原 TestWindowRegistryAndGuards）。
+- E-M2-3 SDK 契约：node 10/10（sdk-ready 3 + sdk-surface 7）。
+- 已知边界（有意为之，README/AGENTS 已见注释）：事件为全局广播不带 windowId（对齐 Wails Emit 语义）；托盘/热键/单实例/窗口事件子类化/状态记忆仅主窗口；次级窗口无 sys/tray 桥（SDK 可读拒绝）。

@@ -133,6 +133,18 @@
       setBackdrop: function (mode) { return sysCall('window.backdrop', { mode: mode }); },
       setCorner: function (mode) { return sysCall('window.corner', { mode: mode }); },
       setBorderColor: function (color) { return sysCall('window.borderColor', { color: color }); },
+      // —— M2 多窗口 ——
+      // id()：本窗口标识（'main' 或 'w1'…）；create({title,width,height,center,url,html})：
+      // 异步拉起次级窗口返回 {id}；list() 全部存活窗口；closeWindow/focusWindow(id)。
+      // create 的页面来源三选一：url（外链）> html（内联字符串）> 复制主页面——
+      // 主页面含开窗脚本时务必给 url 或 html，避免级联。
+      // 注意：次级窗口无 sys/tray 桥，托盘/热键/状态记忆等平台单例只挂主窗口；
+      // 次级窗口里 window.close() 关闭的是它自己。
+      id: function () { return windowAction('id'); },
+      list: function () { return windowAction('list'); },
+      create: function (opts) { return windowAction('create', opts || {}); },
+      closeWindow: function (id) { return windowAction('closeWindow', { id: id }); },
+      focusWindow: function (id) { return windowAction('focusWindow', { id: id }); },
     },
     // ---- W2 系统集成命名空间（均经 __freedom_sys / __freedom_tray 桥接）----
     sys: sysCall,

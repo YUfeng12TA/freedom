@@ -4,7 +4,7 @@ package freedom
 
 import "testing"
 
-// M5 回归：centeredPosition 在主屏回退分支必须双向 clamp。
+// M5 回归：centeredForWindow 在主屏回退分支必须双向 clamp。
 // 此前只 clamp 下限 0：窗口大于屏幕时居中坐标超界，标题栏被顶出可拖拽区。
 func TestCenteredPositionClampBothSides(t *testing.T) {
 	sw, _, _ := procGetSystemMetrics.Call(smCxScreen)
@@ -13,7 +13,7 @@ func TestCenteredPositionClampBothSides(t *testing.T) {
 
 	// 1) 窗口远大于屏幕：居中坐标应被 clamp 到 (0,0)，不允许出现负值
 	a := &App{cfg: Config{Width: screenW + 5000, Height: screenH + 5000}}
-	x, y := a.centeredPosition(0)
+	x, y := centeredForWindow(0, a.cfg.Width, a.cfg.Height)
 	if x != 0 || y != 0 {
 		t.Fatalf("oversized window: got (%d,%d), want (0,0)", x, y)
 	}
@@ -23,7 +23,7 @@ func TestCenteredPositionClampBothSides(t *testing.T) {
 	// 边界与 GetSystemMetrics 全屏略有差异，故断言范围而非精确居中值。）
 	w, h := 240, 180
 	a2 := &App{cfg: Config{Width: w, Height: h}}
-	x2, y2 := a2.centeredPosition(0)
+	x2, y2 := centeredForWindow(0, a2.cfg.Width, a2.cfg.Height)
 	if x2 < 0 || x2 > screenW-w {
 		t.Fatalf("normal window x out of range [0,%d]: %d", screenW-w, x2)
 	}

@@ -94,6 +94,13 @@ type App struct {
 	upMu         sync.Mutex
 	upPending    *UpdateInfo
 	upInstalling bool // 单飞：并发 update.install 只放行一个换装
+
+	// M2 多窗口注册表：windows 含 "main"，次级窗口关闭后自行摘除。
+	// winMu 同时保护 map、winSeq 与 running 标志（runningMu 并入，减少锁面）。
+	winMu   sync.Mutex
+	windows map[string]*Window
+	winSeq  int
+	running bool
 }
 
 // appForEvents 指向当前运行的 App，供平台层回调（单实例/热键等）向 Emit 事件。
@@ -136,7 +143,7 @@ func New(cfg Config) *App {
 	if cfg.Backend == nil {
 		cfg.Backend = NewEmbedBackend()
 	}
-	return &App{cfg: cfg, backend: cfg.Backend}
+	return &App{cfg: cfg, backend: cfg.Backend, windows: map[string]*Window{}}
 }
 
 // OnReady 注册一个回调，在窗口与桥接层就绪、页面加载前执行。
@@ -175,6 +182,18 @@ func (a *App) Run() {
 	// 平台层回调（单实例转发/热键）经 currentApp 找到本实例推送事件。
 	appForEvents.Store(a)
 	defer appForEvents.Store(nil)
+	// M2：标记运行中（NewWindow 的前置条件）并登记主窗口；退出前回收次级窗口。
+	a.winMu.Lock()
+	a.running = true
+	a.windows[mainWindowID] = &Window{id: mainWindowID, app: a, doneCh: make(chan struct{})}
+	a.winMu.Unlock()
+	defer func() {
+		a.CloseWindows()
+		a.winMu.Lock()
+		delete(a.windows, mainWindowID)
+		a.running = false
+		a.winMu.Unlock()
+	}()
 	html, err := a.resolveHTML()
 	if err != nil {
 		fmt.Printf("freedom: failed to resolve HTML: %v\n", err)
@@ -335,6 +354,7 @@ func (a *App) Emit(event string, data interface{}) {
 	view.Dispatch(func() {
 		view.Eval(js)
 	})
+	a.emitSecondary(js) // M2：事件广播到全部次级窗口
 }
 
 // Quit 关闭窗口并退出应用。可从任意 goroutine 调用。
@@ -368,6 +388,9 @@ func (a *App) windowControl(action string, paramsJSON string) (result interface{
 			err = fmt.Errorf("freedom: window action %q panicked: %v", action, r)
 		}
 	}()
+	if res, ok, merr := a.windowManage(action, paramsJSON); ok {
+		return res, merr
+	}
 	return windowControl(a.WindowHandle(), action, a.cfg.TitleBar, paramsJSON)
 }
 

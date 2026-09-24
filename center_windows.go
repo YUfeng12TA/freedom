@@ -39,17 +39,21 @@ func (a *App) applyCenter() {
 	if hwnd == 0 {
 		return
 	}
-	x, y := a.centeredPosition(hwnd)
-	procMoveWindow.Call(hwnd, uintptr(x), uintptr(y), uintptr(a.cfg.Width), uintptr(a.cfg.Height), 1)
+	a.centerHWND(hwnd)
 }
 
-// centeredPosition 计算窗口在目标显示器工作区内的左上角坐标（像素）。
-// M5：双向 clamp——窗口大于工作区时居中坐标可能为负（左侧溢出）或超出右/下边界
-// （标题栏顶出可拖拽区域）。此前只 clamp 下限 0，现同时 clamp 上界，
-// 保证窗口整体落在工作区内、可被拖拽恢复。副屏坐标可为负，故以工作区
-// 边界而非 0 为基准。
-func (a *App) centeredPosition(hwnd uintptr) (int, int) {
-	return centeredForWindow(hwnd, a.cfg.Width, a.cfg.Height)
+// centerHWND 把指定原生窗口按其所在显示器工作区居中（M2：次级窗口复用）。
+// 尺寸用窗口当前外框（次级窗口尺寸可能与主窗口配置不同）。
+func (a *App) centerHWND(hwnd uintptr) {
+	if hwnd == 0 {
+		return
+	}
+	var r rect
+	if rr, _, _ := procGetWindowRect.Call(hwnd, uintptr(unsafe.Pointer(&r))); rr == 0 {
+		return
+	}
+	x, y := centeredForWindow(hwnd, int(r.right-r.left), int(r.bottom-r.top))
+	procMoveWindow.Call(hwnd, uintptr(x), uintptr(y), uintptr(r.right-r.left), uintptr(r.bottom-r.top), 1)
 }
 
 // centeredForWindow 供运行时 window.center 动作使用：以窗口当前实际外框尺寸
