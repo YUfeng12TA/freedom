@@ -23,7 +23,7 @@
 - `window_mgr.go` — M2 多窗口：窗口注册表、次级窗口独立消息泵（LockOSThread）、create/list/closeWindow/focusWindow 管理动作、Emit 广播；页面来源优先序 URL > HTML 函数 > Page(json `html`) > 主页面。
 - `capability.go` — M3 声明式能力模型：`Config.Capabilities{Allow,Deny}`（path.Match），在 sys/tray/window 三桥派发前判定，拒绝零副作用；默认 nil 全开；os.info 回显。
 - `resources.go` — 运行时外部资源层：exe 同目录 `resources/`（config.json 覆盖窗口/后端配置，后端 CWD=resources/，`ProcBackend.SetDir`）；resolveHTML 优先序 resources（app.bin 或 index.html）> cfg.HTML > 内置页；high 校验失败经 `secureFatalError` 拒绝运行（Run 与 resolveHTML 双保险）。
-- `security.go` / `anti_debug_*.go` — FRDM1 加密容器（PBKDF2-HMAC-SHA256 按 exe 名派生密钥 + AES-256-CTR + Encrypt-then-MAC + `.integrity` 清单校验）与调试器检测；参数与 freedom-cli `lib/security.js` 跨语言同步，改任一侧必须同步另一侧。
+- `security.go` / `anti_debug_*.go` / `securetemp*.go` — FRDM2 加密容器（容器内嵌构建期随机 salt，PBKDF2-HMAC-SHA256 按「exe 名 + 盐」60 万次派生 KEK，HMAC 域分离出独立认证钥，AES-256-CTR + Encrypt-then-MAC 覆盖容器头部，`.integrity` 清单绑盐）与调试器检测（Windows 六道信号，探测失败一律记未命中）；后端源码也进容器，运行期解密到私有临时目录（`securetemp*.go` 负责按目录名内嵌 PID 回收崩溃/强杀残留），退出时 defer 删除；参数与 freedom-cli `lib/security.js` 跨语言同步，改任一侧必须同步另一侧（黄金向量在 `security_test.go` 与 `tests/security-frdm2.test.mjs`）。
 - `backend_proc.go` — 进程后端：stdio IPC（启动/调用/事件/关闭），注入 `FREEDOM_BACKEND=1`、`FREEDOM_IPC=stdio`。
 - `assets_embed.go` — 前端资源 `go:embed`（assets/freedom.js SDK + default.html）。
 - `window_windows.go` — Windows 原生窗口层（user32/dwmapi）：标题栏策略、居中、样式、共用 NewProc 声明处。

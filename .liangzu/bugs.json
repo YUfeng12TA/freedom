@@ -440,6 +440,50 @@
       "fix": "case agents 解析子命令：list/无参打矩阵（含 --home 覆写取证根）、install 按 --what 委派 runAgents、其它子命令报错退出 1",
       "regressionTest": "tests/desktop-agents.test.mjs「cli: agents install 按 --home 落盘，未知子命令退出 1」：写进沙箱 HOME 的 codex config.toml、保留兄弟条目、留 .bak、bogus 退出码 1",
       "fixedAt": "2026-09-24T09:51:07.855Z"
+    },
+    {
+      "id": "B-20260924-033",
+      "sev": "critical",
+      "file": "freedom-cli/lib/build.js",
+      "line": 282,
+      "summary": "high 安全模式下后端源码仍明文落盘：copyDir(backendDir, resources/backend) 在 high 分支之外无条件执行，加密只覆盖 HTML/config，攻击者解包即拿到 Go/Node/Rust 后端全部源码，与「防源码提取」的产品承诺直接矛盾",
+      "status": "fixed",
+      "fix": "backend/** 连同 POSIX 权限位并入 FRDM2 容器载荷（{rel:{d,m}}），high 分支删除明文 resources/backend；壳侧 materializeSecureBackend 解密到 0700 私有临时目录、路径穿越拒绝、非属主写位抹掉，Run 退出 defer 删除；CLI 侧 backend 配置存在性检查改为读容器条目",
+      "regressionTest": "实跑 e2e（build-tmp/r2e2e，node 后端含标记串）：dist 全盘 grep 标记 0 命中、resources 仅 .integrity+app.bin、freedom verify 十项全通过、壳启动后临时目录出现后端文件；Go security_test.go TestMaterializeSecureBackend/TestSecureBackendMaterialized/TestDecryptRejectsUnsafeBackendPath + JS tests/security-frdm2.test.mjs「加密→解密往返（含后端源码与权限位）」「后端路径穿越拒绝入容器」",
+      "fixedAt": "2026-09-24T11:30:00.000Z"
+    },
+    {
+      "id": "B-20260924-034",
+      "sev": "critical",
+      "file": "security.go",
+      "line": 1,
+      "summary": "FRDM1 容器四处可被离线破解：主密钥是明文常量（strings 直取壳二进制即得）、加密钥与认证钥共用同一 PBKDF2 输出、HMAC 只覆盖密文不含 magic/salt/iv（改 iv 在 CTR 下是可预测翻转）、派生盐固定字符串（同应用名产物密文可对齐比较）、迭代仅 6 万次",
+      "status": "fixed",
+      "fix": "FRDM2：主密钥改 47B 掩码表 + 运行时 i*7+0x5A 异或组装（Go/JS 同算法互验）；头部加 16B 构建期随机盐；KEK 派生 60 万次迭代后以 freedom:mac:v2 标签做 HMAC 域分离；tag 覆盖 magic+salt+iv+ct；.integrity 绑同一盐值（整体替换合法容器可检出）；FRDM1 明确拒绝不静默降级",
+      "regressionTest": "Go security_test.go TestMasterSecretMatchesNode/TestPBKDF2StandardVectors/TestAppBinTamperRejected（magic/salt/iv/tag/密文首末字节逐位偏移表）/TestAppBinMagicDowngrade/TestDecryptNodeContainer + JS tests/security-frdm2.test.mjs（含 Go 产出容器 JS 解开的跨语言黄金向量），双向黄金 hex 一致",
+      "fixedAt": "2026-09-24T11:30:00.000Z"
+    },
+    {
+      "id": "B-20260924-035",
+      "sev": "major",
+      "file": "securetemp.go",
+      "line": 1,
+      "summary": "high 模式解出的后端明文源码在进程被强杀/崩溃时残留临时目录：defer 清理不执行，实测 taskkill /F 后 %TEMP%\\freedom-*\\backend\\main.mjs 完整可读，等于把源码留在磁盘上",
+      "status": "fixed",
+      "fix": "物化目录命名改为 freedom-<app>-<pid>-<随机>，每次物化前 gcStaleSecureBackendDirs 回收「同应用 + PID 已退出」的历史目录；进程存活判定走平台成对实现（Windows OpenProcess / Unix signal 0，EPERM 保守判存活），判据不明一律保留",
+      "regressionTest": "Go security_test.go TestGCStaleSecureBackendDirs（死 PID 目录被删、活 PID/异应用/非法 PID/无随机后缀/同名文件全部保留）与 TestSecureTempNamingIsGCAware；实跑：二次启动后首实例残留目录 freedom-r2e2e-11464-* 被回收，仅存新实例目录",
+      "fixedAt": "2026-09-24T11:30:00.000Z"
+    },
+    {
+      "id": "B-20260924-036",
+      "sev": "minor",
+      "file": "freedom-cli/lib/shell.js",
+      "line": 319,
+      "summary": "本地 freedom shell build 只加 -H windowsgui，缺 -s -w 与 -trimpath（CI 的 build.yml 有）→ 本地编出的壳带完整 Go 符号表与绝对源码路径，逆向入口比 CI 产物低一个数量级",
+      "status": "fixed",
+      "fix": "本地编译统一 -trimpath -ldflags \"-s -w [-H windowsgui]\"，与 CI 口径对齐；反调试同步扩到六道信号（PEB.BeingDebugged 直读 + NtQueryInformationProcess 的 DebugPort/DebugObjectHandle/DebugFlags，编号与长度经本机实测校准 7/30/31 与 8/8/4），并在 high 资源解密前后各检测一次",
+      "regressionTest": "go tool nm freedom-cli/shell/win-x64/freedom-shell.exe → exit 1「no symbols」；strings 找 freedom-shell::kdf-master 与密钥尾串均 0 命中；anti_debug_windows_test.go TestDebuggerPresentNoFalsePositive 断言无调试器下 debuggerPresent()=false 且逐类探测可用",
+      "fixedAt": "2026-09-24T11:30:00.000Z"
     }
   ]
 }

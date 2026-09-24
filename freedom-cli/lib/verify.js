@@ -10,6 +10,7 @@
 const fs = require('fs');
 const path = require('path');
 const { isWinPlat, platformExeName } = require('./utils');
+const { APP_BIN_MAGIC, decryptApp, buildIntegrity } = require('./security');
 
 // ---- 产物定位 ----
 
@@ -107,6 +108,7 @@ function checkPlatformProduct({ targetDir, plat, appName, hasBackend }) {
   const hasIntegrity = fs.existsSync(path.join(resDir, '.integrity'));
   const hasHtml = fs.existsSync(path.join(resDir, 'index.html'));
   const hasConfig = fs.existsSync(path.join(resDir, 'config.json'));
+  let securePayload = null;
   if (hasBin) {
     if (hasHtml || hasConfig) {
       fail('资源形态', 'high 模式残留明文 index.html/config.json（互斥被破坏）');
@@ -115,13 +117,35 @@ function checkPlatformProduct({ targetDir, plat, appName, hasBackend }) {
     }
     if (!hasIntegrity) fail('完整性清单', '缺失 .integrity');
     else okc('完整性清单', '.integrity 存在');
-    // app.bin 容器头校验（FRDM1）
-    let head = '';
+    // app.bin 容器头校验（FRDM2）
+    let bin = Buffer.alloc(0);
     try {
-      head = fs.readFileSync(path.join(resDir, 'app.bin')).subarray(0, 5).toString('latin1');
+      bin = fs.readFileSync(path.join(resDir, 'app.bin'));
     } catch (e) { /* 读取失败按不通过处理 */ }
-    if (head === 'FRDM1') okc('app.bin 容器', 'FRDM1 头有效');
-    else fail('app.bin 容器', '容器头不是 FRDM1，文件损坏或非本工具产物');
+    const head = bin.subarray(0, APP_BIN_MAGIC.length).toString('latin1');
+    if (head !== APP_BIN_MAGIC) {
+      fail('app.bin 容器', `容器头不是 ${APP_BIN_MAGIC}（实际 "${head}"），文件损坏、非本工具产物或旧版产物`);
+    } else {
+      okc('app.bin 容器', `${APP_BIN_MAGIC} 头有效（${fmtSize(bin.length)}）`);
+      // 真解一次容器：认证失败 = 产物被篡改或 name 与容器不匹配；同时拿到 backend 供后端检查。
+      try {
+        securePayload = decryptApp(appName, bin);
+        okc('容器解密', `认证通过，html ${fmtSize(securePayload.html.length)} / config ${fmtSize(securePayload.config.length)}`);
+      } catch (e) {
+        fail('容器解密', e.message);
+      }
+      // .integrity 与容器一致（防整体替换：清单值由构建期容器盐派生密钥签名）
+      if (hasIntegrity) {
+        try {
+          const list = JSON.parse(fs.readFileSync(path.join(resDir, '.integrity'), 'utf8'));
+          const want = buildIntegrity(appName, bin).appBin;
+          if (list.appBin !== want) fail('完整性清单', '.integrity 与 app.bin 不一致（产物可能被替换）');
+          else okc('完整性清单', '.integrity 与 app.bin 一致');
+        } catch (e) {
+          fail('完整性清单', e.message);
+        }
+      }
+    }
   } else {
     if (hasIntegrity) {
       fail('资源形态', '明文模式残留 high 产物（.integrity）');
@@ -148,10 +172,21 @@ function checkPlatformProduct({ targetDir, plat, appName, hasBackend }) {
     }
   }
 
-  // 4) 后端目录
+  // 4) 后端：明文模式看 resources/backend 目录；high 模式看容器内 backend 条目
+  //    （容器模式下磁盘不得有明文后端目录，运行时由壳解密到临时目录）。
   if (hasBackend) {
-    if (fs.existsSync(path.join(resDir, 'backend'))) okc('后端进程', 'resources/backend 存在');
-    else fail('后端进程', '配置了 backend 但 resources/backend 缺失');
+    if (hasBin) {
+      const n = securePayload && securePayload.backend ? Object.keys(securePayload.backend).length : 0;
+      if (n === 0) fail('后端进程', 'high 模式容器内无 backend 条目（后端源码未入容器）');
+      else okc('后端进程', `容器内 ${n} 个后端文件（磁盘无明文）`);
+      if (fs.existsSync(path.join(resDir, 'backend'))) {
+        fail('后端进程', 'high 模式残留明文 resources/backend（与容器互斥被破坏）');
+      }
+    } else if (fs.existsSync(path.join(resDir, 'backend'))) {
+      okc('后端进程', 'resources/backend 存在');
+    } else {
+      fail('后端进程', '配置了 backend 但 resources/backend 缺失');
+    }
   }
 
   return checks;

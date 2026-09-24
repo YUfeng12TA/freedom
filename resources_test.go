@@ -4,16 +4,18 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
-// hexHmac 复算 .integrity 清单用的 HMAC-SHA256（与 lib/security.js buildIntegrity 同式）。
-func hexHmac(appName string, data []byte) string {
-	mac := hmac.New(sha256.New, deriveSecurityKey(appName))
+// hexHmac 复算 .integrity 清单用的 HMAC-SHA256（与 lib/security.js buildIntegrity 同式：
+// 密钥是容器派生的 macKey，非加密密钥）。
+func hexHmac(appName string, salt, data []byte) string {
+	mac := hmac.New(sha256.New, deriveSecurityKey(appName, salt).mac)
 	mac.Write(data)
 	return hex.EncodeToString(mac.Sum(nil))
 }
@@ -165,18 +167,19 @@ func TestRuntimeSecureMode(t *testing.T) {
 	writeResources(t, dir, map[string][]byte{"index.html": []byte("<p>plain-must-lose</p>")})
 	withResourcesDir(t, dir, "demo.exe")
 
-	payload, err := json.Marshal(securePayload{
-		HTML:   "<html>secure</html>",
-		Config: `{"title":"加密标题","debug":true,"width":640,"height":480}`,
+	bin, err := encryptForTest("demo.exe", "<html>secure</html>",
+		`{"title":"加密标题","debug":true,"width":640,"height":480}`, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	salt, _, _, _, err := splitAppBin(bin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeResources(t, dir, map[string][]byte{
+		"app.bin":    bin,
+		".integrity": []byte(fmt.Sprintf(`{"v":2,"appBin":"%s"}`, hexHmac("demo.exe", salt, bin))),
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	bin, err := encryptForTest("demo.exe", payload)
-	if err != nil {
-		t.Fatal(err)
-	}
-	writeResources(t, dir, map[string][]byte{"app.bin": bin})
 
 	a := New(Config{Title: "默认"})
 	if err := a.loadRuntimeConfig(); err != nil {
@@ -188,9 +191,11 @@ func TestRuntimeSecureMode(t *testing.T) {
 	if !a.secure || a.cfg.Debug {
 		t.Fatalf("secure mode must force debug off: secure=%v debug=%v", a.secure, a.cfg.Debug)
 	}
-	html, err := a.resolveHTML()
-	if err != nil || html != "<html>secure</html>" {
+	if html, err := a.resolveHTML(); err != nil || html != "<html>secure</html>" {
 		t.Fatalf("secure html: %q err=%v", html, err)
+	}
+	if a.secureBackendDir != "" {
+		t.Fatalf("容器无 backend 时不应建临时目录: %q", a.secureBackendDir)
 	}
 
 	// exe 被重命名（标识变）→ 解密失败 → secureFatalError，resolveHTML 拒绝回退。
@@ -213,39 +218,64 @@ func TestRuntimeSecureMode(t *testing.T) {
 	if err := New(Config{}).loadRuntimeConfig(); !errors.As(err, &se) {
 		t.Fatalf("tampered app.bin must yield secureFatalError, got %v", err)
 	}
+
+	// 整体替换攻击：换成另一个合法容器（同应用名、新随机盐）→ 密钥随盐变化，
+	// .integrity 里记录的 appBin 校验值对不上 → 拒绝运行。
+	other, err := encryptForTest("demo.exe", "<html>attacker</html>", `{"title":"劫持"}`, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeResources(t, dir, map[string][]byte{"app.bin": other})
+	if err := New(Config{}).loadRuntimeConfig(); !errors.As(err, &se) {
+		t.Fatalf("substituted app.bin must fail .integrity, got %v", err)
+	}
 }
 
-// .integrity 清单纳入 secure 路径：backend 文件被篡改即拒绝运行。
-func TestSecureIntegrityBackendFile(t *testing.T) {
+// high 模式的后端源码只存在于容器内：解密到私有临时目录，后端工作目录指向它，
+// resources 下不留明文。
+func TestSecureBackendMaterialized(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "resources")
 	withResourcesDir(t, dir, "demo")
+	bin, err := encryptForTest("demo", "<html>x</html>",
+		`{"backend":{"command":"node","args":["backend/main.mjs"]}}`,
+		map[string]secureFile{"backend/main.mjs": {Data: []byte("console.log(1)"), Mode: 0o755}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	salt, _, _, _, err := splitAppBin(bin)
+	if err != nil {
+		t.Fatal(err)
+	}
 	writeResources(t, dir, map[string][]byte{
-		"backend/main.mjs": []byte("console.log(1)"),
+		"app.bin":    bin,
+		".integrity": []byte(fmt.Sprintf(`{"v":2,"appBin":"%s"}`, hexHmac("demo", salt, bin))),
 	})
-	bin, err := encryptForTest("demo", []byte(`{"html":"x","config":"{}"}`))
-	if err != nil {
-		t.Fatal(err)
+
+	a := New(Config{})
+	if err := a.loadRuntimeConfig(); err != nil {
+		t.Fatalf("secure loadRuntimeConfig: %v", err)
 	}
-	writeResources(t, dir, map[string][]byte{"app.bin": bin})
-	// 先通过：无 .integrity 向后兼容。
-	if err := New(Config{}).loadRuntimeConfig(); err != nil {
-		t.Fatalf("no .integrity must pass: %v", err)
+	t.Cleanup(func() { a.cleanupSecureBackend() })
+	pb, ok := a.backend.(*ProcBackend)
+	if !ok {
+		t.Fatalf("backend must be ProcBackend, got %T", a.backend)
 	}
-	// 生成清单后篡改 backend 文件 → 拒绝。
-	be, err := os.ReadFile(filepath.Join(dir, "backend", "main.mjs"))
-	if err != nil {
-		t.Fatal(err)
+	if pb.dir != a.secureBackendDir {
+		t.Fatalf("backend dir = %q, want temp dir %q", pb.dir, a.secureBackendDir)
 	}
-	f := integrityFile{V: 1, Backend: map[string]string{"backend/main.mjs": hexHmac("demo", be)}}
-	raw, _ := json.Marshal(f)
-	writeResources(t, dir, map[string][]byte{".integrity": raw})
-	if err := New(Config{}).loadRuntimeConfig(); err != nil {
-		t.Fatalf("intact backend must pass integrity: %v", err)
+	if pb.dir == "" || strings.HasPrefix(pb.dir, dir) {
+		t.Fatalf("backend dir must not be under plaintext resources: %q", pb.dir)
 	}
-	writeResources(t, dir, map[string][]byte{"backend/main.mjs": []byte("evil")})
-	var se *secureFatalError
-	if err := New(Config{}).loadRuntimeConfig(); !errors.As(err, &se) {
-		t.Fatalf("tampered backend file must refuse: %v", err)
+	got, err := os.ReadFile(filepath.Join(pb.dir, "backend", "main.mjs"))
+	if err != nil || string(got) != "console.log(1)" {
+		t.Fatalf("materialized backend file: %q %v", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "backend")); !os.IsNotExist(err) {
+		t.Fatal("high 模式不得在 resources 下留下明文后端")
+	}
+	a.cleanupSecureBackend()
+	if _, err := os.Stat(pb.dir); !os.IsNotExist(err) {
+		t.Fatal("cleanup 必须删除临时后端目录")
 	}
 }
 

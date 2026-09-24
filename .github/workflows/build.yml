@@ -128,7 +128,7 @@ jobs:
           LD="-s -w"
           [ -n "$SHELL_VERSION" ] && LD="$LD -X freedom.Version=${SHELL_VERSION#v}"
           [ "$RUNNER_OS" = "Windows" ] && LD="$LD -H windowsgui"
-          CGO_ENABLED=1 go build -ldflags "$LD" -o "shell-asset/freedom-shell-${{ matrix.plat }}" ./cmd/shell
+          CGO_ENABLED=1 go build -trimpath -ldflags "$LD" -o "shell-asset/freedom-shell-${{ matrix.plat }}" ./cmd/shell
 
       - uses: actions/upload-artifact@v4
         with:

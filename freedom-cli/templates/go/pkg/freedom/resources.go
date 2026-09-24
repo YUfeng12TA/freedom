@@ -93,10 +93,19 @@ func (a *App) loadRuntimeConfig() error {
 		if err := json.Unmarshal([]byte(p.Config), &rc); err != nil {
 			return fmt.Errorf("parse encrypted config: %w", err)
 		}
+		a.secure = true
+		// high 模式的后端源码在容器内（磁盘无 resources/backend 明文）：解密到进程私有
+		// 临时目录供子进程执行，Run 退出时删除。
+		if len(p.Backend) > 0 {
+			bdir, err := materializeSecureBackend(p.Backend)
+			if err != nil {
+				return secureFatal(fmt.Errorf("后端源码解密落地失败：%w", err))
+			}
+			a.secureBackendDir = bdir
+		}
 		a.applyRuntimeConfig(&rc)
 		// high 模式强制关闭 WebView 开发者工具，防止前端源码经 devtools 直接查看。
 		a.cfg.Debug = false
-		a.secure = true
 		return nil
 	}
 	return a.loadRuntimeConfigPlain()
@@ -171,17 +180,36 @@ func (a *App) applyRuntimeConfig(rc *runtimeConfigFile) {
 	}
 	// 外部后端进程配置：仅在壳未显式绑定后端时生效（用户 Bind 过内嵌方法 =
 	// 显式内嵌后端，config.json 不得静默替换，否则其方法全部失效）。
-	// 工作目录设为 resources 目录，使相对路径参数（backend/main.mjs）按
-	// resources/ 解析（CLI 会把项目 backend/ 目录分发到 resources/backend/）。
+	// 工作目录取 backendWorkDir()：明文模式 = resources 目录（相对路径 backend/main.mjs
+	// 由其解析）；high 模式 = 容器解出的私有临时目录（resources 下没有明文后端）。
 	if rc.Backend != nil && rc.Backend.Command != "" && !a.backendExplicit {
 		args := append([]string{rc.Backend.Command}, rc.Backend.Args...)
 		pb := NewProcBackend(args...)
-		if dir, err := resourcesDir(); err == nil && dir != "" {
+		if dir, err := a.backendWorkDir(); err == nil && dir != "" {
 			pb.SetDir(dir)
 		}
 		a.cfg.Backend = pb
 		a.backend = pb
 	}
+}
+
+// backendWorkDir 返回后端进程的工作目录。
+func (a *App) backendWorkDir() (string, error) {
+	if a.secureBackendDir != "" {
+		return a.secureBackendDir, nil
+	}
+	return resourcesDir()
+}
+
+// cleanupSecureBackend 删除 high 模式解出的临时后端目录（Run 退出时调用）。
+// 进程被强杀时目录会残留在系统临时区——内容仍可被下一次启动的壳重新解出，
+// 且明文源码本就来自内存，故不引入跨进程清扫。
+func (a *App) cleanupSecureBackend() {
+	if a.secureBackendDir == "" {
+		return
+	}
+	_ = os.RemoveAll(a.secureBackendDir)
+	a.secureBackendDir = ""
 }
 
 // loadRuntimeHTML 返回前端页面内容（high 模式：解密 app.bin 内的 html；

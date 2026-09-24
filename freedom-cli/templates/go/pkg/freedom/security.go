@@ -1,23 +1,33 @@
 package freedom
 
-// security.go — high 安全模式：资源加密容器（app.bin）与完整性校验。
+// security.go — high 安全模式：资源加密容器 app.bin（FRDM2）与完整性校验。
 //
 // 与 freedom-cli lib/security.js 跨语言同步（改任一侧必须同步另一侧，否则 CLI
 // 加密的产物壳无法解密）：
-//   - securityMasterKey / securityDeriveSalt / securityPbkdf2Iter / securityKeyLen
-//   - securityMagic / securityIVLen / securityTagLen（app.bin 容器头格式）
-//   - 派生算法：PBKDF2-HMAC-SHA256（RFC 2898），salt = "freedom:derive:v1:" + 应用标识
+//   - masterKeyCipher（异或掩码后的主密钥字节表）与掩码算法 out[i] ^= (i*7+0x5A)
+//   - securityDeriveSalt / securityPbkdf2Iter / securityKeyLen / securityMacLabel
+//   - securityMagic / securitySaltLen / securityIVLen / securityTagLen（容器头格式）
+//   - 载荷 JSON 结构 securePayload（html / config / backend）
+//   - 算法：PBKDF2-HMAC-SHA256 → AES-256-CTR + Encrypt-then-MAC（HMAC 截 16B）
 //   - 应用标识 = exe 文件名去扩展名（CLI build 时的 name 与运行时 os.Executable() 一致）
 //
-// 加密算法：AES-256-CTR + HMAC-SHA256（Encrypt-then-MAC），与 Node crypto 的
-// aes-256-ctr + createHmac('sha256') 跨语言一致。（不用 GCM：曾在 Windows 环境
-// 出现标准库 GHASH 确定性认证失败，CTR+HMAC 语义等价且规避该问题。）
+// FRDM2 相对 FRDM1 的四点加强（目标是把"打开产物就能读源码"抬到"必须逆向壳 +
+// 运行时取密钥"；客户端加密做不到不可逆，故也不这样宣称）：
+//  1. 主密钥不以明文常量存在（掩码字节表 + 运行时还原），strings 扫不到完整密钥；
+//  2. 派生盐加入构建期随机 16B（每个产物不同），PBKDF2 迭代 60000 → 600000；
+//  3. 加密密钥与认证密钥域分离；认证标签覆盖 magic+salt+iv+密文
+//     （CTR 下改 iv 即明文可预测翻转，头部不认证等于留了解密 oracle）；
+//  4. 后端源码并入容器（backend 字段），磁盘上不再有 resources/backend 明文目录。
+//
+// 旧版 FRDM1 容器一律拒绝并提示重新 build，不做静默降级（静默回退即降级攻击面）。
 //
 // high 模式产物布局（CLI build 写入，与明文模式互斥）：
-//   resources/app.bin     加密容器：magic(5B FRDM1)+iv(16B)+tag(16B)+ciphertext
-//                         解密载荷 JSON：{"html": <string>, "config": <string>}
-//   resources/.integrity  HMAC-SHA256 完整性清单（app.bin + backend/**）
+//   resources/app.bin      FRDM2 容器：magic(5)+salt(16)+iv(16)+tag(16)+ciphertext
+//                          解密载荷 JSON：{"html","config","backend":{"<rel>":{"d","m"}}}
+//   resources/.integrity   HMAC-SHA256(app.bin)，壳启动时校验，防容器被整体替换
 // 壳启动时在内存解密，磁盘无明文；exe 被重命名/资源被篡改 → 解密失败即拒绝运行。
+// （不用 GCM：曾在 Windows 环境出现标准库 GHASH 确定性认证失败，CTR+HMAC 语义等价
+// 且规避该问题。）
 
 import (
 	"crypto/aes"
@@ -32,30 +42,62 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 // ---- 与 lib/security.js 同步的派生与容器参数 ----
 const (
-	securityMasterKey  = "freedom-shell::kdf-master::v1::7f4e8c2a9b1d6e3f"
-	securityDeriveSalt = "freedom:derive:v1"
-	securityPbkdf2Iter = 60000
+	securityDeriveSalt = "freedom:derive:v2"
+	securityMacLabel   = "freedom:mac:v2"
+	securityPbkdf2Iter = 600000
 	securityKeyLen     = 32
-	securityMagic      = "FRDM1"
+	securityMagic      = "FRDM2"
+	securitySaltLen    = 16 // 构建期随机派生盐
 	securityIVLen      = 16 // AES-CTR 计数器长度 = AES 块大小
 	securityTagLen     = 16 // HMAC-SHA256 截断为 16 字节
 )
 
+// appBinHeaderLen 容器头总长：magic + salt + iv + tag。
+const appBinHeaderLen = len(securityMagic) + securitySaltLen + securityIVLen + securityTagLen
+
+// masterKeyCipher：主密钥明文逐字节与位置相关掩码异或后的字节表。
+// 目的仅是让静态 strings / 十六进制搜索拿不到主密钥；运行时内存中仍有明文密钥，
+// 真正的对抗边界是"必须动态调试壳才能取到"（见 anti_debug_windows.go）。
+var masterKeyCipher = []byte{
+	60, 19, 13, 10, 18, 18, 233, 166, 225, 241, 197, 203, 194, 143, 134, 168,
+	174, 183, 245, 178, 135, 158, 128, 158, 112, 51, 42, 97, 44, 31, 22, 10,
+	89, 117, 46, 125, 97, 60, 1, 90, 22, 65, 226, 179, 189, 240, 172,
+}
+
+// masterSecret 还原主密钥（PBKDF2 的 password）。
+func masterSecret() []byte {
+	out := make([]byte, len(masterKeyCipher))
+	for i, b := range masterKeyCipher {
+		out[i] = b ^ byte((i*7+0x5A)&0xff)
+	}
+	return out
+}
+
 // securePayload 是 app.bin 解密后的载荷（与 JS 侧加密载荷结构一致）。
+// Backend 为 high 模式下的后端源码表：键是相对 resources 的路径（斜杠分隔），
+// 值是 base64 内容 d 与 POSIX 权限位 m——后端源码不再明文落盘（FRDM1 的缺口）。
 type securePayload struct {
-	HTML   string `json:"html"`
-	Config string `json:"config"`
+	HTML    string                `json:"html"`
+	Config  string                `json:"config"`
+	Backend map[string]secureFile `json:"backend,omitempty"`
+}
+
+// secureFile 是容器内的单个后端文件。
+type secureFile struct {
+	Data []byte `json:"d"`
+	Mode uint32 `json:"m"`
 }
 
 // integrityFile 是 resources/.integrity 的磁盘结构（CLI build 生成）。
 type integrityFile struct {
 	V       int               `json:"v"`
 	AppBin  string            `json:"appBin"`
-	Backend map[string]string `json:"backend"`
+	Backend map[string]string `json:"backend,omitempty"`
 }
 
 // pbkdf2HMACSHA256 自实现 PBKDF2-HMAC-SHA256（RFC 2898），
@@ -110,59 +152,131 @@ func appIdentity() (string, error) {
 	return appIdentityName(filepath.Base(exe)), nil
 }
 
-// deriveSecurityKey 派生 high 模式加密密钥（AES-256-CTR 与 HMAC-SHA256 共用同一 32B 密钥）。
-// salt 引入应用标识使不同应用密钥不同；PBKDF2 迭代增加暴力破解成本。
-func deriveSecurityKey(appName string) []byte {
-	salt := []byte(securityDeriveSalt + ":" + appIdentityName(appName))
-	return pbkdf2HMACSHA256([]byte(securityMasterKey), salt, securityPbkdf2Iter, securityKeyLen)
+// secureKey 是单个容器对应的密钥对：加密与认证分开，避免同一密钥同时
+// 服务 AES-CTR 与 HMAC。
+type secureKey struct {
+	enc []byte // AES-256-CTR 密钥（PBKDF2 直接产出）
+	mac []byte // HMAC-SHA256 密钥（KEK 经固定标签拉伸）
+}
+
+// deriveSecurityKey 派生容器密钥。盐 = 固定前缀 + 应用标识 + 容器内构建期随机盐，
+// 故不同应用密钥不同、同一应用每次 build 密钥也不同，仅拿到主密钥常量不足以复现。
+//
+// PBKDF2 迭代 60 万次（实测约 180ms）是启动路径上唯一的昂贵操作：结果按
+// (应用标识, 容器盐) 记忆化，配置与页面两处加载共用一次派生。
+func deriveSecurityKey(appName string, salt []byte) secureKey {
+	id := appIdentityName(appName) + "\x00" + string(salt)
+	secureKeyMu.Lock()
+	defer secureKeyMu.Unlock()
+	if k, ok := secureKeyCache[id]; ok {
+		return k
+	}
+	base := append([]byte(securityDeriveSalt+":"+appIdentityName(appName)), salt...)
+	kek := pbkdf2HMACSHA256(masterSecret(), base, securityPbkdf2Iter, securityKeyLen)
+	h := hmac.New(sha256.New, kek)
+	h.Write([]byte(securityMacLabel))
+	k := secureKey{enc: kek, mac: h.Sum(nil)}
+	if len(secureKeyCache) >= secureKeyCacheMax { // 防御性上限：单进程正常只用一两条
+		secureKeyCache = make(map[string]secureKey)
+	}
+	secureKeyCache[id] = k
+	return k
+}
+
+const secureKeyCacheMax = 8
+
+var (
+	secureKeyMu    sync.Mutex
+	secureKeyCache = make(map[string]secureKey)
+)
+
+// splitAppBin 校验并拆分容器头。magic 不符（含旧版 FRDM1）时给出可操作错误，
+// 绝不回退明文路径。
+func splitAppBin(data []byte) (salt, iv, tag, ct []byte, err error) {
+	if len(data) < appBinHeaderLen {
+		return nil, nil, nil, nil, errors.New("app.bin 长度不足容器头")
+	}
+	if string(data[:len(securityMagic)]) != securityMagic {
+		return nil, nil, nil, nil, fmt.Errorf(
+			"app.bin 容器版本不受支持（头为 %q，本壳要求 %q）：请用与壳同版的 freedom-cli 重新 build",
+			string(data[:len(securityMagic)]), securityMagic)
+	}
+	off := len(securityMagic)
+	salt = data[off : off+securitySaltLen]
+	off += securitySaltLen
+	iv = data[off : off+securityIVLen]
+	off += securityIVLen
+	tag = data[off : off+securityTagLen]
+	off += securityTagLen
+	ct = data[off:]
+	return salt, iv, tag, ct, nil
+}
+
+// appBinAuthLen 是参与认证的头部长度：magic + salt + iv（不含 tag 自身）。
+const appBinAuthLen = len(securityMagic) + securitySaltLen + securityIVLen
+
+// appBinTag 计算认证标签：HMAC-SHA256(macKey, magic+salt+iv+密文) 前 16 字节。
+// 覆盖头部使"换 iv / 换 salt"这类 CTR 明文操纵与降级尝试都过不了认证。
+func appBinTag(k secureKey, data, ct []byte) []byte {
+	h := hmac.New(sha256.New, k.mac)
+	h.Write(data[:appBinAuthLen])
+	h.Write(ct)
+	return h.Sum(nil)[:securityTagLen]
 }
 
 // decryptAppBin 解密 resources/app.bin，返回载荷。
-// 先恒定时间校验 HMAC 认证标签（Encrypt-then-MAC），再 AES-256-CTR 解密。
-// 解密失败（exe 被重命名 / 资源被篡改 / 密钥不匹配）时返回错误。
+// 先恒定时间校验认证标签（Encrypt-then-MAC），再 AES-256-CTR 解密。
+// 失败原因可能是 exe 被重命名 / 容器被篡改 / 壳与 CLI 版本不匹配。
 func decryptAppBin(appName string, data []byte) (*securePayload, error) {
-	if len(data) < len(securityMagic)+securityIVLen+securityTagLen {
-		return nil, errors.New("app.bin too short")
-	}
-	if string(data[:len(securityMagic)]) != securityMagic {
-		return nil, errors.New("app.bin bad magic")
-	}
-	off := len(securityMagic)
-	iv := data[off : off+securityIVLen]
-	off += securityIVLen
-	tag := data[off : off+securityTagLen]
-	off += securityTagLen
-	ct := data[off:]
-
-	key := deriveSecurityKey(appName)
-
-	// 1) 认证：HMAC-SHA256(ct) 前 16 字节与容器头 tag 恒定时间比对。
-	mac := hmac.New(sha256.New, key)
-	mac.Write(ct)
-	if !hmac.Equal(tag, mac.Sum(nil)[:securityTagLen]) {
-		return nil, errors.New("app.bin 解密失败（exe 被重命名或资源被篡改？）：认证失败")
-	}
-
-	// 2) 解密：AES-256-CTR。
-	block, err := aes.NewCipher(key)
+	salt, iv, tag, ct, err := splitAppBin(data)
 	if err != nil {
 		return nil, err
 	}
-	stream := cipher.NewCTR(block, iv)
+	k := deriveSecurityKey(appName, salt)
+	if !hmac.Equal(tag, appBinTag(k, data, ct)) {
+		return nil, errors.New("app.bin 认证失败（exe 被重命名、资源被篡改，或壳与 CLI 版本不匹配）")
+	}
+	block, err := aes.NewCipher(k.enc)
+	if err != nil {
+		return nil, err
+	}
 	plain := make([]byte, len(ct))
-	stream.XORKeyStream(plain, ct)
+	cipher.NewCTR(block, iv).XORKeyStream(plain, ct)
 
 	var p securePayload
 	if err := json.Unmarshal(plain, &p); err != nil {
 		return nil, fmt.Errorf("app.bin 载荷无效：%w", err)
 	}
+	for rel := range p.Backend {
+		if !isSafeRelPath(rel) {
+			return nil, fmt.Errorf("app.bin 后端路径非法：%q", rel)
+		}
+	}
 	return &p, nil
 }
 
+// isSafeRelPath 判定容器内相对路径可安全落盘：非绝对、无空段、无 "." / ".." 段。
+// 解密出的内容来自产物文件，落盘前必须自证不会越出目标目录。
+func isSafeRelPath(rel string) bool {
+	if rel == "" || strings.Contains(rel, "\\") || strings.HasPrefix(rel, "/") {
+		return false
+	}
+	if len(rel) >= 2 && rel[1] == ':' { // Windows 盘符绝对路径
+		return false
+	}
+	for _, seg := range strings.Split(rel, "/") {
+		if seg == "" || seg == "." || seg == ".." {
+			return false
+		}
+	}
+	return true
+}
+
 // verifyIntegrity 校验 resources/.integrity 清单（存在时）。
-// 比对 app.bin 与 backend/** 各文件 HMAC-SHA256，防整体替换/篡改。
+// 比对 app.bin 的 HMAC-SHA256，防容器被整体替换；backend 已进容器，其完整性由
+// 容器认证标签一并保证，清单里的 backend 段仅作向后兼容。
 // 无 .integrity 文件（旧产物）时跳过，保持向后兼容。
-func verifyIntegrity(dir, appName string, appBin []byte) error {
+func verifyIntegrity(dir string, k secureKey, appBin []byte) error {
 	raw, err := os.ReadFile(filepath.Join(dir, ".integrity"))
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -174,16 +288,21 @@ func verifyIntegrity(dir, appName string, appBin []byte) error {
 	if err := json.Unmarshal(raw, &f); err != nil {
 		return fmt.Errorf(".integrity 无效：%w", err)
 	}
-	key := deriveSecurityKey(appName)
-	if f.AppBin != "" {
-		mac := hmac.New(sha256.New, key)
-		mac.Write(appBin)
-		want, err := hex.DecodeString(f.AppBin)
+	check := func(label, wantHex string, buf []byte) error {
+		want, err := hex.DecodeString(wantHex)
 		if err != nil {
-			return fmt.Errorf(".integrity appBin 校验值非法：%w", err)
+			return fmt.Errorf(".integrity %s 校验值非法：%w", label, err)
 		}
+		mac := hmac.New(sha256.New, k.mac)
+		mac.Write(buf)
 		if !hmac.Equal(want, mac.Sum(nil)) {
-			return errors.New(".integrity 校验失败：resources/app.bin 被篡改")
+			return fmt.Errorf(".integrity 校验失败：%s 被篡改", label)
+		}
+		return nil
+	}
+	if f.AppBin != "" {
+		if err := check("appBin", f.AppBin, appBin); err != nil {
+			return err
 		}
 	}
 	for rel, wantHex := range f.Backend {
@@ -191,22 +310,30 @@ func verifyIntegrity(dir, appName string, appBin []byte) error {
 		if err != nil {
 			return fmt.Errorf(".integrity 校验失败：backend 文件缺失 %s：%w", rel, err)
 		}
-		mac := hmac.New(sha256.New, key)
-		mac.Write(b)
-		want, err := hex.DecodeString(wantHex)
-		if err != nil {
-			return fmt.Errorf(".integrity backend[%s] 校验值非法：%w", rel, err)
-		}
-		if !hmac.Equal(want, mac.Sum(nil)) {
-			return fmt.Errorf(".integrity 校验失败：backend 文件 %s 被篡改", rel)
+		if err := check("backend["+rel+"]", wantHex, b); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
+// hasSecureResources 只做文件探测：exe 同目录是否存在 high 容器 app.bin。
+// Run 据此决定"解密前"是否先跑一次反调试（不派生密钥，代价为一次 stat）。
+func hasSecureResources() bool {
+	dir, err := resourcesDir()
+	if err != nil {
+		return false
+	}
+	_, err = os.Stat(filepath.Join(dir, "app.bin"))
+	return err == nil
+}
+
 // loadSecureResources 尝试加载 high 模式加密资源。
 // 返回 (载荷, 是否命中, 错误)：resources/app.bin 不存在时命中=false（非 high 产物），
 // 命中但解密/校验失败时返回错误（拒绝静默回退明文，避免降级攻击）。
+//
+// 每次调用都重新读盘并复算认证标签（不缓存载荷）：容器被替换后立即失效，
+// 启动路径上真正昂贵的 PBKDF2 已由 deriveSecurityKey 记忆化。
 func loadSecureResources() (*securePayload, bool, error) {
 	dir, err := resourcesDir()
 	if err != nil {
@@ -223,7 +350,11 @@ func loadSecureResources() (*securePayload, bool, error) {
 	if err != nil {
 		return nil, false, err
 	}
-	if err := verifyIntegrity(dir, name, data); err != nil {
+	salt, _, _, _, err := splitAppBin(data)
+	if err != nil {
+		return nil, false, err
+	}
+	if err := verifyIntegrity(dir, deriveSecurityKey(name, salt), data); err != nil {
 		return nil, false, err
 	}
 	p, err := decryptAppBin(name, data)
@@ -231,4 +362,52 @@ func loadSecureResources() (*securePayload, bool, error) {
 		return nil, false, err
 	}
 	return p, true, nil
+}
+
+// materializeSecureBackend 把容器内的后端源码解密写入进程私有临时目录（0700），
+// 供 ProcBackend 以子进程方式执行——high 模式磁盘上不再有 resources/backend 明文。
+// 返回临时目录路径；调用方负责在退出时删除（见 App.cleanupSecureBackend）。
+// 权限位取自容器内记录并显式 chmod（umask 会削弱 WriteFile 的 perm），
+// 无有效权限位时回退 0600，绝不放宽到其他用户可读写。
+//
+// 目录名内嵌 PID（freedom-<app>-<pid>-<随机>）：正常退出走 defer 清理，但崩溃与
+// taskkill /F 不执行 defer，明文源码会永久留在临时目录里。故每次物化前先回收
+// "同应用 + PID 已不在"的历史目录，把强杀留下的残留压到下次启动即清。
+func materializeSecureBackend(files map[string]secureFile) (string, error) {
+	name, err := appIdentity()
+	if err != nil {
+		return "", err
+	}
+	gcStaleSecureBackendDirs(os.TempDir(), name)
+	dir, err := os.MkdirTemp("", secureTempDirName(name))
+	if err != nil {
+		return "", err
+	}
+	for rel, f := range files {
+		if !isSafeRelPath(rel) {
+			os.RemoveAll(dir)
+			return "", fmt.Errorf("后端路径非法：%q", rel)
+		}
+		full := filepath.Join(dir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
+			os.RemoveAll(dir)
+			return "", err
+		}
+		perm := os.FileMode(f.Mode & 0o777)
+		if perm == 0 {
+			perm = 0o600
+		}
+		// 容器里的权限位来自构建机（Windows 上 stat 常给 0666）：非属主写位一律抹掉，
+		// 保留读/执行位（临时目录本身 0700，此处的收紧是第二道防线）。
+		perm &= 0o755
+		if err := os.WriteFile(full, f.Data, 0o600); err != nil {
+			os.RemoveAll(dir)
+			return "", err
+		}
+		if err := os.Chmod(full, perm); err != nil {
+			os.RemoveAll(dir)
+			return "", err
+		}
+	}
+	return dir, nil
 }

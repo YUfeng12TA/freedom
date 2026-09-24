@@ -107,9 +107,11 @@ type App struct {
 	onReady func(a *App)
 
 	// 运行时资源覆盖（resources.go）：secure = high 模式（app.bin 解密成功），
-	// backendExplicit = 用户经 Bind 显式使用内嵌后端（config.json 的 backend 不得再替换）。
-	secure          bool
-	backendExplicit bool
+	// backendExplicit = 用户经 Bind 显式使用内嵌后端（config.json 的 backend 不得再替换），
+	// secureBackendDir = high 模式容器内后端源码解密落地用的私有临时目录（退出即删）。
+	secure           bool
+	backendExplicit  bool
+	secureBackendDir string
 
 	// upMu 保护 upPending：CheckUpdate 验签通过的更新条目，install 桥接只认它
 	//（前端无法注入未验签的 URL/哈希）。见 updater.go。
@@ -227,6 +229,11 @@ func (a *App) Unbind(name string) {
 
 // Run 启动窗口并进入主事件循环，阻塞直到窗口被关闭。
 func (a *App) Run() {
+	// high 产物：解密前先跑一次反调试（此时密钥与明文都还没进内存），
+	// 解密后再跑一次（兜住"启动后才附加调试器"）。非 high 应用不受影响。
+	if hasSecureResources() {
+		antiDebugCheck()
+	}
 	// 通用壳：先加载 exe 同目录 resources/ 覆盖窗口与后端配置（CLI build 写入；
 	// 缺失则使用编译期/默认配置）。配置存在但非法时打印告警不中断启动。
 	if err := a.loadRuntimeConfig(); err != nil {
@@ -239,7 +246,9 @@ func (a *App) Run() {
 		}
 		fmt.Printf("freedom: warning: %v\n", err)
 	}
-	// high 模式：反调试检测（调试器下静默退出，防止逆向解密逻辑）。
+	// high 模式的临时后端目录随进程退出清理（defer 早于后端 Close 注册 → 后于其执行）。
+	defer a.cleanupSecureBackend()
+	// high 模式：解密后复查调试器（见 Run 开头的"解密前一次"）。
 	if a.secure {
 		antiDebugCheck()
 	}

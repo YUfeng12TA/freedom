@@ -245,14 +245,24 @@ async function emitPlatform({ plat, name, version, targetDir, html, configJSON, 
       const p = path.join(resDir, legacy);
       if (fs.existsSync(p)) await fsp.rm(p, { force: true });
     }
-    const appBin = encryptApp(name, html, configJSON);
-    await fsp.writeFile(path.join(resDir, 'app.bin'), appBin);
-    const backendRelMap = {};
+    // 后端源码同样进容器：high 模式磁盘上不留 resources/backend 明文目录，
+    // 壳启动时把容器内 backend/* 解密到一次性临时目录（退出即删）。
+    const legacyBackend = path.join(resDir, 'backend');
+    if (fs.existsSync(legacyBackend)) await fsp.rm(legacyBackend, { recursive: true, force: true });
+    const backendFiles = {};
     if (hasBackend && fs.existsSync(backendDir)) {
-      collectDirFiles(backendDir, '', backendRelMap);
+      for (const [rel, buf] of Object.entries(collectDirFiles(backendDir, '', {}))) {
+        backendFiles['backend/' + rel] = { data: buf, mode: fileMode(path.join(backendDir, rel)) };
+      }
     }
-    const integrityText = renderIntegrity(buildIntegrity(name, appBin, backendRelMap));
-    await fsp.writeFile(path.join(resDir, '.integrity'), integrityText, 'utf8');
+    // 加密前先抹掉 source map 引用：内联 sourceMappingURL 里往往直接嵌着前端原始源码，
+    // 容器解密即还原，等于给 high 模式留了个明文后门。
+    const { html: secureHtml, stripped } = stripSourceMapRefs(html);
+    if (stripped > 0) {
+      process.stdout.write(`[freedom] high 模式：已抹去前端页内 ${stripped} 处 source map 引用（可能含原始源码）。\n`);
+    }
+    const appBin = encryptApp(name, secureHtml, configJSON, backendFiles);    await fsp.writeFile(path.join(resDir, 'app.bin'), appBin);
+    await fsp.writeFile(path.join(resDir, '.integrity'), renderIntegrity(buildIntegrity(name, appBin)), 'utf8');
   } else {
     for (const legacy of ['app.bin', '.integrity']) {
       const p = path.join(resDir, legacy);
@@ -268,7 +278,7 @@ async function emitPlatform({ plat, name, version, targetDir, html, configJSON, 
       );
     }
   }
-  if (hasBackend) {
+  if (hasBackend && security !== 'high') {
     copyDir(backendDir, path.join(resDir, 'backend'));
   }
 
@@ -675,7 +685,7 @@ function warnIfNotSingleFile(html, distHtml) {
   }
 }
 
-// 递归收集目录内所有文件：relPath（POSIX 相对路径）-> Buffer 内容，供 .integrity 完整性清单使用。
+// 递归收集目录内所有文件：relPath（POSIX 相对路径）-> Buffer 内容，供 high 模式入容器。
 function collectDirFiles(dir, prefix, out) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const abs = path.join(dir, entry.name);
@@ -686,6 +696,29 @@ function collectDirFiles(dir, prefix, out) {
     }
   }
   return out;
+}
+
+// 文件权限位（POSIX mode 低 12 位）：进容器后由壳在临时目录还原（执行位决定后端能否直接跑）。
+function fileMode(abs) {
+  try {
+    return fs.statSync(abs).mode & 0o7777;
+  } catch (e) {
+    return 0o644;
+  }
+}
+
+// 抹掉前端页内的 source map 引用（JS 的 //# sourceMappingURL=…、CSS 的 /*# … */）。
+// 返回 { html, stripped }。
+function stripSourceMapRefs(html) {
+  let stripped = 0;
+  const out = String(html).replace(
+    /\/\/[#@]\s*sourceMappingURL=[^\r\n]*|\/\*#\s*sourceMappingURL=[\s\S]*?\*\//g,
+    () => {
+      stripped += 1;
+      return '';
+    },
+  );
+  return { html: out, stripped };
 }
 
 module.exports = { build, parsePlatforms };

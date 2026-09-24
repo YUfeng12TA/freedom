@@ -7,7 +7,7 @@ Freedom 桌面壳打包工具：把你的 Web 前端一键打包成跨平台桌�
 **v1.13.x 框架线回归 + 稳定性收口**（v1.13.0 功能，v1.13.1 为文档勘误发布）：
 - **freedom-cli 源码回归主仓库**：本 CLI 与框架源码同仓维护（`freedom-cli/` 目录，`templates/go` 为框架源码快照），npm 包与 GitHub Release 一一对应，历史"源码丢失停在 1.12.18"的断档已修复；
 - **三平台通用壳经 tag CI 自动发布**：推送 `vX.Y.Z` tag 即由 `build.yml` 在 win / mac（Apple Silicon）/ linux runner 上编译通用壳并自动创建 GitHub Release，资产命名 `freedom-shell-<plat>`；`freedom shell download <plat>` 直接拉取对应版本资产（默认定位 `v<包版本>`，可用 `FREEDOM_SHELL_TAG` 覆盖），包内另自带三平台壳兜底，均随包分发；
-- **运行时资源层回归**：壳从 exe 同目录 `resources/` 读取 `config.json`（窗口 / 后端配置覆盖）与前端页面，high 模式下为加密 `app.bin`（FRDM1 容器）+ `.integrity` 清单；JS 侧构建加密 → Go 壳内存解密已有跨语言黄金向量与端到端互验（改名 / 篡改即拒绝运行）；
+- **运行时资源层回归**：壳从 exe 同目录 `resources/` 读取 `config.json`（窗口 / 后端配置覆盖）与前端页面，high 模式下前端页面、配置与 **`backend/**` 后端源码**统一封进加密 `app.bin`（FRDM2 容器：构建期随机盐 + PBKDF2 60 万次派生 + Encrypt-then-MAC 覆盖头部）+ `.integrity` 清单，磁盘不留明文后端源码；JS 侧构建加密 → Go 壳内存解密已有跨语言黄金向量与端到端互验（改名 / 篡改 / 整体替换即拒绝运行）；
 - **多窗口（M2）随 v1.13.0 壳可用**：前端 `window.freedom.window.create / close / list / focus` 开二级窗口，Go 侧 `App.NewWindow / Window.Close`；次级窗口独立消息泵、页面源支持内联 HTML / URL；
 - **销毁竞态收口**：修复 webview2 在 `Destroy` 中泵出滞留 dispatch 回调导致的随机崩溃（0xc0000005，多窗口 / 快速关闭场景），回收后所有排队回调按拆除旗标自我作废，并配套红绿回归测试；
 - **v1.13.1**：文档同步（本 README 更新至 v1.13.x 真实现状、壳 CI 章节勘误），无功能与壳二进制变更。
@@ -193,7 +193,7 @@ export default {
 | --- | --- | --- | --- |
 | `none` | 明文 `index.html` + `config.json`（默认，兼容历史产物） | 解包即读 | 公开页面 / 调试 / 快速分发 |
 | `basic` | 同上明文，构建时额外输出加固建议 | 低 | 需要提示、暂不加密 |
-| `high` | 整体加密为 `resources/app.bin` + `.integrity`，磁盘**无任何明文** HTML/配置 | 高（需逆向壳 + 还原派生密钥） | 防源码提取、防资源篡改的正式分发 |
+| `high` | 前端 HTML + 配置 + **后端源码**整体加密为 `resources/app.bin` + `.integrity`，磁盘**无任何明文** | 高（需逆向壳 + 还原派生密钥） | 防源码提取、防资源篡改的正式分发 |
 
 **切换方式**（二选一，`--security` 可临时覆盖配置文件）：
 
@@ -203,16 +203,18 @@ freedom build --security high        # 单次构建生效（不改配置）
 freedom build                        # 读取配置中的 security 值
 ```
 
-**high 模式原理**：
-- 构建时：前端 HTML + 配置序列化后，用 **AES-256-CTR** 加密为 `app.bin`（容器头 `FRDM1` + 16B IV + 16B 认证标签），并生成 `.integrity` 完整性清单（`app.bin` 与 `backend/**` 各文件的 HMAC-SHA256）；
-- 加密密钥由 **PBKDF2-HMAC-SHA256**（6 万次迭代）按「应用可执行文件名」派生，不同应用密钥不同，暴力破解成本高；
-- 壳启动时：先校验 `.integrity`（防整体替换 / 篡改 / exe 改名），再恒定时间比对 HMAC 认证标签（Encrypt-then-MAC），最后内存中解密加载——**磁盘始终无明文**；
-- 解密 / 校验失败即拒绝运行（不静默回退明文，防降级攻击）；
-- 另内置 **anti-debug**（`IsDebuggerPresent` / `CheckRemoteDebuggerPresent` 命中即退出）与进程隐藏加固。
+**high 模式原理（FRDM2 容器）**：
+- 容器布局：`FRDM2`(5B) + `salt`(16B，**每次构建随机**) + `iv`(16B) + `tag`(16B) + 密文；密钥 = **PBKDF2-HMAC-SHA256**（60 万次迭代，主密钥经字节表掩码内置于壳与 CLI）按「应用可执行文件名 + 容器随机盐」派生，再由固定标签做 **HMAC 域分离**得到独立的加密钥与认证钥；
+- 认证为 **Encrypt-then-MAC 且覆盖容器头部**（magic/salt/iv 参与计算），故改盐、改 IV、翻转任意一字节都会认证失败；`.integrity` 清单绑定同一盐值，**整体替换成另一个合法容器**同样拒绝运行；
+- **后端源码不再明文落盘**：`backend/**`（含 POSIX 权限位）作为条目进入容器，磁盘上不再有 `resources/backend/`；壳启动解密到仅属主可访问的一次性临时目录（0700 / 文件 0600，执行位按容器记录还原）供子进程执行，进程退出即删除；若被强杀或崩溃来不及删，**下次启动会按目录名内嵌的 PID 自动回收残留**；
+- 构建期抹除前端产物中的 `sourceMappingURL` 引用（防 source map 还原源码），壳二进制一律 `-trimpath -ldflags "-s -w"`（Windows 另加 `-H windowsgui`）；
+- 解密 / 校验失败即拒绝运行（不静默回退明文，防降级攻击；旧版 `FRDM1` 容器明确报"版本不支持"）；
+- 另内置 **anti-debug**：`IsDebuggerPresent`、`CheckRemoteDebuggerPresent`、直读 `PEB.BeingDebugged`、`NtQueryInformationProcess` 的 `ProcessDebugPort` / `ProcessDebugObjectHandle` / `ProcessDebugFlags` 共六道独立信号，任一确证即静默退出（退出码 77），在资源解密前后各检测一次；所有探测遵循"取不到即视为未命中"，杜绝误杀；
+- 进程隐藏加固（`-H windowsgui`，无控制台窗口）。
 
-**加固上限说明**：`high` 大幅提高破解门槛，但**任何客户端可执行程序都无法做到绝对不可破解**——密钥最终存在于壳二进制与运行时内存中。更高强度建议：壳编译时设置 `-ldflags "-s -w"` 剥离符号表（CI 编译壳时已可选开启）、对核心业务保留服务端校验。若需"怎么都解不开"，请把真正敏感的密钥 / 逻辑放到你的后端。
+**加固上限说明**：`high` 大幅提高破解门槛，但**任何客户端可执行程序都无法做到绝对不可破解**——密钥最终存在于壳二进制与运行时内存中，反调试只抬升动态分析成本、不是不可绕过的墙。真正敏感的密钥与业务逻辑仍应留在服务端。
 
-**互斥规则**：切换安全模式重新构建时，CLI 会自动清理另一模式的遗留产物（`app.bin`/`.integrity` 与明文 `index.html`/`config.json` 只能存其一），避免壳误加载旧资源。
+**互斥规则**：切换安全模式重新构建时，CLI 会自动清理另一模式的遗留产物（`app.bin`/`.integrity` 与明文 `index.html`/`config.json`/`backend/` 只能存其一），避免壳误加载旧资源。
 
 ## 前端
 

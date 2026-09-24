@@ -316,8 +316,11 @@ function buildShell(plat) {
   }
 
   const buildDir = goTemplateDir();
-  const ldflags = plat.startsWith('win') ? ['-ldflags', '-H windowsgui'] : [];
-  const build = spawnSync('go', ['build', ...ldflags, '-o', dest, '.'], {
+  // 剥离符号与调试信息（-s -w）+ 抹掉构建期绝对路径（-trimpath）：
+  // 通用壳里编译进了 high 模式的密钥派生逻辑，函数名/DWARF 是给逆向者的地图。
+  const ldflags = ['-s', '-w'];
+  if (plat.startsWith('win')) ldflags.push('-H', 'windowsgui');
+  const build = spawnSync('go', ['build', '-trimpath', '-ldflags', ldflags.join(' '), '-o', dest, '.'], {
     cwd: buildDir,
     encoding: 'utf8',
     env: { ...process.env, CGO_ENABLED: '1' },
