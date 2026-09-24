@@ -11,4 +11,5 @@
 | 7 | 两份模板均含 d.ts；至少语法与 SDK 命名空间逐一对齐 | done：`templates/project/freedom.d.ts` 与 `templates/project-minimal/freedom.d.ts`（77 行，与 assets/freedom.js 的 sys/tray/window/clipboard/shell/notification/shortcut/autostart/protocol/store/update 命名空间逐条对齐） |
 | 8 | 二次进程秒退、首实例存活（tasklist 计数=1） | done：`real 0m0.021s` 二次退出 + `tasklist` 仅 `myapp.exe 12440` 一条 |
 | 9 | `cmp` 全量一致；win/linux 壳重编译成功 | done：全量 `*.go`（排除 `*_test.go`）cmp 无 DIFF；win 7323136B（mingw CGO + `-H windowsgui`）、linux 7219592B（WSL，md5 传输校验一致） |
-| 10 | 四段交付报告 + bugs.json 登记 + commit/push 证据 | 进行中：B-20260924-030 已登记（zipDir 被 Git Bash GNU tar 劫持，fixed + 回归证据）；提交与 README 同步待收口 |
+| 10 | 四段交付报告 + bugs.json 登记 + commit/push 证据 | done：B-20260924-030 登记（fixed + 回归证据）；提交 `8aae5fd`（24 files, 1014 insertions）；**push 未做**（推送默认禁止，待用户放行）；四段报告已在交付轮给出 |
+| 11 | P-C：Linux 能力面（AppImage / 全局热键 / 原生对话框 / 二级窗口崩溃 B-022） | 待裁：本机无 Linux 桌面验收环境且需下载 appimagetool，工作量与收益需用户裁定是否本波做 |
