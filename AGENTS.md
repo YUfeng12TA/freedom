@@ -19,6 +19,8 @@
 - `backend.go` — Backend 接口抽象（内嵌 / 进程双实现）。
 - `bridge.go` — 内嵌 Go 后端：反射分发（`app.Bind`）。
 - `dispatch.go` — 异步桥：`__freedom_bridge(id,…)` 投递 + worker goroutine + `__freedom__resolve` 回写（M1）。
+- `window_mgr.go` — M2 多窗口：窗口注册表、次级窗口独立消息泵（LockOSThread）、create/list/closeWindow/focusWindow 管理动作、Emit 广播；页面来源优先序 URL > HTML 函数 > Page(json `html`) > 主页面。
+- `capability.go` — M3 声明式能力模型：`Config.Capabilities{Allow,Deny}`（path.Match），在 sys/tray/window 三桥派发前判定，拒绝零副作用；默认 nil 全开；os.info 回显。
 - `backend_proc.go` — 进程后端：stdio IPC（启动/调用/事件/关闭），注入 `FREEDOM_BACKEND=1`、`FREEDOM_IPC=stdio`。
 - `assets_embed.go` — 前端资源 `go:embed`（assets/freedom.js SDK + default.html）。
 - `window_windows.go` — Windows 原生窗口层（user32/dwmapi）：标题栏策略、居中、样式、共用 NewProc 声明处。

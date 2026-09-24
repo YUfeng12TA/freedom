@@ -7,10 +7,10 @@
 //     编译三平台。
 //   - backend：后端抽象。任意时刻绑定一个后端，前端 window.freedom.call 全部路由过去。
 //     内置两种实现：
-//       * EmbedBackend：Go 方法直接注册在壳进程内（app.Bind，兼容 v1 用法）。
-//       * ProcBackend：后端是任意语言实现的独立进程（Go/Rust/Python/Node/Java…），
-//         通过 stdin/stdout 上的 NDJSON/JSON-RPC 与壳通信。协议语言无关，
-//         换一种后端语言无需改壳与前端。
+//   - EmbedBackend：Go 方法直接注册在壳进程内（app.Bind，兼容 v1 用法）。
+//   - ProcBackend：后端是任意语言实现的独立进程（Go/Rust/Python/Node/Java…），
+//     通过 stdin/stdout 上的 NDJSON/JSON-RPC 与壳通信。协议语言无关，
+//     换一种后端语言无需改壳与前端。
 //   - ipc：双向桥接。前端 window.freedom.call(method, ...args) -> Promise；
 //     后端 app.Emit(event, data) 向所有前端监听器推送事件。
 //   - assets：前端编译产物（Vite 单文件 HTML）通过 go:embed 嵌入二进制，运行时
@@ -78,6 +78,9 @@ type Config struct {
 	// Update 配置自动更新（ed25519 验签 manifest + sha256 校验产物）。
 	// 为 nil 时更新能力关闭。见 updater.go。
 	Update *UpdateConfig
+	// Capabilities 收口前端 sys/tray/window 三桥的可调用面（M3）。
+	// nil（默认）全开；语义见 capability.go。os.info 回显生效配置。
+	Capabilities *Capabilities
 }
 
 // App 是 Freedom 应用实例。
@@ -269,14 +272,15 @@ func (a *App) Run() {
 	// 框架内置方法：原生系统能力（wails v3 对标层）。
 	// 支持方法：taskbar.*（进度/状态/角标）、window.backdrop/corner/borderColor、
 	// dialog.message/open/save。平台实现分文件：syscap_windows.go / syscap_other.go。
-	if err := w.Bind("__freedom_sys", a.sysCapCall); err != nil {
+	// 绑定入口带 M3 能力闸（见 capability.go）。
+	if err := w.Bind("__freedom_sys", a.sysCapGated); err != nil {
 		fmt.Printf("freedom: failed to bind sys capability: %v\n", err)
 		return
 	}
 	// 框架内置方法：系统托盘与原生菜单栏。
 	// 支持方法：tray.create/destroy/tooltip/menu、menu.set。
-	// 平台实现分文件：tray_windows.go / tray_other.go。
-	if err := w.Bind("__freedom_tray", a.trayCall); err != nil {
+	// 平台实现分文件：tray_windows.go / tray_other.go。绑定入口带 M3 能力闸。
+	if err := w.Bind("__freedom_tray", a.trayGated); err != nil {
 		fmt.Printf("freedom: failed to bind tray: %v\n", err)
 		return
 	}
@@ -388,6 +392,10 @@ func (a *App) windowControl(action string, paramsJSON string) (result interface{
 			err = fmt.Errorf("freedom: window action %q panicked: %v", action, r)
 		}
 	}()
+	// M3 能力闸先于一切动作处理（拒绝路径不触平台层，无副作用）。
+	if err := a.capCheckWindow(action); err != nil {
+		return nil, err
+	}
 	if res, ok, merr := a.windowManage(action, paramsJSON); ok {
 		return res, merr
 	}

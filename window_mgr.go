@@ -242,6 +242,10 @@ func (a *App) windowControlFor(w *Window, action, paramsJSON string) (result int
 			err = fmt.Errorf("freedom: window action %q panicked: %v", action, r)
 		}
 	}()
+	// M3 能力闸：与主窗口同闸（action 补 window. 前缀判定）。
+	if err := a.capCheckWindow(action); err != nil {
+		return nil, err
+	}
 	switch action {
 	case "id":
 		// 本窗口身份优先于 windowManage 的 main 应答。

@@ -48,3 +48,10 @@
 - E-M2-2 单测：主机 `go test -race -count=1 .` ok 7.910s；WSL 原生 ok 5.870s（新增 TestWindowSpecPageDecode、TestSecondaryWindowControlFor + 原 TestWindowRegistryAndGuards）。
 - E-M2-3 SDK 契约：node 10/10（sdk-ready 3 + sdk-surface 7）。
 - 已知边界（有意为之，README/AGENTS 已见注释）：事件为全局广播不带 windowId（对齐 Wails Emit 语义）；托盘/热键/单实例/窗口事件子类化/状态记忆仅主窗口；次级窗口无 sys/tray 桥（SDK 可读拒绝）。
+
+## M3 完成证据（E-M3）
+- 实现：capability.go（Capabilities{Allow,Deny}+capCheck/capCheckWindow/sysCapGated/trayGated，path.Match 语义，Deny 优先）+ Config 字段 + Run 的 __freedom_sys/__freedom_tray 换绑带闸入口 + windowControl/windowControlFor 双侧前置闸 + store.go os.info 回显（nil 全开不回显）。
+- 名字域：sys 用方法原名（clipboard.read/dialog.open/os.info/process.*…），tray 用 tray.*/menu.set，window 动作补 window. 前缀——与 sys 侧 window.monitors/backdrop 同前缀方法共享名字域，"window.*" 一条收全族。
+- E-M3-1 单测：capability_test.go 6 测试（默认全开/Deny/Allow 三组 + sys/tray/window 闸行为 + os.info 回显断言），主机 `go test -race` ok 7.897s、WSL 原生 ok 5.565s，逐条 PASS 输出留档本轮命令。
+- E-M3-2 既有回归：双平台全量 race 绿；node SDK 测试未涉改动。
+- 拒绝零副作用保证：闸在派发进平台层/sysGeneric 之前 return，测试以"deny 命中返回 capability denied 串"佐证（clipboard.write 被拒不触剪贴板、tray.create 被拒不触 Shell_NotifyIcon）。

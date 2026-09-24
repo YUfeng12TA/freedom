@@ -194,11 +194,11 @@ func (sf *storeFile) flushLocked() error {
 
 // WindowState 是窗口几何快照（物理像素）。
 type WindowState struct {
-	X         int  `json:"x"`
-	Y         int  `json:"y"`
-	Width     int  `json:"width"`
-	Height    int  `json:"height"`
-	Maximized bool `json:"maximized"`
+	X          int  `json:"x"`
+	Y          int  `json:"y"`
+	Width      int  `json:"width"`
+	Height     int  `json:"height"`
+	Maximized  bool `json:"maximized"`
 	Fullscreen bool `json:"fullscreen"`
 }
 
@@ -306,7 +306,15 @@ func (a *App) sysGeneric(method string, args map[string]json.RawMessage) (result
 		}
 		return sf.keys(), true, nil
 	case "os.info":
-		return osInfo(), true, nil
+		info := osInfo()
+		// M3：回显生效的能力收口，前端可据此隐藏入口（nil=全开时省略该键）。
+		if a.cfg.Capabilities != nil {
+			info["capabilities"] = map[string][]string{
+				"allow": a.cfg.Capabilities.Allow,
+				"deny":  a.cfg.Capabilities.Deny,
+			}
+		}
+		return info, true, nil
 	case "process.id":
 		return os.Getpid(), true, nil
 	case "process.exit":
