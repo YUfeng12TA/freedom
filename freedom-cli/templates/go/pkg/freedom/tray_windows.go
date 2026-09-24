@@ -39,12 +39,12 @@ const (
 	tpmRightButton = 0x00000002
 	tpmLeftAlign   = 0x00000000
 
-	mfString    = 0x00000000
-	mfSeparator = 0x00000800
-	mfChecked   = 0x00000008
-	mfGrayed    = 0x00000001
-	mfEnabled   = 0x00000000
-	mfPopup     = 0x00000010
+	mfString     = 0x00000000
+	mfSeparator  = 0x00000800
+	mfChecked    = 0x00000008
+	mfGrayed     = 0x00000001
+	mfEnabled    = 0x00000000
+	mfPopup      = 0x00000010
 	mfByPosition = 0x00000400
 )
 
@@ -52,19 +52,19 @@ var (
 	shell32              = syscall.NewLazyDLL("shell32.dll")
 	procShellNotifyIconW = shell32.NewProc("Shell_NotifyIconW")
 
-	procRegisterClassExW   = user32win.NewProc("RegisterClassExW")
-	procCreateWindowExW    = user32win.NewProc("CreateWindowExW")
-	procDefWindowProcW     = user32win.NewProc("DefWindowProcW")
-	procCreatePopupMenu    = user32win.NewProc("CreatePopupMenu")
-	procCreateMenu         = user32win.NewProc("CreateMenu")
-	procAppendMenuW        = user32win.NewProc("AppendMenuW")
-	procInsertMenuW        = user32win.NewProc("InsertMenuW")
-	procDestroyMenu        = user32win.NewProc("DestroyMenu")
-	procTrackPopupMenu     = user32win.NewProc("TrackPopupMenu")
-	procGetCursorPos       = user32win.NewProc("GetCursorPos")
+	procRegisterClassExW    = user32win.NewProc("RegisterClassExW")
+	procCreateWindowExW     = user32win.NewProc("CreateWindowExW")
+	procDefWindowProcW      = user32win.NewProc("DefWindowProcW")
+	procCreatePopupMenu     = user32win.NewProc("CreatePopupMenu")
+	procCreateMenu          = user32win.NewProc("CreateMenu")
+	procAppendMenuW         = user32win.NewProc("AppendMenuW")
+	procInsertMenuW         = user32win.NewProc("InsertMenuW")
+	procDestroyMenu         = user32win.NewProc("DestroyMenu")
+	procTrackPopupMenu      = user32win.NewProc("TrackPopupMenu")
+	procGetCursorPos        = user32win.NewProc("GetCursorPos")
 	procSetForegroundWindow = user32win.NewProc("SetForegroundWindow")
-	procSetMenu            = user32win.NewProc("SetMenu")
-	procDrawMenuBar        = user32win.NewProc("DrawMenuBar")
+	procSetMenu             = user32win.NewProc("SetMenu")
+	procDrawMenuBar         = user32win.NewProc("DrawMenuBar")
 )
 
 // ---- 结构 ----

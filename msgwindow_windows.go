@@ -35,14 +35,14 @@ func validCopyData(dwData uintptr, cbData uint32, lpData uintptr) bool {
 }
 
 type msgWindow struct {
-	mu        sync.Mutex
-	hwnd      uintptr
-	ready     chan struct{}
-	created   bool
-	hotkeys   map[string]uint32 // 前端 id → 热键数值 id
-	nextHKID  uint32
-	onHotkey  func(id string)
-	onData    func(payload []byte)
+	mu       sync.Mutex
+	hwnd     uintptr
+	ready    chan struct{}
+	created  bool
+	hotkeys  map[string]uint32 // 前端 id → 热键数值 id
+	nextHKID uint32
+	onHotkey func(id string)
+	onData   func(payload []byte)
 }
 
 var (

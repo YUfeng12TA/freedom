@@ -18,10 +18,10 @@ import (
 
 const (
 	wmSize         = 0x0005
-	wmMove           = 0x0003
+	wmMove         = 0x0003
 	wmExitSizeMove = 0x0212
-	wmSetFocus       = 0x0007
-	wmKillFocus      = 0x0008
+	wmSetFocus     = 0x0007
+	wmKillFocus    = 0x0008
 
 	sizeMaximized = 1
 	sizeMinimized = 2
@@ -244,8 +244,8 @@ func enumMonitorsProc(hmon, hdc, lprci, data uintptr) uintptr {
 			Width:  int(mi.rcMonitor.right - mi.rcMonitor.left),
 			Height: int(mi.rcMonitor.bottom - mi.rcMonitor.top),
 			WorkX:  int(mi.rcWork.left), WorkY: int(mi.rcWork.top),
-			WorkWidth:  int(mi.rcWork.right - mi.rcWork.left),
-			WorkHeight: int(mi.rcWork.bottom - mi.rcWork.top),
+			WorkWidth:   int(mi.rcWork.right - mi.rcWork.left),
+			WorkHeight:  int(mi.rcWork.bottom - mi.rcWork.top),
 			ScaleFactor: scale,
 			IsPrimary:   mi.dwFlags&monitorInfofPrimary != 0,
 		})

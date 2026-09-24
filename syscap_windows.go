@@ -26,7 +26,7 @@ import (
 var comInitDone atomic.Bool
 
 var (
-	ole32          = syscall.NewLazyDLL("ole32.dll")
+	ole32                = syscall.NewLazyDLL("ole32.dll")
 	procCoCreateInstance = ole32.NewProc("CoCreateInstance")
 	procCoTaskMemFree    = ole32.NewProc("CoTaskMemFree")
 	procCoInitializeEx   = ole32.NewProc("CoInitializeEx")
@@ -102,6 +102,7 @@ func comVtable(ppv uintptr, index uint32) uintptr {
 }
 
 // comVtableImpl 是实际的 vtable 查找实现，通过单独函数隔离 vet 检查。
+//
 //go:noinline
 func comVtableImpl(ppv uintptr, index uint32) uintptr {
 	// 读取 vtable 指针：COM 对象首 8 字节是指针数组。
@@ -146,10 +147,10 @@ var (
 
 // ITaskbarList3 vtable 索引（0=QueryInterface,1=AddRef,2=Release）。
 const (
-	tb3HrInit             = 3
-	tb3SetProgressValue   = 8
-	tb3SetProgressState   = 9
-	tb3SetOverlayIcon     = 17
+	tb3HrInit           = 3
+	tb3SetProgressValue = 8
+	tb3SetProgressState = 9
+	tb3SetOverlayIcon   = 17
 )
 
 // TBPFLAG 任务栏进度条状态。
@@ -170,7 +171,7 @@ func taskbarList3() uintptr {
 	hr, _, _ := procCoCreateInstance.Call(
 		uintptr(unsafe.Pointer(&clsidTaskbarList)),
 		0,
-		0x1 /*CLSCTX_INPROC_SERVER*/,
+		0x1, /*CLSCTX_INPROC_SERVER*/
 		uintptr(unsafe.Pointer(&iidTaskbarList3)),
 		uintptr(unsafe.Pointer(&ppv)),
 	)
@@ -265,11 +266,11 @@ const (
 	dwmwaSystemBackdropType     = 38
 	dwmwaBorderColor            = 34
 
-	dwmsbtAuto          = 0
-	dwmsbtNone          = 1
-	dwmsbtMainWindow    = 2 // Mica
-	dwmsbtTransientWin  = 3 // Acrylic
-	dwmsbtTabbedWindow  = 4
+	dwmsbtAuto         = 0
+	dwmsbtNone         = 1
+	dwmsbtMainWindow   = 2 // Mica
+	dwmsbtTransientWin = 3 // Acrylic
+	dwmsbtTabbedWindow = 4
 
 	dwmwcpDefault    = 0
 	dwmwcpDoNotRound = 1
@@ -401,9 +402,9 @@ func hiconFromPNG(pngData []byte) uintptr {
 	}
 
 	type iconInfo struct {
-		fIcon                 int32
-		xHotspot, yHotspot    uint32
-		hbmMask, hbmColor     uintptr
+		fIcon              int32
+		xHotspot, yHotspot uint32
+		hbmMask, hbmColor  uintptr
 	}
 	ii := iconInfo{fIcon: 1, hbmMask: hbmMask, hbmColor: hbmColor}
 	hicon, _, _ := procCreateIconIndirect.Call(uintptr(unsafe.Pointer(&ii)))
@@ -411,7 +412,6 @@ func hiconFromPNG(pngData []byte) uintptr {
 	procDeleteObject.Call(hbmColor)
 	return hicon
 }
-
 
 // syscallMessageBox 调用系统消息框。返回按钮标识（ok/yes/no/cancel）。
 func syscallMessageBox(hwnd uintptr, title, message, buttons, icon string) (string, error) {
@@ -465,33 +465,33 @@ var procMessageBoxW = user32win.NewProc("MessageBoxW")
 
 // IFileOpenDialog / IFileSaveDialog / IShellItem COM 常量。
 var (
-	clsidFileOpenDialog  = comGUIDFromString("{DC1C5A9C-E88A-4DDE-A5A1-60F82A20AEF7}")
-	clsidFileSaveDialog  = comGUIDFromString("{C0B4E2F3-BA21-4773-8DBA-335EC946EB8B}")
-	iidIFileOpenDialog   = comGUIDFromString("{D57C7288-D4AD-4768-BE02-9D969532D960}")
-	iidIFileSaveDialog   = comGUIDFromString("{84BCCD23-5FDE-4CDB-AEA4-AF64B83D78AB}")
-	iidIShellItem        = comGUIDFromString("{43826D1E-E718-42EE-BC55-A1E261C37BFE}")
+	clsidFileOpenDialog = comGUIDFromString("{DC1C5A9C-E88A-4DDE-A5A1-60F82A20AEF7}")
+	clsidFileSaveDialog = comGUIDFromString("{C0B4E2F3-BA21-4773-8DBA-335EC946EB8B}")
+	iidIFileOpenDialog  = comGUIDFromString("{D57C7288-D4AD-4768-BE02-9D969532D960}")
+	iidIFileSaveDialog  = comGUIDFromString("{84BCCD23-5FDE-4CDB-AEA4-AF64B83D78AB}")
+	iidIShellItem       = comGUIDFromString("{43826D1E-E718-42EE-BC55-A1E261C37BFE}")
 )
 
 // IFileDialog vtable 索引（IModalWindow: 0-3, IFileDialog: 4-20）。
 const (
-	ifdSetFileTypes   = 4
+	ifdSetFileTypes     = 4
 	ifdSetFileTypeIndex = 5
-	ifdSetOptions     = 9
-	ifdSetTitle       = 17
-	ifdSetFileName    = 15
-	ifdGetResult      = 20
-	ifdShow           = 3 // IModalWindow::Show
+	ifdSetOptions       = 9
+	ifdSetTitle         = 17
+	ifdSetFileName      = 15
+	ifdGetResult        = 20
+	ifdShow             = 3 // IModalWindow::Show
 )
 
 // IFOS 选项（IFileDialogOptions）。
 const (
-	fosOverwritePrompt  = 0x00000002
-	fosStrictFileTypes  = 0x00000004
-	fosNoChangeDir      = 0x00000008
-	fosForceFileSystem  = 0x00000040
-	fosAllowMultiSelect = 0x00000200
-	fosPathMustExist    = 0x00000800
-	fosFileMustExist    = 0x00001000
+	fosOverwritePrompt   = 0x00000002
+	fosStrictFileTypes   = 0x00000004
+	fosNoChangeDir       = 0x00000008
+	fosForceFileSystem   = 0x00000040
+	fosAllowMultiSelect  = 0x00000200
+	fosPathMustExist     = 0x00000800
+	fosFileMustExist     = 0x00001000
 	fosDefaultNoMiniMode = 0x20000000
 )
 

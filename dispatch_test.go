@@ -67,10 +67,10 @@ func TestAsyncBridgeNonBlocking(t *testing.T) {
 
 func TestAsyncBridgeErrorPaths(t *testing.T) {
 	a := New(Config{})
-	if err := a.Bind("boom", func() error { return errors.New("业务失败 \"引号\"\n</script>换行"); }); err != nil {
+	if err := a.Bind("boom", func() error { return errors.New("业务失败 \"引号\"\n</script>换行") }); err != nil {
 		t.Fatal(err)
 	}
-	if err := a.Bind("panic", func() { panic("kaboom"); }); err != nil {
+	if err := a.Bind("panic", func() { panic("kaboom") }); err != nil {
 		t.Fatal(err)
 	}
 	if err := a.Bind("void", func() {}); err != nil {

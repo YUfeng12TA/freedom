@@ -39,10 +39,12 @@ var (
 )
 
 // 进程信息类别（PROCESSINFOCLASS）与各类别的返回长度，编号与长度均为本机实测校准：
-// 	ProcessBasicInformation(0)  48 字节（x64，PEB 在偏移 8）
-// 	ProcessDebugPort(7)          8 字节（HANDLE）；len 给 4 会返回 STATUS_INFO_LENGTH_MISMATCH
-// 	ProcessDebugObjectHandle(30) 8 字节；未被调试时返回 STATUS_PORT_NOT_SET(0xC0000353)
-// 	ProcessDebugFlags(31)        4 字节（ULONG）；未被调试时返回 1
+//
+//	ProcessBasicInformation(0)  48 字节（x64，PEB 在偏移 8）
+//	ProcessDebugPort(7)          8 字节（HANDLE）；len 给 4 会返回 STATUS_INFO_LENGTH_MISMATCH
+//	ProcessDebugObjectHandle(30) 8 字节；未被调试时返回 STATUS_PORT_NOT_SET(0xC0000353)
+//	ProcessDebugFlags(31)        4 字节（ULONG）；未被调试时返回 1
+//
 // 注意 30/31 两号易写成 32/33（那是 LUIDDeviceMapsEnabled / BreakOnTermination），
 // 编号或长度写错不会报错、只会静默失去一路信号，故此处配套测试锁死。
 const (

@@ -106,8 +106,8 @@ func TestValueOwnedBySelf(t *testing.T) {
 	}
 	no := []string{
 		`"C:\Windows\System32\notepad.exe"`,
-		`"C:\Apps\Other\my.exe"`,   // 同文件名不同目录
-		"",                          // 空值
+		`"C:\Apps\Other\my.exe"`,     // 同文件名不同目录
+		"",                           // 空值
 		`"C:\Apps\My.app-1x\my.exe"`, // 前缀相似但不同路径
 	}
 	for _, v := range yes {

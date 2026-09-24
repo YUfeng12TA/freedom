@@ -34,7 +34,7 @@ var (
 		"alt": modAlt, "option": modAlt,
 		"ctrl": modControl, "control": modControl,
 		"shift": modShift,
-		"win": modWin, "cmd": modWin, "meta": modWin, "super": modWin,
+		"win":   modWin, "cmd": modWin, "meta": modWin, "super": modWin,
 	}
 	hotkeyVKs = map[string]uint32{}
 )
@@ -230,7 +230,7 @@ const (
 	keyRead  = 0x101
 	regSz    = 1
 
-	runKeyPath = `Software\Microsoft\Windows\CurrentVersion\Run`
+	runKeyPath  = `Software\Microsoft\Windows\CurrentVersion\Run`
 	classesBase = `Software\Classes`
 )
 

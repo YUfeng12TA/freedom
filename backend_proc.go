@@ -42,11 +42,11 @@ type ProcBackend struct {
 	maxLine int // 单条 stdout 行（一次响应）上限字节；超限即那条响应过大，不得中断整个通道
 
 	// —— W4 崩溃自愈（对标 Tauri shell spawn 的失败处理 / sidecar 重启）——
-	rp        RestartPolicy   // 重启策略（零值=不重启，保持旧行为）
-	gen       int             // 每次拉起递增；readLoop 据此识别"自己那一期"，过期实例不触发重启
-	pdone     chan struct{}   // 当前这期进程 Wait 完成后由 readLoop 关闭（Close 等它，不再自己 Wait，避免双重 Wait）
-	attempts  int             // 连续崩溃重启计数
-	startedAt time.Time       // 本期进程启动时刻（存活够久则重置 attempts）
+	rp        RestartPolicy // 重启策略（零值=不重启，保持旧行为）
+	gen       int           // 每次拉起递增；readLoop 据此识别"自己那一期"，过期实例不触发重启
+	pdone     chan struct{} // 当前这期进程 Wait 完成后由 readLoop 关闭（Close 等它，不再自己 Wait，避免双重 Wait）
+	attempts  int           // 连续崩溃重启计数
+	startedAt time.Time     // 本期进程启动时刻（存活够久则重置 attempts）
 }
 
 // RestartPolicy 是后端进程崩溃后的自动重启策略（经 SetRestartPolicy 启用）。

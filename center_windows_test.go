@@ -43,9 +43,9 @@ func TestCenteredPositionClampBothSides(t *testing.T) {
 // W1 回归：centeredInRect 纯函数——副屏负坐标、超界 clamp、常规居中。
 func TestCenteredInRect(t *testing.T) {
 	cases := []struct {
-		name                        string
-		left, top, ww, wh, w, h     int
-		x, y                        int
+		name                    string
+		left, top, ww, wh, w, h int
+		x, y                    int
 	}{
 		{"常规", 0, 0, 1920, 1080, 800, 600, 560, 240},
 		{"副屏负坐标", -1920, 0, 1920, 1080, 800, 600, -1360, 240},

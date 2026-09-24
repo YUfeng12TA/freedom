@@ -12,6 +12,7 @@ import _ "embed"
 //	window.freedom.emit(event, data)                  // 应用内事件广播（后端 Eval 亦使用）
 //
 // bridge 由 go-webview2 的 Bind 机制注册，返回 Promise，Go 侧自动 JSON 编解码。
+//
 //go:embed assets/freedom.js
 var jsSDK string
 
