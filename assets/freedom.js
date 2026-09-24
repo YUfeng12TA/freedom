@@ -11,13 +11,27 @@
 
   var listeners = {};
 
+  // M1 异步桥接协议：__freedom_bridge(id, method, paramsJson) 只做投递（ack），
+  // Go 侧完成后经 freedom.__resolve(id, {ok,result|error}) 回写本表登记的 Promise。
+  var callSeq = 0;
+  var pendingCalls = {};
+
   function call(method) {
     var params = Array.prototype.slice.call(arguments, 1);
     var bridge = getBridge();
     if (!bridge) {
       return Promise.reject(new Error('[freedom] 未检测到原生桥接（__freedom_bridge），当前不在桌面壳内运行。'));
     }
-    return bridge(method, JSON.stringify(params));
+    var id = ++callSeq;
+    return new Promise(function (resolve, reject) {
+      pendingCalls[id] = { resolve: resolve, reject: reject };
+      Promise.resolve(bridge(id, method, JSON.stringify(params))).catch(function (e) {
+        if (pendingCalls[id]) {
+          delete pendingCalls[id];
+          reject(e);
+        }
+      });
+    });
   }
 
   function on(event, cb) {
@@ -52,6 +66,16 @@
     }
   }
 
+  // Go 侧异步回写入口（dispatch.go 的 resolveJS 经 Eval 调用）。
+  // 拒绝值保持旧契约：webview_go 时代 catch 到的是错误消息字符串。
+  function resolveCall(id, env) {
+    var p = pendingCalls[id];
+    if (!p) return; // 页面已重载/回写迟到：静默丢弃
+    delete pendingCalls[id];
+    if (env && env.ok) p.resolve(env.result);
+    else p.reject((env && env.error) || '[freedom] call failed');
+  }
+
   var freedom = {
     call: call,
     invoke: call,
@@ -59,6 +83,7 @@
     off: off,
     once: once,
     emit: emit,
+    __resolve: resolveCall,
     window: {
       // 窗口控制（无边框/隐藏标题栏模式下前端自绘按钮使用）。
       // 全部经桥接调用原生实现，返回 Promise。

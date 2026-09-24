@@ -8,3 +8,4 @@ tools/freedomres.exe
 
 # 构建期生成的 Windows 资源（版本随 -Version 变化，不入库）
 examples/*/freedomapp_windows_*.syso
+.tools/

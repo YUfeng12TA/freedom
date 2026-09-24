@@ -19,18 +19,22 @@ function boot() {
     calls.push({ bridge, method, params });
     return Promise.resolve('OK:' + method);
   };
-  const document = { readyState: 'complete', addEventListener() {} };
+  // M1 后端桥协议：(id, method, params) 投递 ack，值经 freedom.__resolve 回写。
   const window = {
-    __freedom_bridge: record('backend'),
+    __freedom_bridge: (id, method, params) => {
+      calls.push({ bridge: 'backend', method, params });
+      Promise.resolve().then(() => window.freedom.__resolve(id, { ok: true, result: 'OK:' + method }));
+    },
     __freedom_window: record('window'),
     __freedom_sys: record('sys'),
     __freedom_tray: record('tray'),
     __freedom__ready: () => {},
   };
   window.window = window;
+  const document = { readyState: 'complete', addEventListener() {} };
   const ctx = vm.createContext({ window, document, console });
   vm.runInContext(sdk, ctx, { filename: 'freedom.js' });
-  return { f: window.freedom, calls };
+  return { f: window.freedom, calls, window };
 }
 
 test('W5: 命名空间与函数齐全', () => {
@@ -123,4 +127,53 @@ test('W5: 桥缺席时拒绝并给出可读错误（非桌面环境）', async (
   await assert.rejects(window.freedom.os.info(), /系统能力桥接/);
   await assert.rejects(window.freedom.call('X'), /桌面壳/);
   assert.strictEqual(window.freedom.isDesktop, false);
+});
+
+// ---- M1 异步桥接协议 ----
+test('M1: 后端桥走 id 投递 + __resolve 回写，支持乱序完成', async () => {
+  const pending = {};
+  const document = { readyState: 'complete', addEventListener() {} };
+  const window = {
+    __freedom_bridge: (id, method) => { pending[id] = { id, method }; },
+    __freedom__ready: () => {},
+  };
+  window.window = window;
+  const ctx = vm.createContext({ window, document, console });
+  vm.runInContext(sdk, ctx, { filename: 'freedom.js' });
+  const f = window.freedom;
+
+  const pSlow = f.call('slow');
+  const pFast = f.call('fast');
+  const ids = Object.keys(pending);
+  assert.strictEqual(ids.length, 2);
+  const [idSlow, idFast] = ids;
+
+  // 乱序回写：fast 先完成
+  f.__resolve(Number(idFast), { ok: true, result: 'F' });
+  assert.strictEqual(await pFast, 'F');
+  f.__resolve(Number(idSlow), { ok: true, result: 'S' });
+  assert.strictEqual(await pSlow, 'S');
+});
+
+test('M1: 错误按字符串拒绝（保持 webview_go 旧 catch 契约）', async () => {
+  const document = { readyState: 'complete', addEventListener() {} };
+  const window = { __freedom_bridge: () => {}, __freedom__ready: () => {} };
+  window.window = window;
+  const ctx = vm.createContext({ window, document, console });
+  vm.runInContext(sdk, ctx, { filename: 'freedom.js' });
+  const f = window.freedom;
+  const p = f.call('x');
+  f.__resolve(1, { ok: false, error: 'boom-msg' });
+  await assert.rejects(p, (e) => e === 'boom-msg');
+});
+
+test('M1: 迟到/未知 id 的回写被静默丢弃，桥 ack 抛错时拒绝在途 Promise', async () => {
+  const document = { readyState: 'complete', addEventListener() {} };
+  const window = { __freedom_bridge: () => { throw new Error('ack-fail'); }, __freedom__ready: () => {} };
+  window.window = window;
+  const ctx = vm.createContext({ window, document, console });
+  vm.runInContext(sdk, ctx, { filename: 'freedom.js' });
+  const f = window.freedom;
+  await assert.rejects(f.call('x'));
+  f.__resolve(999, { ok: true, result: 'late' }); // 不得抛
 });

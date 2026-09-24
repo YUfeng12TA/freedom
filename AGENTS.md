@@ -18,6 +18,7 @@
 - `freedom.go` — 框架核心：Config / App / New / Run，三平台 webview 生命周期。
 - `backend.go` — Backend 接口抽象（内嵌 / 进程双实现）。
 - `bridge.go` — 内嵌 Go 后端：反射分发（`app.Bind`）。
+- `dispatch.go` — 异步桥：`__freedom_bridge(id,…)` 投递 + worker goroutine + `__freedom__resolve` 回写（M1）。
 - `backend_proc.go` — 进程后端：stdio IPC（启动/调用/事件/关闭），注入 `FREEDOM_BACKEND=1`、`FREEDOM_IPC=stdio`。
 - `assets_embed.go` — 前端资源 `go:embed`（assets/freedom.js SDK + default.html）。
 - `window_windows.go` — Windows 原生窗口层（user32/dwmapi）：标题栏策略、居中、样式、共用 NewProc 声明处。
@@ -37,7 +38,7 @@
 - PowerShell 脚本：含中文必须存带 BOM 的 UTF-8，`param()` 必须是首条可执行语句；原生命令失败 `$ErrorActionPreference` 不生效，须显式查 `$LASTEXITCODE`（见 build.ps1 的 `Invoke-Native`）。
 - Rust 后端零依赖单文件，`rustc -O` 直接编译，不走 cargo（crates.io 网络受限的教训）。
 - 前端 SDK（assets/freedom.js）每次调用动态读 `window.__freedom_bridge`，规避 WebView 注入时序问题。
-- **Bind 回调同步运行在 UI 线程消息泵内**：耗时 handler 冻结窗口；系统能力派发里凡涉子进程/文件 IO 的须自行 `go func` 异步化（见 syscap_windows.go notification.show）。
+- **Bind 回调经异步桥执行（M1 起）**：`__freedom_bridge(id, method, params)` 只投递 ack，handler 在 worker goroutine 运行，结果经 `freedom.__resolve` 回写前端 Promise（dispatch.go）；多次调用可并发、完成序不保证。`__freedom_window/sys/tray` 内置桥仍同步跑在 UI 消息泵内——其中涉子进程/文件 IO 的须自行 `go func` 异步化（见 syscap_windows.go notification.show）。
 - **syscall.NewCallback 只在包级变量或 once 初始化里固化一次**，禁止在热路径（子类化、EnumDisplayMonitors）每次调用（全局句柄表泄漏）；见 events_windows.go windowSubclassCB/enumMonitorsCB。
 - 单实例以 `CreateMutexW` 为权威（FindWindow 只用于定位转发目标）；入站 WM_COPYDATA 必须过 `validCopyData`（魔数+64KB 上限）。
 - 错误处理沿 Go 惯例；测试断言四语言后端共用一套（backend_proc_test.go）。

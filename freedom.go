@@ -152,8 +152,9 @@ func (a *App) OnReady(fn func(a *App)) {
 //   - 参数与返回值通过 JSON 编解码，前端用 window.freedom.call(name, ...args) 调用，
 //     返回 Promise（resolve 为返回值，reject 为 error 的字符串表示）。
 //   - 返回值约定：可返回 (T, error) 或仅 (T) 或仅 error 或空。
-//   - 执行线程：绑定函数在 UI 线程的消息泵内同步执行（webview 回调语义）。
-//     耗时处理会冻结窗口——长任务须自行转 goroutine 异步执行，结果经 Emit 推回前端。
+//   - 执行线程（M1 起）：绑定函数在 worker goroutine 中执行，UI 线程不被
+//     长任务阻塞；多次调用可并发、完成顺序不保证。handler 内调用 Emit 等
+//     线程安全 API 即可回推结果。
 func (a *App) Bind(name string, fn interface{}) error {
 	eb, ok := a.backend.(*EmbedBackend)
 	if !ok {
@@ -223,9 +224,10 @@ func (a *App) Run() {
 	// 注入前端 SDK：window.freedom 全局对象。
 	w.Init(jsSDK)
 
-	// 绑定 IPC 桥接入口：前端 window.__freedom_bridge(method, paramsJson)。
-	// webview_go 的 Bind 会让前端调用返回 Promise，Go 侧结果自动 JSON 序列化回传。
-	if err := w.Bind("__freedom_bridge", a.bridge); err != nil {
+	// 绑定 IPC 桥接入口：前端 window.__freedom_bridge(id, method, paramsJson)。
+	// M1 异步化：调用立即返回，handler 在 worker goroutine 执行，结果经
+	// __freedom__resolve 回写前端 Promise（见 dispatch.go）。
+	if err := w.Bind("__freedom_bridge", a.bridgeAsync); err != nil {
 		fmt.Printf("freedom: failed to bind bridge: %v\n", err)
 		return
 	}
