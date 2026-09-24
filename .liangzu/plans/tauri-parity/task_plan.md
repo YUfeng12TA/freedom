@@ -35,12 +35,12 @@
 ## 波次与验收（判据同源，progress 逐字引用）
 
 - [ ] W0 规划落盘：三件套写入 .liangzu/plans/tauri-parity/。验收：`ls .liangzu/plans/tauri-parity` 含 task_plan.md/findings.md/progress.md。
-- [ ] W1 窗口能力：windowControl 增 setPosition/setSize/setSizeResizable/setTitle/setAlwaysOnTop/show/hide/focus/fullscreen/isFullscreen/getInfo/outerPosition/innerSize/innerPosition/scaleFactor/startDragging? ；sys 增 monitors.list/getPrimaryMonitor；WM_CLOSE 可拦截事件 close.requested（监听者存在时阻止默认关闭，前端 confirmClose 放行）；window_other.go 两侧公共 API 一致。验收：`go build ./... && go test ./...` 全绿。
-- [ ] W2 系统集成：sys 方法 clipboard.read/clipboard.write、shell.open、autostart.get/set、notification.show、shortcut.register/unregister（复用托盘消息窗收 WM_HOTKEY）、single-instance（ freedom.RequireSingleInstance + second-instance 事件 + WM_COPYDATA 透传参数）、protocol.register（deep link 写 HKCU Classes）。验收：编译+测试全绿；other 占位一致。
-- [ ] W3 数据层：sys 方法 path.*、store.get/set/delete/keys（JSON 落 appdata，防抖写盘，纯逻辑单测）、window-state 自动持久化（Config 开关）、os.info、process.exit/restart。验收：单测全绿。
-- [ ] W4 后端健壮性：ProcBackend RestartPolicy{MaxRetries, Backoff}、backend.crashed/backend.restarted 事件、退出码记录。验收：backend_proc_test.go 新用例全绿。
-- [ ] W5 SDK：freedom.js 暴露 window.*（W1 新动作）、sys.*（W2/W3 方法）、tray.*、once()；on() 返回 unlisten（已具）保持一致。验收：`node --test tests/` 全绿 + 构建。
-- [ ] W6 审查+安全+更新差距：S3 全量审查 freedom.go/backend_proc.go/bridge.go/tray/syscap/window；发现即登记 .liangzu/bugs.json 并闭环；updater/installer：freedom-cli 子模块无 .gitmodules URL，本仓不可见 → 处理并记录；README/AGENTS 同步。验收：审查清单落 findings，bugs 无 open critical/major。
+- [x] W1 窗口能力：windowControl 增 setPosition/setSize/setSizeResizable/setTitle/setAlwaysOnTop/show/hide/focus/fullscreen/isFullscreen/getInfo/outerPosition/innerSize/innerPosition/scaleFactor/startDragging? ；sys 增 monitors.list/getPrimaryMonitor；WM_CLOSE 可拦截事件 close.requested（监听者存在时阻止默认关闭，前端 confirmClose 放行）；window_other.go 两侧公共 API 一致。验收：`go build ./... && go test ./...` 全绿。
+- [x] W2 系统集成：sys 方法 clipboard.read/clipboard.write、shell.open、autostart.get/set、notification.show、shortcut.register/unregister（复用托盘消息窗收 WM_HOTKEY）、single-instance（ freedom.RequireSingleInstance + second-instance 事件 + WM_COPYDATA 透传参数）、protocol.register（deep link 写 HKCU Classes）。验收：编译+测试全绿；other 占位一致。
+- [x] W3 数据层：sys 方法 path.*、store.get/set/delete/keys（JSON 落 appdata，防抖写盘，纯逻辑单测）、window-state 自动持久化（Config 开关）、os.info、process.exit/restart。验收：单测全绿。
+- [x] W4 后端健壮性：ProcBackend RestartPolicy{MaxRetries, Backoff}、backend.crashed/backend.restarted 事件、退出码记录。验收：backend_proc_test.go 新用例全绿。
+- [x] W5 SDK：freedom.js 暴露 window.*（W1 新动作）、sys.*（W2/W3 方法）、tray.*、once()；on() 返回 unlisten（已具）保持一致。验收：`node --test tests/` 全绿 + 构建。
+- [x] W6 审查+安全+更新差距：S3 全量审查 freedom.go/backend_proc.go/bridge.go/tray/syscap/window；发现即登记 .liangzu/bugs.json 并闭环；updater/installer：freedom-cli 子模块无 .gitmodules URL，本仓不可见 → 处理并记录；README/AGENTS 同步。验收：审查清单落 findings，bugs 无 open critical/major。
 
 ## 多方案（方向闸门，S3≥3）
 
