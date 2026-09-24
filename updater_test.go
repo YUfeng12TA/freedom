@@ -1,6 +1,7 @@
 package freedom
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -13,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -247,4 +249,67 @@ func TestUpdateInstallAsyncGuardsPending(t *testing.T) {
 	if res := a.updateCheckAsync(); res == nil {
 		t.Fatal("updateCheckAsync must return receipt")
 	}
+}
+
+// G7 审查回归：重定向降级、产物大小上限、撤回版本清缓存。
+func TestUpdaterReviewGuards(t *testing.T) {
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	oldVersion := Version
+	Version = "1.0.0"
+	defer func() { Version = oldVersion }()
+
+	mu := sync.Mutex{}
+	manifestVersion := "1.1.0"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		mv := manifestVersion
+		mu.Unlock()
+		switch r.URL.Path {
+		case "/manifest.json":
+			sum := sha256.Sum256([]byte("payload"))
+			info := UpdateInfo{Version: mv, URL: "http://" + r.Host + "/app.exe", Sha256: hex.EncodeToString(sum[:])}
+			w.Write(signedManifest(t, priv, info, info.Version))
+		case "/redir.json":
+			http.Redirect(w, r, "http://example.com/x.json", http.StatusFound) // 非 loopback：CheckRedirect 必须拒
+		case "/big.exe":
+			w.Write(bytes.Repeat([]byte("A"), 4096))
+		}
+	}))
+	defer srv.Close()
+
+	t.Run("redirect to external host rejected", func(t *testing.T) {
+		a := newUpdateApp(srv.URL+"/redir.json", pub)
+		_, err := a.CheckUpdate(context.Background())
+		if err == nil || !strings.Contains(err.Error(), "redirect") {
+			t.Fatalf("want redirect rejection, got %v", err)
+		}
+	})
+
+	t.Run("artifact over size limit rejected", func(t *testing.T) {
+		a := New(Config{Update: &UpdateConfig{Timeout: 5 * time.Second, MaxDownloadBytes: 128}})
+		_, err := a.downloadArtifact(context.Background(), &UpdateInfo{URL: srv.URL + "/big.exe", Sha256: "whatever"}, t.TempDir())
+		if err == nil || !strings.Contains(err.Error(), "exceeds") {
+			t.Fatalf("want size-limit rejection, got %v", err)
+		}
+	})
+
+	t.Run("withdrawn release clears pending", func(t *testing.T) {
+		a := newUpdateApp(srv.URL+"/manifest.json", pub)
+		if _, err := a.CheckUpdate(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if a.pendingUpdate() == nil {
+			t.Fatal("pending should be set after check of 1.1.0")
+		}
+		mu.Lock()
+		manifestVersion = "1.0.0" // 发布方撤回：manifest 改回当前版本
+		mu.Unlock()
+		got, err := a.CheckUpdate(context.Background())
+		if err != nil || got != nil {
+			t.Fatalf("want up-to-date (nil,nil), got (%v,%v)", got, err)
+		}
+		if a.pendingUpdate() != nil {
+			t.Fatal("withdrawn release must clear upPending (stale install guard)")
+		}
+	})
 }

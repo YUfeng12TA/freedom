@@ -1,7 +1,7 @@
 {
   "version": 4,
   "subKind": "bugs",
-  "lastUpdated": "2026-09-24T11:30:00+08:00",
+  "lastUpdated": "2026-09-24T10:30:00+08:00",
   "bugRegistry": [
     {
       "id": "B01",
@@ -264,6 +264,61 @@
       "fix": "freedomres 不再写 manifest；DPI Per-Monitor V2 改 window_windows.go init() 运行时 SetProcessDpiAwarenessContext（Find() 守卫），asInvoker 由 mingw 默认 manifest 提供",
       "regressionTest": "build.ps1 -Version 0.2.0-test 退出码 0 且 VersionInfo/图标可读（2026-09-24 实测）",
       "fixedAt": "2026-09-24T10:05:00+08:00"
+    },
+    {
+      "id": "B-20260924-017",
+      "sev": "major",
+      "file": "updater.go",
+      "line": 112,
+      "summary": "http.Client 默认跟随重定向：https→http 降级/重定向到外部主机绕过 updateURLAllowed（SSRF/降级面）",
+      "status": "fixed",
+      "fix": "CheckRedirect 逐跳复验 updateURLAllowed + 跳数上限 5",
+      "regressionTest": "updater_test TestUpdaterReviewGuards/redirect-to-external-host-rejected（2026-09-24 实测绿）",
+      "fixedAt": "2026-09-24T10:30:00+08:00"
+    },
+    {
+      "id": "B-20260924-018",
+      "sev": "major",
+      "file": "updater.go",
+      "line": 205,
+      "summary": "产物下载无大小上限：被攻陷源可流式写满磁盘（sha256 保完整性不保可用性）",
+      "status": "fixed",
+      "fix": "MaxDownloadBytes（默认 512MB）：Content-Length 预检 + LimitReader 实读复核",
+      "regressionTest": "TestUpdaterReviewGuards/artifact-over-size-limit-rejected",
+      "fixedAt": "2026-09-24T10:30:00+08:00"
+    },
+    {
+      "id": "B-20260924-019",
+      "sev": "major",
+      "file": "updater.go",
+      "line": 170,
+      "summary": "发布方撤回版本后 upPending 永不清除：install 仍可装上已撤回构建",
+      "status": "fixed",
+      "fix": "cmp>=0（已最新/撤回）分支显式清空 upPending",
+      "regressionTest": "TestUpdaterReviewGuards/withdrawn-release-clears-pending",
+      "fixedAt": "2026-09-24T10:30:00+08:00"
+    },
+    {
+      "id": "B-20260924-020",
+      "sev": "minor",
+      "file": "updater.go",
+      "line": 296,
+      "summary": "并发 update.install 双发：两个 goroutine 同拿 pending 并行换装、clear 可误删新缓存",
+      "status": "fixed",
+      "fix": "upInstalling 单飞标志（upMu 下），换装成功后同锁清 pending",
+      "regressionTest": "go test -race 全绿（竞态闸门）",
+      "fixedAt": "2026-09-24T10:30:00+08:00"
+    },
+    {
+      "id": "B-20260924-021",
+      "sev": "minor",
+      "file": "updater.go",
+      "line": 232,
+      "summary": "换装第二步失败且回滚改名也失败时应用无 exe 可启动",
+      "status": "fixed",
+      "fix": "回滚加 copyFileBack 兜底（改名失败退化为内容复制），错误信息落 .old 位置",
+      "regressionTest": "TestDownloadArtifactAndSwap/swap-failure-rolls-back-to-old-exe",
+      "fixedAt": "2026-09-24T10:30:00+08:00"
     }
   ]
 }

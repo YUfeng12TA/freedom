@@ -91,8 +91,9 @@ type App struct {
 
 	// upMu 保护 upPending：CheckUpdate 验签通过的更新条目，install 桥接只认它
 	//（前端无法注入未验签的 URL/哈希）。见 updater.go。
-	upMu      sync.Mutex
-	upPending *UpdateInfo
+	upMu         sync.Mutex
+	upPending    *UpdateInfo
+	upInstalling bool // 单飞：并发 update.install 只放行一个换装
 }
 
 // appForEvents 指向当前运行的 App，供平台层回调（单实例/热键等）向 Emit 事件。

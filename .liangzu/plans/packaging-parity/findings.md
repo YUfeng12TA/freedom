@@ -39,3 +39,7 @@
 - installer/app.nsi：MUI2 NSIS 模板，@NAME@/@VERSION@/@SRC@/@OUT@/@EXE@ 占位符由 build.ps1 填充落 dist/。
 - build.ps1 -Installer：先填 nsi→有 makensis 则编译 setup.exe（GitHub windows runner 自带），无则告警保留 .nsi；便携 zip 排除 .nsi/.zip/setup/SHA256SUMS 中间物。本机 makensis 缺席=环境限制非缺陷。
 - build.yml：tag 推送→VERSION（版本纪律不凭空造版本），Package 步骤改调 build 脚本（含 syso/校验和/安装器），upload-artifact if-no-files-found:error。python yaml.safe_load 通过；真实矩阵运行属 GitHub 侧回归。
+
+## G7 终检（E6）
+- 双审查 agent 审 updater 信任边界：核心模型成立（ed25519 是唯一入队门、签名绑定 version+url+sha256 无复用、前端无法注入、失败不留 pending）。修复 5 项（B-017..021）：重定向逐跳复验、产物 512MB 上限、撤回版本清 pending、install 单飞、install 回滚 copyFileBack 兜底。
+- CI `go vet ./...` 会因 8 处 syscall→unsafe.Pointer（GC 不托管的 OS 内存：lParam/GlobalLock/vtable/DIB）报 unsafeptr 误红→改 `go vet -unsafeptr=false ./...` 并注释理由。

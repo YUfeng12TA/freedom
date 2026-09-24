@@ -38,6 +38,8 @@ type UpdateConfig struct {
 	PublicKey string
 	// Timeout 是单次网络操作上限；0 取默认 30s。
 	Timeout time.Duration
+	// MaxDownloadBytes 是更新产物大小上限（DoS 防线）；0 取默认 512MB。
+	MaxDownloadBytes int64
 }
 
 // UpdateInfo 是一条已通过验签的更新描述。
@@ -106,7 +108,20 @@ func (a *App) updateHTTPClient() *http.Client {
 	if a.cfg.Update != nil && a.cfg.Update.Timeout > 0 {
 		timeout = a.cfg.Update.Timeout
 	}
-	return &http.Client{Timeout: timeout}
+	return &http.Client{
+		Timeout: timeout,
+		// 重定向逐跳复验：默认 client 会跟随 https→http 降级与 loopback→任意外部，
+		// 虽被签名+sha256 兜住（非 RCE），但仍是 SSRF/降级面，须在策略层挡。
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) > 5 {
+				return errors.New("freedom: too many redirects")
+			}
+			if !updateURLAllowed(req.URL.String()) {
+				return errors.New("freedom: redirect to disallowed URL")
+			}
+			return nil
+		},
+	}
 }
 
 // CheckUpdate 拉取并验签更新 manifest。返回 (nil, nil) 表示已最新；
@@ -164,14 +179,17 @@ func (a *App) CheckUpdate(ctx context.Context) (*UpdateInfo, error) {
 	if err != nil {
 		return nil, fmt.Errorf("freedom: current version %q uncomparable: %w", Version, err)
 	}
-	if cmp >= 0 {
-		return nil, nil // 已最新
-	}
-	info := &UpdateInfo{Version: m.Version, URL: m.URL, Sha256: strings.ToLower(m.Sha256), Notes: m.Notes}
 	a.upMu.Lock()
-	a.upPending = info
+	if cmp >= 0 {
+		// 已最新/发布方撤回版本：清掉旧缓存，防 install 装上已被撤回的构建
+		a.upPending = nil
+		a.upMu.Unlock()
+		return nil, nil
+	}
+	a.upPending = &UpdateInfo{Version: m.Version, URL: m.URL, Sha256: strings.ToLower(m.Sha256), Notes: m.Notes}
+	pending := a.upPending
 	a.upMu.Unlock()
-	return info, nil
+	return pending, nil
 }
 
 // downloadArtifact 把 info.URL 的产物下载到 dir 下临时文件，边下边算 sha256，
@@ -200,9 +218,22 @@ func (a *App) downloadArtifact(ctx context.Context, info *UpdateInfo, dir string
 		}
 	}()
 	h := sha256.New()
-	if _, err := io.Copy(io.MultiWriter(tmp, h), resp.Body); err != nil {
+	// 产物大小硬顶：sha256 保完整性不保可用性——不设限则恶意/被攻陷源可流式撑爆磁盘。
+	limit := int64(512 << 20)
+	if a.cfg.Update != nil && a.cfg.Update.MaxDownloadBytes > 0 {
+		limit = a.cfg.Update.MaxDownloadBytes
+	}
+	if resp.ContentLength > limit {
+		return "", fmt.Errorf("freedom: artifact content-length %d exceeds limit %d", resp.ContentLength, limit)
+	}
+	n, err := io.Copy(io.MultiWriter(tmp, h), io.LimitReader(resp.Body, limit+1))
+	if err != nil {
 		tmp.Close()
 		return "", fmt.Errorf("freedom: write artifact: %w", err)
+	}
+	if n > limit {
+		tmp.Close()
+		return "", fmt.Errorf("freedom: artifact exceeds size limit %d bytes", limit)
 	}
 	if err := tmp.Close(); err != nil {
 		return "", err
@@ -227,13 +258,34 @@ func swapExecutable(target, staged string) error {
 		return fmt.Errorf("freedom: move current exe aside: %w", err)
 	}
 	if err := os.Rename(staged, target); err != nil {
+		// 回滚：改名复原；改名也失败（目标路径被第三方占）则退化为内容复制。
 		if rb := os.Rename(old, target); rb != nil {
-			return fmt.Errorf("freedom: install new exe: %w (rollback also failed: %v)", err, rb)
+			if wb := copyFileBack(old, target); wb != nil {
+				return fmt.Errorf("freedom: install new exe: %w (rollback failed: %v / copy-back failed: %v — 旧版仍在 %s)", err, rb, wb, old)
+			}
 		}
 		return fmt.Errorf("freedom: install new exe: %w", err)
 	}
-	_ = os.Remove(old) // 旧镜像可能仍被系统持有，删除失败无害
+	_ = os.Remove(old) // 旧镜像可能仍被系统持有，删除失败无害（下次换装 REPLACE 复用同名）
 	return nil
+}
+
+// copyFileBack 是回滚兜底：把 .old 内容原样写回 target。
+func copyFileBack(src, dst string) error {
+	s, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer s.Close()
+	d, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o755)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(d, s); err != nil {
+		d.Close()
+		return err
+	}
+	return d.Close()
 }
 
 // InstallUpdate 下载验签缓存的更新并换装到当前 exe 位置，下次启动生效。
@@ -261,12 +313,6 @@ func (a *App) pendingUpdate() *UpdateInfo {
 	return a.upPending
 }
 
-func (a *App) clearPendingUpdate() {
-	a.upMu.Lock()
-	a.upPending = nil
-	a.upMu.Unlock()
-}
-
 // ---- 前端桥接（sysGeneric 分发；长任务 goroutine 化，结果走事件，
 // 避免在 UI 线程消息泵内做网络 IO 冻结窗口）----
 
@@ -287,16 +333,30 @@ func (a *App) updateCheckAsync() interface{} {
 }
 
 func (a *App) updateInstallAsync() (interface{}, error) {
-	info := a.pendingUpdate()
+	a.upMu.Lock()
+	info := a.upPending
 	if info == nil {
+		a.upMu.Unlock()
 		return nil, errors.New("no verified update available; call update.check first")
 	}
+	if a.upInstalling {
+		a.upMu.Unlock()
+		return map[string]bool{"started": false, "inProgress": true}, nil
+	}
+	a.upInstalling = true
+	a.upMu.Unlock()
 	go func() {
-		if err := a.InstallUpdate(context.Background(), info); err != nil {
+		err := a.InstallUpdate(context.Background(), info)
+		a.upMu.Lock()
+		a.upInstalling = false
+		if err == nil {
+			a.upPending = nil
+		}
+		a.upMu.Unlock()
+		if err != nil {
 			a.Emit("update.error", map[string]string{"message": err.Error()})
 			return
 		}
-		a.clearPendingUpdate()
 		a.Emit("update.installed", map[string]interface{}{"version": info.Version, "restartRequired": true})
 	}()
 	return map[string]bool{"started": true}, nil

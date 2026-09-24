@@ -9,4 +9,4 @@
 | G4 自动更新 | httptest+ed25519 单测（验签失败拒绝/版本比较/换装计划）全绿 | done（E4：updater.go ed25519 验签 manifest+sha256 校验产物+改名换装；updater_test 6 组全绿含 sig-invalid/version-compare/swap-rollback/hash-mismatch；go test -race ok 7.051s + node 7/7） |
 | G5 安装器 | 脚本实跑生成 .nsi 与 zip；makensis 本机缺席记环境限制 | done（E5：build.ps1 -Installer 实跑 exit=0；Freedom-0.2.0-test.nsi 占位符已填充 + portable.zip 7 文件；makensis 缺席走告警路径；zip/nsi 进 SHA256SUMS 且 -c 全 OK） |
 | G6 CI 产物矩阵 | yaml 可解析（node/act 静态检查）；真实运行属 GitHub 侧回归 | done（E5：build.yml tag→VERSION、Package 步骤改走脚本(-Installer)、if-no-files-found:error、tags:v* 触发；python yaml.safe_load → YAML_OK；真实运行留 GitHub 侧） |
-| G7 终检 | 全 gates 绿 + bugs 0 open | 未开工 |
+| G7 终检 | 全 gates 绿 + bugs 0 open | done（E6：双审查 agent→5 项发现全修+回归测试（redirect 复验/大小上限/撤回清缓存/单飞/回滚复制兜底）；go vet -unsafeptr=false 绿、go test -race ok 7.065s、node 7/7、build.ps1 -Version -Installer exit 0、sha256sum -c 9/9 OK、bugs 29 条 0 open） |

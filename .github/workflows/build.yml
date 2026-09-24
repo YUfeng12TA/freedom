@@ -61,8 +61,10 @@ jobs:
         working-directory: examples/multiproc/backends
         run: rustc -O -o rust_backend${{ matrix.exe }} rust_backend.rs
 
+      # unsafeptr 关闭：壳层大量"syscall 返回地址 → unsafe.Pointer"（WM_COPYDATA lParam、
+      # GlobalLock、COM vtable、DIB 位图缓冲），均为 GC 不托管的 OS 内存，属误报
       - name: go vet
-        run: go vet ./...
+        run: go vet -unsafeptr=false ./...
 
       # IPC 协议测试：同一套断言跑 Go / Node / Python / Rust 四个后端
       - name: Protocol tests

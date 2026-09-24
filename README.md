@@ -123,6 +123,14 @@ GitHub Actions：`.github/workflows/build.yml` 在三个 runner 上分别编译�
 跑四语言 IPC 协议测试并上传产物。macOS/Linux 交叉编译不可行（依赖系统 WebKit），
 必须走目标平台 CI 或本机构建。
 
+## 打包与分发（对标 Tauri bundler，G1–G6 补齐）
+
+- **版本戳**：`build.ps1 -Version 1.2.3` / `VERSION=1.2.3 ./build.sh` 经 `-ldflags -X freedom.Version` 注入，前端 `os.info.appVersion` 读取；CI 仅在 git tag 推送时注版本（不凭空造版本）。
+- **Windows 资源**：`tools/freedomres` 用纯 Go 的 winres 生成 `.syso`（VERSIONINFO + 多尺寸 ICO 图标），`go build` 自动链接——免 windres/rc。DPI Per-Monitor V2 由壳层运行时 `SetProcessDpiAwarenessContext` 声明（自定义 manifest 与 mingw `default-manifest.o` 冲突）。
+- **校验和**：产物落 `dist/SHA256SUMS.txt`（LF 行尾，`sha256sum -c` 兼容）。
+- **安装包**：`build.ps1 -Installer` 产便携 zip + NSIS `.nsi`（`installer/app.nsi` 模板填充）；装有 makensis 时直接编译 setup.exe。
+- **自动更新**（`updater.go`，对标 Tauri updater）：`Config.Update{ManifestURL, PublicKey}` 启用；manifest 经 **ed25519 验签**（签名覆盖 version+url+sha256），下载产物 **强制 sha256 校验**，换装走"改名让位+回滚"，**下次启动生效**不做热替换。前端 `freedom.update.check/install` 只发起、结果经 `update.*` 事件回推；install 仅认 check 验签缓存，前端无法注入未验签 URL/哈希。URL 仅放行 https（http 限 loopback）。
+
 ## 测试
 
 ```bash
@@ -159,6 +167,8 @@ go test -v ./...   # 同一套断言跑 Go / Node / Python / Rust 四个后端�
 - **cargo 拉取 crates.io 受阻**：Rust 后端改为零依赖单文件，直接 `rustc -O` 编译，无需网络。
 - **Windows 并发 rename 同一目标**：`MoveFileEx` 会间歇返回 ACCESS_DENIED——原子落盘须唯一临时名 + 有限重试（store.go writeAtomic）。
 - **GUID 的 Data4 是 8 个独立字节**：不能把 hex 段整体转成 uint64（字节序错），COM 接口查询会静默失败。
+- **SHA256SUMS 行尾**：PowerShell `Set-Content` 写 CRLF 会让 GNU `sha256sum -c` 把 `\r` 算进文件名而全部报错——校验清单必须 LF。
+- **mingw 自动注入 manifest**：WinLibs 链接期带 `default-manifest.o`，`.syso` 内嵌自定义 manifest 会 `multiple non-default manifests` 链接失败——DPI 改运行时 API 声明。
 
 ## 后续路线
 
@@ -166,4 +176,5 @@ go test -v ./...   # 同一套断言跑 Go / Node / Python / Rust 四个后端�
 - [ ] 前端产物自动单文件化（vite-plugin-singlefile）流水线
 - [ ] 多窗口 / 无边框 / 透明窗口支持
 - [x] 后端进程崩溃自动重启（RestartPolicy + backend.crashed/restarted 事件）
+- [x] 版本戳 / Windows 资源嵌入 / SHA256 / NSIS 安装器 / 自动更新（G1–G6 补齐）
 
