@@ -28,3 +28,12 @@
 - 追加修复 B-20260924-035（task_plan 未列）：e2e 实跑 `taskkill /F` 后在 %TEMP% 发现完整明文后端源码 —— 属"源码不可还原"目标内的漏洞，当场修（PID 命名 + 启动期回收）并补两条回归测试，未按支线扩圈处理。
 - 物化文件权限：容器内记录的 mode 在 Windows 构建机上常为 0666，原实现直接还原会带上组/其他写位 → 收紧为 `perm &= 0o755`（临时目录本身 0700 是第一道防线），补 0666→0644 断言。
 - 版本号：用户未指定，package.json 保持 1.13.1 未递增（铁律 14）。
+
+## v1.13.2 发布收口（用户指定版本号，铁律14 合规）
+
+- main 推送：`aa087d5..498898d`（R2 加固）与 `498898d..0631781`（版本号 + 双端 README）；tag `v1.13.2` 已推。
+- CI tag run 35994045711 **completed/success**；Release 395613099 三壳资产齐：win-x64 7463936B / darwin-arm64 6123170B / linux-x64 6730632B（尺寸与 `-s -w -trimpath` 后的本地产物一致）。
+- 随包壳刷新：`freedom shell download win-x64|darwin-arm64` 走 CLI 成功；linux-x64 经 CLI 与直连 Release 均卡 body（fetch failed / curl exit 28，属已知 S3 重定向受限），改走 `api.github.com/releases/assets/<id>` + `Accept: application/octet-stream` 取回，尺寸 6730632 与资产表逐字节等值。
+- npm 产物：`build-tmp/yufengtadian-freedom-cli-1.13.2.tgz`（8860556B，90 files），sha256 `b88cebeda69a3bbaa079add0a3ae0752adf7c53cde181f06da172f647870ef78`；包内三壳与 Release 资产 `cmp` 全等，`lib/security.js` 与 `templates/go/pkg/freedom/security.go` 均含 FRDM2，securetemp*.go 三件齐。
+- 装包冒烟：`npm i -g --prefix /tmp/npmpfx <tgz>` → `bin/freedom.js --help` 打 v1.13.2、`shell list` 三平台全就绪。
+- 待用户侧：`cd freedom-cli && FREEDOM_AUTO_UPDATE=0 npm publish --otp=xxxxxx`（2FA 只能本人当次 OTP）。
