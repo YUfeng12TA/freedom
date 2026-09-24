@@ -1,0 +1,595 @@
+'use strict';
+
+// freedom build：前端打包 + 通用壳分发（v1.1.10，零语言工具链）
+//
+// 流程（不再调用 go build / 不依赖 Go）：
+//   1. 前端打包：npm install（如缺依赖）+ vite build -> .freedom/vite-dist/index.html
+//   2. 选择目标平台：--platform <win|mac|linux|all>（默认当前平台）
+//   3. 每个平台：
+//      - 取预编译通用壳二进制（包内 shell/<plat>/，缺失自动从 GitHub Releases 下载）
+//      - 写 resources/index.html（前端单文件页）
+//      - 写 resources/config.json（窗口 + 后端配置，壳运行时读取）
+//      - 复制壳为 outDir/<app>[.exe]
+//      - 复制 backend/ 到 resources/backend/（配置了 backend 时）
+//   4. macOS 平台额外生成 .app bundle + .app.zip：
+//      outDir/<app>.app/Contents/{Info.plist, MacOS/<app>, MacOS/resources/}
+//      壳加载 exe 同目录 resources/，因此 .app 无需改壳即可运行；
+//      mac 用户解压 .app.zip 得 .app，拖入 /Applications 即可使用；
+//      如需 .dmg，在 macOS 上运行 freedom dmg 用系统 hdiutil 生成。
+//
+// 产物不嵌入 HTML，页面与配置均在 exe 同目录 resources/ 下，因此壳可复用、
+// 可跨平台分发、无需在目标机器安装任何语言运行时。
+
+const fs = require('fs');
+const fsp = fs.promises;
+const path = require('path');
+const { spawnSync } = require('child_process');
+const { copyDir } = require('./utils');
+const {
+  ALL_PLATFORMS,
+  DIST_PLATFORMS,
+  isWinPlat,
+  isMacPlat,
+  platformExeName,
+  nativePlatform,
+  localShellPath,
+} = require('./utils');
+const { hasShell, downloadShell, validateLocalShell } = require('./shell');
+const {
+  SECURITY_MODES,
+  resolveSecurity,
+  encryptApp,
+  buildIntegrity,
+  renderIntegrity,
+} = require('./security');
+
+function run(cmd, args, opts = {}) {
+  // Windows 下 npm 是 .cmd 批处理，必须经 shell 执行
+  const isNpmWin = process.platform === 'win32' && cmd === 'npm';
+  const realCmd = isNpmWin ? 'npm.cmd' : cmd;
+  const res = spawnSync(realCmd, args, {
+    stdio: opts.stdio === 'inherit' ? 'inherit' : 'pipe',
+    encoding: 'utf8',
+    env: process.env,
+    shell: isNpmWin,
+    ...opts,
+  });
+  if (res.error) {
+    throw new Error(`执行 ${cmd} 失败：${res.error.message}`);
+  }
+  return res;
+}
+
+// --platform 解析：支持逗号 / 中英文逗号 / 空白分隔多平台；win|mac|linux|all 或平台 key（win-x64 等）。
+// 多平台去重保留顺序。all 仅取可分发平台（DIST_PLATFORMS）：linux-arm64 无 CI 资产，
+// 若列入 all 会在 build 时 404 拖垮整个全量构建（历史 bug B41）。
+function parsePlatforms(raw) {
+  if (!raw) return [nativePlatform()];
+  const keyMap = { win: 'win-x64', mac: 'darwin-arm64', linux: 'linux-x64' };
+  const seen = [];
+  const push = (p) => {
+    if (!ALL_PLATFORMS.includes(p)) {
+      throw new Error(
+        `未知平台：${p}。可选：win / mac / linux / all，或 ${ALL_PLATFORMS.join(' / ')}`
+      );
+    }
+    if (!seen.includes(p)) seen.push(p);
+  };
+  for (const seg of String(raw).split(/[,，\s]+/)) {
+    const v = String(seg).toLowerCase();
+    if (!v) continue;
+    if (v === 'all') {
+      for (const p of DIST_PLATFORMS) push(p);
+    } else {
+      push(keyMap[v] || v);
+    }
+  }
+  if (seen.length === 0) {
+    throw new Error(`未知平台：${raw}。可选：win / mac / linux / all，或 ${ALL_PLATFORMS.join(' / ')}`);
+  }
+  return seen;
+}
+
+async function build(projectDir, opts = {}) {
+  const dir = path.resolve(projectDir || '.');
+  const cfgPath = path.join(dir, 'freedom.config.js');
+  if (!fs.existsSync(cfgPath)) {
+    throw new Error(`未找到 ${cfgPath}，请先运行 freedom init 初始化项目。`);
+  }
+  const { loadConfig } = require('./utils');
+  const cfg = await loadConfig(dir);
+
+  const name = (cfg.name || 'freedom-app').replace(/[^a-zA-Z0-9_.-]/g, '-');
+  const version = String(cfg.version || appVersionFromPkg(dir) || '1.0.0');
+  const outDir = String(cfg.outDir || 'dist').trim() || 'dist';
+  const outDirPath = path.resolve(dir, outDir);
+  const platforms = parsePlatforms(opts.platform);
+  const autoDownload = opts.autoDownload !== false;
+
+  // 1) 前端打包（带缓存：源码未变更时复用上次 vite 产物，跳过 npm run build）
+  ensureNodeModules(dir);
+  const useCache = opts.noCache !== true;
+  if (useCache && !viteNeedsRebuild(dir)) {
+    process.stdout.write('[freedom] 前端源码无改动，复用构建缓存...\n');
+  } else {
+    process.stdout.write('[freedom] 前端打包中（npm run build）...\n');
+    // 全量构建时 npm/vite 输出必须实时透传（stdio: inherit），
+    // 此前 pipe 缓冲会吞掉构建全程输出，Node 主线程被 spawnSync 同步阻塞，
+    // 大前端全量构建时终端长时间零输出，表现如"未响应/卡死"。
+    const vite = run('npm', ['run', 'build'], { cwd: dir, stdio: 'inherit' });
+    if (vite.status !== 0) {
+      throw new Error(`前端打包失败（退出码 ${vite.status}），详见上方构建输出。`);
+    }
+    writeViteCacheMarker(dir);
+  }
+  const distHtml = path.join(dir, '.freedom', 'vite-dist', 'index.html');
+  if (!fs.existsSync(distHtml)) {
+    throw new Error(`前端打包完成但未找到 ${distHtml}，请检查 vite 配置（vite-plugin-singlefile）。`);
+  }
+  const html = fs.readFileSync(distHtml, 'utf8');
+  warnIfNotSingleFile(html, distHtml);
+  const configJSON = renderConfigJSON(cfg, name);
+  // 安全模式：--security 优先于 freedom.config.js 的 security 字段，默认 none。
+  //   none  = 明文资源（默认，兼容历史产物）
+  //   basic = 明文资源 + 构建期安全提示（剥符号 / 混淆，后续可用高模式加密）
+  //   high  = resources 整体加密为 app.bin（AES-256-CTR+HMAC）+ .integrity 完整性清单，磁盘无明文
+  const security = resolveSecurity(opts.security, cfg.security);
+
+  // 2) 后端目录（若配置了 backend 进程）
+  const backendDir = path.join(dir, cfg.backendDir || 'backend');
+  const hasBackend = !!(cfg.backend && fs.existsSync(backendDir));
+
+  // 3) 应用图标：cfg.icon（相对项目根或绝对路径）。Windows 注入 .ico 到 exe 资源，
+  //    macOS 把 .icns 放入 .app/Contents/Resources 并在 Info.plist 声明。
+  const icon = resolveIcon(dir, cfg.icon);
+
+  // 4) 逐平台分发（多平台并行，显著缩短全平台打包耗时）
+  // 单平台直接输出到 outDir；多平台各自放到 outDir/<plat>/ 子目录，避免互相覆盖
+  const multi = platforms.length > 1;
+  const results = await Promise.all(
+    platforms.map(async (plat) => {
+      const targetDir = multi ? path.join(outDirPath, plat) : outDirPath;
+      const outFile = await emitPlatform({ plat, name, version, targetDir, html, configJSON, backendDir, hasBackend, autoDownload, icon, security });
+      return { plat, outFile };
+    })
+  );
+
+  // 5) 产物自检 + 形态树（消除"build 后形态未知 / 需实测"）：
+  //    build 完成后自动校验产物完整性，并打印产物结构；自检发现问题仅告警不阻断，
+  //    完整失败信息可用 freedom verify 复核（返回非零退出码，供 CI 使用）。
+  const { verifyProduct, renderTree, formatChecks } = require('./verify');
+  const v = await verifyProduct(dir);
+  if (v.error) {
+    process.stdout.write(`[freedom] 产物自检跳过：${v.error}\n`);
+  } else if (v.targets.length === 0) {
+    process.stdout.write('[freedom] 产物自检跳过：未在产物目录发现可执行文件。\n');
+  } else {
+    process.stdout.write('\n[freedom] 产物自检：\n');
+    for (const t of v.targets) {
+      process.stdout.write(`  [${t.plat}] ${t.dir}\n`);
+      for (const line of formatChecks(t.checks)) {
+        process.stdout.write(`    ${line}\n`);
+      }
+    }
+    process.stdout.write('\n[freedom] 产物结构：\n');
+    for (const line of renderTree(v.targets).split('\n')) {
+      process.stdout.write(`  ${line}\n`);
+    }
+    const failed = v.targets.some((t) => t.checks.some((c) => !c.pass));
+    if (failed) {
+      process.stdout.write(`\n[freedom] 警告：产物自检存在失败项，请运行 ${'freedom verify'} 复核。\n`);
+    }
+  }
+
+  return { results };
+}
+
+async function emitPlatform({ plat, name, version, targetDir, html, configJSON, backendDir, hasBackend, autoDownload, icon, security }) {
+  // 取预编译壳二进制
+  const shell = localShellPath(plat);
+  if (!fs.existsSync(shell)) {
+    if (!autoDownload) {
+      throw new Error(
+        `缺少平台 ${plat} 的壳二进制：${shell}\n` +
+          `可运行 freedom shell download ${plat} 下载，或 freedom shell build ${plat} 本地编译。`
+      );
+    }
+    process.stdout.write(`[freedom] 本地无 ${plat} 壳，尝试自动下载...\n`);
+    await downloadShell(plat);
+  } else {
+    // 壳格式校验：防止 mac/linux 平台误用 Windows 假壳被静默分发（历史缺陷：shell/<darwin-*>/<linux-*> 曾误填 Windows PE 副本）。
+    const formatIssue = validateLocalShell(plat);
+    if (formatIssue) {
+      throw new Error(formatIssue);
+    }
+  }
+
+  await fsp.mkdir(targetDir, { recursive: true });
+
+  // 壳二进制 -> 应用可执行文件
+  const exeName = platformExeName(plat, name);
+  const outFile = path.join(targetDir, exeName);
+  await fsp.copyFile(shell, outFile);
+  if (!isWinPlat(plat)) {
+    await fsp.chmod(outFile, 0o755);
+  }
+
+  // 自定义 exe 图标（仅 Windows PE 支持嵌入 .ico 资源；mac 用 .icns 走 .app 分支）
+  // 修复：此前引用未传入 emitPlatform 作用域的 cfg 导致 ReferenceError（cfg is not defined），
+  // 配置 icon 后 Windows 构建必然失败；改用 emitPlatform 已解构的 name/version。
+  if (isWinPlat(plat) && icon) {
+    await applyWindowsIcon(outFile, icon, name, version);
+  }
+
+  // 写 resources：页面 + 配置 + 后端
+  // security=high 时整体加密为 app.bin（磁盘无明文 HTML/config），并生成 .integrity 完整性清单；
+  // none / basic 保持明文资源（兼容历史产物），basic 额外输出安全加固提示。
+  const resDir = path.join(targetDir, 'resources');
+  await fsp.mkdir(resDir, { recursive: true });
+  // 互斥清理：切换安全模式时删除另一模式遗留产物，防止壳误加载旧资源
+  // （high 产物 app.bin/.integrity 与明文 index.html/config.json 只能存其一）。
+  if (security === 'high') {
+    for (const legacy of ['index.html', 'config.json']) {
+      const p = path.join(resDir, legacy);
+      if (fs.existsSync(p)) await fsp.rm(p, { force: true });
+    }
+    const appBin = encryptApp(name, html, configJSON);
+    await fsp.writeFile(path.join(resDir, 'app.bin'), appBin);
+    const backendRelMap = {};
+    if (hasBackend && fs.existsSync(backendDir)) {
+      collectDirFiles(backendDir, '', backendRelMap);
+    }
+    const integrityText = renderIntegrity(buildIntegrity(name, appBin, backendRelMap));
+    await fsp.writeFile(path.join(resDir, '.integrity'), integrityText, 'utf8');
+  } else {
+    for (const legacy of ['app.bin', '.integrity']) {
+      const p = path.join(resDir, legacy);
+      if (fs.existsSync(p)) await fsp.rm(p, { force: true });
+    }
+    await fsp.writeFile(path.join(resDir, 'index.html'), html, 'utf8');
+    await fsp.writeFile(path.join(resDir, 'config.json'), configJSON, 'utf8');
+    if (security === 'basic') {
+      process.stdout.write(
+        `[freedom] 安全模式 basic：资源仍为明文。加固建议：\n` +
+        `          1. 运行 ${'freedom security high'} 切换到高模式（resources 加密为 app.bin，磁盘无明文）；\n` +
+        `          2. 壳侧已内置 anti-debug / 进程隐藏，符号剥离需在 CI 编译壳时设置 ldflags -s -w（见 README 安全章节）。\n`
+      );
+    }
+  }
+  if (hasBackend) {
+    copyDir(backendDir, path.join(resDir, 'backend'));
+  }
+
+  // macOS：额外生成 .app bundle + .app.zip（供 mac 用户解压即用）
+  // 壳加载 exe 同目录 resources/，故把 resources 放进 Contents/MacOS/ 即可运行，无需改壳。
+  if (isMacPlat(plat)) {
+    const appZip = createMacApp({ targetDir, name, plat, exeName, resDir, version, icon });
+    process.stdout.write(
+      `[freedom] macOS 产物已打包为 .app.zip：${path.relative(process.cwd(), appZip)}\n`
+    );
+  }
+
+  return outFile;
+}
+
+// 把 .ico 图标注入到 Windows exe 的 PE 资源（RT_ICON + RT_GROUP_ICON），
+// 并设置版本信息（产品名 / 说明 / 版本），使资源管理器详情可读。
+// 依赖 rcedit（随 npm 包分发的预编译 rcedit-x64.exe，无需 Go/资源编译器）。
+// 产品名取自 cfg.name，版本取自 cfg.version —— 修复"产物无产品名 / 版本无法配置"。
+async function applyWindowsIcon(exePath, iconPath, name, version) {
+  const ext = path.extname(iconPath).toLowerCase();
+  if (ext !== '.ico') {
+    process.stdout.write(
+      `[freedom] 提示：Windows exe 图标需 .ico 格式，已跳过（${iconPath}）。\n`
+    );
+    return;
+  }
+  if (process.platform !== 'win32') {
+    process.stdout.write(
+      '[freedom] 提示：exe 图标注入需在 Windows 本机执行，已跳过。\n'
+    );
+    return;
+  }
+  const rcedit = require('rcedit'); // 惰性加载，避免未配置 icon 时增加启动开销
+  const info = { icon: iconPath };
+  // rcedit 4.x 参数结构：FileDescription/ProductName 等字符串必须走
+  // version-string（--set-version-string 键值对），file-version/product-version
+  // 才是独立的 --set-* 单值参数。旧版平铺的 file-description/product-name 会被静默忽略。
+  const versionString = {};
+  if (name) {
+    versionString['FileDescription'] = name;
+    versionString['ProductName'] = name;
+  }
+  if (Object.keys(versionString).length > 0) {
+    info['version-string'] = versionString;
+  }
+  if (version) {
+    info['file-version'] = version;
+    info['product-version'] = version;
+  }
+  await rcedit(exePath, info);
+  process.stdout.write(`[freedom] 已注入 exe 图标与版本信息：${iconPath} (${name || '?'} ${version || '?'})\n`);
+}
+
+// 解析 cfg.icon：相对项目根或绝对路径 -> 绝对路径；未配置返回 null。
+// 不校验格式，格式由各平台注入逻辑决定（win 需 .ico / mac 需 .icns）。
+function resolveIcon(dir, icon) {
+  if (!icon) return null;
+  const p = path.isAbsolute(icon) ? icon : path.resolve(dir, icon);
+  if (!fs.existsSync(p)) {
+    throw new Error(`未找到图标文件：${icon}（已尝试 ${p}）。请检查 freedom.config.js 的 icon 配置。`);
+  }
+  return p;
+}
+
+// 把已分发的裸产物升级为标准 .app bundle，并压缩为 .app.zip
+function createMacApp({ targetDir, name, plat, exeName, resDir, version, icon }) {
+  const appDir = path.join(targetDir, `${name}.app`);
+  const contents = path.join(appDir, 'Contents');
+  const macos = path.join(contents, 'MacOS');
+  const appRes = path.join(macos, 'resources');
+  fs.mkdirSync(macos, { recursive: true });
+  fs.mkdirSync(path.join(contents, 'Resources'), { recursive: true });
+
+  // 可执行文件：exe 名与 app 同名，放入 MacOS/
+  const exeDst = path.join(macos, name);
+  fs.copyFileSync(path.join(targetDir, exeName), exeDst);
+  fs.chmodSync(exeDst, 0o755);
+
+  // resources -> MacOS/resources（壳的运行时目录）
+  if (fs.existsSync(resDir)) {
+    copyDir(resDir, appRes);
+  }
+
+  // 自定义 .app 图标：icon 为 .icns 时放入 Resources/ 并在 Info.plist 声明
+  let icnsName = null;
+  if (icon && path.extname(icon).toLowerCase() === '.icns') {
+    icnsName = 'icon.icns';
+    fs.copyFileSync(icon, path.join(contents, 'Resources', icnsName));
+  } else if (icon) {
+    process.stdout.write(
+      `[freedom] 提示：macOS .app 图标需 .icns 格式，已跳过（${icon}）。\n`
+    );
+  }
+
+  // Info.plist
+  fs.writeFileSync(path.join(contents, 'Info.plist'), renderInfoPlist(name, version, icnsName), 'utf8');
+
+  // .app.zip：解压即得 .app，拖入 /Applications 即可使用
+  const zipPath = path.join(targetDir, `${name}-${plat}.app.zip`);
+  zipDir(zipPath, appDir);
+  return zipPath;
+}
+
+function renderInfoPlist(name, version, icnsName) {
+  const safe = String(name).replace(/&/g, '&amp;');
+  const bundleId = `com.freedom.app.${String(name).toLowerCase().replace(/[^a-z0-9.-]/g, '-')}`;
+  const iconEntry = icnsName
+    ? `  <key>CFBundleIconFile</key>\n  <string>${icnsName}</string>\n`
+    : '';
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key>
+  <string>${safe}</string>
+  <key>CFBundleDisplayName</key>
+  <string>${safe}</string>
+${iconEntry}  <key>CFBundleExecutable</key>
+  <string>${safe}</string>
+  <key>CFBundleIdentifier</key>
+  <string>${bundleId}</string>
+  <key>CFBundleVersion</key>
+  <string>${version}</string>
+  <key>CFBundleShortVersionString</key>
+  <string>${version}</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleInfoDictionaryVersion</key>
+  <string>6.0</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>10.13</string>
+  <key>NSHighResolutionCapable</key>
+  <true/>
+  <key>NSAppTransportSecurity</key>
+  <dict>
+    <key>NSAllowsArbitraryLoads</key>
+    <true/>
+  </dict>
+</dict>
+</plist>
+`;
+}
+
+// 把目录压成 .zip：跨平台零额外依赖（历史 bug B27）
+// - Windows：系统 tar 为 bsdtar，`-a` 按扩展名自动选 zip 压缩器，可用；
+// - Linux/macOS：GNU tar 的 `-a` 不支持 .zip（仅 gzip/bzip2/xz 等），
+//   改用系统 zip 命令（Linux/macOS 自带或常见，缺失时给出安装提示）。
+function zipDir(zipPath, dir) {
+  const parent = path.dirname(dir);
+  const base = path.basename(dir);
+  if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath);
+  let res;
+  if (process.platform === 'win32') {
+    res = spawnSync('tar', ['-a', '-c', '-f', zipPath, base], { cwd: parent, encoding: 'utf8' });
+  } else {
+    res = spawnSync('zip', ['-r', '-q', zipPath, base], { cwd: parent, encoding: 'utf8' });
+  }
+  if (res.error || res.status !== 0) {
+    const detail = (res.stderr || res.stdout || '').trim() || res.error.message;
+    const hint = process.platform !== 'win32'
+      ? '\n（Linux/macOS 打包 zip 需要 zip 命令：Ubuntu: sudo apt install zip / macOS: brew install zip）'
+      : '';
+    throw new Error(`打包 ${base} 为 zip 失败：${detail}${hint}`);
+  }
+}
+
+// 从项目 package.json 取版本号（cfg.version 优先）
+function appVersionFromPkg(dir) {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'));
+    return typeof pkg.version === 'string' ? pkg.version : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+// 渲染 resources/config.json（与壳 resources.go 的 runtimeConfigFile 字段对齐）
+function renderConfigJSON(cfg, name) {
+  const obj = {
+    name,
+    title: cfg.title || cfg.name || name,
+    titlebar: cfg.titlebar || 'frameless',
+    width: intVal(cfg.width, 1024),
+    height: intVal(cfg.height, 720),
+    minWidth: intVal(cfg.minWidth, 400),
+    minHeight: intVal(cfg.minHeight, 300),
+    center: typeof cfg.center === 'boolean' ? cfg.center : true,
+    debug: typeof cfg.debug === 'boolean' ? cfg.debug : false,
+  };
+  if (cfg.backend && Array.isArray(cfg.backend.command) && cfg.backend.command.length > 0) {
+    // 兼容 command 为数组形式：command=[cmd, ...args]
+    obj.backend = { command: cfg.backend.command[0], args: cfg.backend.command.slice(1) };
+  } else if (cfg.backend && typeof cfg.backend.command === 'string' && cfg.backend.command) {
+    obj.backend = {
+      command: cfg.backend.command,
+      args: Array.isArray(cfg.backend.args) ? cfg.backend.args : [],
+    };
+  }
+  return JSON.stringify(obj, null, 2);
+}
+
+// ---- 前端构建缓存 ----
+// 追踪影响前端产物的源文件（index.html / vite.config.* / src/**）的最新 mtime，
+// 与上次 vite build 记录值比较：未变更则跳过 npm run build，直接复用 .freedom/vite-dist 产物。
+
+function collectViteSources(dir) {
+  const files = [];
+  const roots = ['index.html', 'vite.config.js', 'vite.config.mjs', 'vite.config.ts', 'vite.config.cjs'];
+  for (const r of roots) {
+    const p = path.join(dir, r);
+    if (fs.existsSync(p)) files.push(p);
+  }
+  const src = path.join(dir, 'src');
+  if (fs.existsSync(src)) {
+    const walk = (d) => {
+      for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
+        const p = path.join(d, entry.name);
+        if (entry.isDirectory()) walk(p);
+        else files.push(p);
+      }
+    };
+    walk(src);
+  }
+  return files;
+}
+
+function maxMtime(files) {
+  return files.reduce((m, f) => {
+    try {
+      const t = fs.statSync(f).mtimeMs;
+      return t > m ? t : m;
+    } catch (e) {
+      return m;
+    }
+  }, 0);
+}
+
+function viteCacheMarker(dir) {
+  return path.join(dir, '.freedom', 'vite-dist', '.cache-mtime');
+}
+
+function viteNeedsRebuild(dir) {
+  const distHtml = path.join(dir, '.freedom', 'vite-dist', 'index.html');
+  const marker = viteCacheMarker(dir);
+  if (!fs.existsSync(distHtml) || !fs.existsSync(marker)) return true;
+  let recorded = 0;
+  try {
+    recorded = Number(fs.readFileSync(marker, 'utf8'));
+  } catch (e) { return true; }
+  // 留 1s 容差避免文件系统时间精度抖动
+  return maxMtime(collectViteSources(dir)) > recorded + 1000;
+}
+
+function writeViteCacheMarker(dir) {
+  fs.mkdirSync(path.join(dir, '.freedom', 'vite-dist'), { recursive: true });
+  fs.writeFileSync(viteCacheMarker(dir), String(maxMtime(collectViteSources(dir))), 'utf8');
+}
+
+function ensureNodeModules(dir) {
+  // 依赖变更检测：package.json 比 package-lock.json 新，说明依赖声明有更新，自动重装。
+  // 以 package-lock.json（npm install 后必然生成）为基准，比旧版依赖 node_modules/.package-lock.json 更可靠。
+  const pkgFile = path.join(dir, 'package.json');
+  const lockFile = path.join(dir, 'package-lock.json');
+  const nmDir = path.join(dir, 'node_modules');
+  if (!fs.existsSync(nmDir)) {
+    const res = run('npm', ['install'], { cwd: dir, stdio: 'inherit' });
+    if (res.status !== 0) throw new Error('npm install 失败。');
+    return;
+  }
+  if (fs.existsSync(pkgFile) && fs.existsSync(lockFile)) {
+    const pkgMtime = fs.statSync(pkgFile).mtimeMs;
+    const lockMtime = fs.statSync(lockFile).mtimeMs;
+    if (pkgMtime > lockMtime + 1000) {
+      process.stdout.write('[freedom] package.json 已更新，重新安装依赖...\n');
+      const res = run('npm', ['install'], { cwd: dir, stdio: 'inherit' });
+      if (res.status !== 0) throw new Error('npm install 失败。');
+    }
+  }
+}
+
+function intVal(v, dft) {
+  const n = parseInt(v, 10);
+  return Number.isFinite(n) && n >= 0 ? n : dft;
+}
+
+// 非 singlefile 产物检测（历史 bug B47）：壳只 SetHtml 单页内存加载，HTML 里引用
+// 的外部 <script src> / <link href>（相对路径或 / 根路径）在无服务器环境下必然失效，
+// 导致页面 JS/CSS 丢失静默空白。检测到此类引用时明确告警，避免用户无感知翻车。
+function warnIfNotSingleFile(html, distHtml) {
+  const refs = [];
+  // M4：此前只检查 script/link，漏掉了 img/iframe/video/audio/source/object/embed/track 等
+  // 一切带 URL 引用的标签。壳只 SetHtml 单页内存加载，任何相对路径 / 根路径 / 协议相对的
+  // 外部引用（JS、CSS、图片、子页面、音视频、内嵌对象）在无服务器环境下都会失效，
+  // 需一并告警，避免"脚本内联了但图片仍空白"这类半翻车。
+  const re = /<(?:script|link|img|iframe|video|audio|source|object|embed|track)\b[^>]*(?:src|href|data)\s*=\s*["']([^"']+)["']/gi;
+  let m;
+  while ((m = re.exec(html)) !== null) {
+    const url = m[1];
+    // data: / blob: / http(s): / file: 可正常工作，跳过；其余（相对、/ 根路径、// 协议相对）均会失效
+    if (/^(?:data:|blob:|https?:|file:)/i.test(url)) continue;
+    refs.push(url);
+  }
+  // img 的 srcset（逗号分隔多候选 URL）单独扫描
+  const srcsetRe = /<img\b[^>]*\bsrcset\s*=\s*["']([^"']+)["']/gi;
+  while ((m = srcsetRe.exec(html)) !== null) {
+    for (const part of m[1].split(',')) {
+      const url = part.trim().split(/\s+/)[0];
+      if (!url) continue;
+      if (/^(?:data:|blob:|https?:|file:)/i.test(url)) continue;
+      refs.push(url);
+    }
+  }
+  if (refs.length > 0) {
+    console.warn(
+      `[freedom] 警告：${path.basename(distHtml)} 引用了外部资源（${refs.join(', ')}）。` +
+        `壳在内存加载单页时这些引用会失效，导致页面空白。` +
+        `请在 vite.config.js 启用 vite-plugin-singlefile 将 JS/CSS 内联进 HTML。`
+    );
+  }
+}
+
+// 递归收集目录内所有文件：relPath（POSIX 相对路径）-> Buffer 内容，供 .integrity 完整性清单使用。
+function collectDirFiles(dir, prefix, out) {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const abs = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      collectDirFiles(abs, prefix + entry.name + '/', out);
+    } else {
+      out[(prefix + entry.name).replace(/\\/g, '/')] = fs.readFileSync(abs);
+    }
+  }
+  return out;
+}
+
+module.exports = { build, parsePlatforms };

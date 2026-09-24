@@ -22,6 +22,8 @@
 - `dispatch.go` — 异步桥：`__freedom_bridge(id,…)` 投递 + worker goroutine + `__freedom__resolve` 回写（M1）。
 - `window_mgr.go` — M2 多窗口：窗口注册表、次级窗口独立消息泵（LockOSThread）、create/list/closeWindow/focusWindow 管理动作、Emit 广播；页面来源优先序 URL > HTML 函数 > Page(json `html`) > 主页面。
 - `capability.go` — M3 声明式能力模型：`Config.Capabilities{Allow,Deny}`（path.Match），在 sys/tray/window 三桥派发前判定，拒绝零副作用；默认 nil 全开；os.info 回显。
+- `resources.go` — 运行时外部资源层：exe 同目录 `resources/`（config.json 覆盖窗口/后端配置，后端 CWD=resources/，`ProcBackend.SetDir`）；resolveHTML 优先序 resources（app.bin 或 index.html）> cfg.HTML > 内置页；high 校验失败经 `secureFatalError` 拒绝运行（Run 与 resolveHTML 双保险）。
+- `security.go` / `anti_debug_*.go` — FRDM1 加密容器（PBKDF2-HMAC-SHA256 按 exe 名派生密钥 + AES-256-CTR + Encrypt-then-MAC + `.integrity` 清单校验）与调试器检测；参数与 freedom-cli `lib/security.js` 跨语言同步，改任一侧必须同步另一侧。
 - `backend_proc.go` — 进程后端：stdio IPC（启动/调用/事件/关闭），注入 `FREEDOM_BACKEND=1`、`FREEDOM_IPC=stdio`。
 - `assets_embed.go` — 前端资源 `go:embed`（assets/freedom.js SDK + default.html）。
 - `window_windows.go` — Windows 原生窗口层（user32/dwmapi）：标题栏策略、居中、样式、共用 NewProc 声明处。
@@ -33,6 +35,8 @@
 - `tray_linux.go` — GTK3 托盘（cgo GtkStatusIcon + 原生菜单，事件经 `App.Emit`；需 CGO_ENABLED=1 与 gtk3 头文件）。
 - `authenticode_windows.go` / `authenticode_other.go` — M6 WinVerifyTrust 离线 Authenticode 复核（`Update.RequireSignature` 可选启用；非 Windows 诚实报错）。
 - `cmd/freedom/` — M7 项目 CLI：`new <dir> -backend embed|go|node|python|rust` 生成骨架（go.mod 以 replace 指向框架目录），`build [dir] -gui -version X.Y.Z` 包装壳层构建（存在 `backends/go` 时一并编译）。
+- `cmd/shell/` — 预编译通用壳入口（零应用专属资源，内容全部来自 resources/）：CI tag 构建为 Release 资产 `freedom-shell-<plat>`，freedom-cli 按需下载或走包内自带壳。
+- `freedom-cli/` — npm 打包 CLI（@yufengtadian/freedom-cli，v1.13.0）：`bin/lib/postinstall/tutorial` 源自 npm 1.12.18 tarball 恢复（源码曾丢失），`templates/go` 为框架源码快照（`freedom shell build` 用），`shell/<plat>` 为随包壳二进制（.gitignore 排除入库、npm files 白名单打包）。
 - `sysint_common.go` / `tray_common.go` — 无 build tag 的跨平台共享层：openExternal/scheme 白名单、deep-link 参数、dataURL 解析、菜单条目模型（Windows/Linux 两侧复用）。
 - `msgwindow_windows.go` / `singleinstance_windows.go` — 独立消息窗口线程（WM_HOTKEY/WM_COPYDATA）与 CreateMutexW 权威单实例锁。
 - `store.go` / `osver_windows.go` — 平台无关数据层（path/store/window-state/os/process，经 sysGeneric 分发）与 Windows 侧几何/版本支撑。

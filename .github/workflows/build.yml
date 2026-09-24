@@ -18,14 +18,17 @@ jobs:
           - os: windows-latest
             shell: powershell
             exe: .exe
+            plat: win-x64
           - os: macos-latest
             shell: bash
             exe: ""
+            plat: darwin-arm64
           # webview_go 的 CGO 依赖 pkg-config 包 webkit2gtk-4.0，
           # 其开发包自 Ubuntu 24.04 起已从官方源移除，故钉在 22.04。
           - os: ubuntu-22.04
             shell: bash
             exe: ""
+            plat: linux-x64
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -113,3 +116,40 @@ jobs:
           name: freedom-${{ runner.os }}
           path: dist/
           if-no-files-found: error
+
+      # 通用预编译壳（cmd/shell，应用内容来自 exe 同目录 resources/）：
+      # freedom-cli 按资产名 freedom-shell-<plat> 从 GitHub Release 下载。
+      - name: Build generic shell
+        shell: bash
+        env:
+          SHELL_VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          mkdir -p shell-asset
+          LD="-s -w"
+          [ -n "$SHELL_VERSION" ] && LD="$LD -X freedom.Version=${SHELL_VERSION#v}"
+          [ "$RUNNER_OS" = "Windows" ] && LD="$LD -H windowsgui"
+          CGO_ENABLED=1 go build -ldflags "$LD" -o "shell-asset/freedom-shell-${{ matrix.plat }}" ./cmd/shell
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shell-${{ matrix.plat }}
+          path: shell-asset/
+          if-no-files-found: error
+
+  # tag 推送时发布 Release：CLI 的 `freedom shell download <plat>` 依赖这些资产
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: shell-*
+          path: shells
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: shells/*
+          draft: false

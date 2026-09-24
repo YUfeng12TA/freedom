@@ -1,7 +1,7 @@
 {
   "version": 4,
   "subKind": "bugs",
-  "lastUpdated": "2026-09-24T12:45:16+08:00",
+  "lastUpdated": "2026-09-24T05:44:34.873+08:00",
   "bugRegistry": [
     {
       "id": "B01",
@@ -374,6 +374,17 @@
       "fix": "抽 resolvePage 按声明序解析",
       "regressionTest": "TestResolvePagePrecedence",
       "fixedAt": "2026-09-24T12:45:16+08:00"
+    },
+    {
+      "id": "B-20260924-027",
+      "sev": "major",
+      "file": "freedom-cli/",
+      "line": 0,
+      "summary": "freedom-cli 源码在仓库中丢失：仅剩悬空 gitlink 38bbd2e（历史从未跟踪文件），npm 线停在 1.12.18，v1.13.0 无法发布",
+      "status": "fixed",
+      "fix": "从 npm registry 取回 @yufengtadian/freedom-cli@1.12.18 tarball 全量恢复（bin/lib/postinstall/tutorial/templates），删 gitlink 改常规目录；templates/go 以当前框架源码重生成（删 fork webview_go 与 gen_config）；Go 侧配套恢复 resources.go/security.go/anti_debug + cmd/shell 通用壳",
+      "regressionTest": "TestDecryptNodeContainer（JS encryptApp→Go 解密黄金向量）+ TestRuntimeConfigOverlayPlain/TestRuntimeSecureMode/TestBackendExplicitGuardsOverlay/TestSecureIntegrityBackendFile + Windows E2E（npm pack→init→freedom build→壳运行）",
+      "fixedAt": "2026-09-24T05:44:34.872+08:00"
     }
   ]
 }

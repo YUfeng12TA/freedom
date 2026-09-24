@@ -145,6 +145,7 @@ GitHub Actions：`.github/workflows/build.yml` 在三个 runner 上分别编译�
 - **自动更新**（`updater.go`，对标 Tauri updater）：`Config.Update{ManifestURL, PublicKey}` 启用；manifest 经 **ed25519 验签**（签名覆盖 version+url+sha256），下载产物 **强制 sha256 校验**，换装走"改名让位+回滚"，**下次启动生效**不做热替换。前端 `freedom.update.check/install` 只发起、结果经 `update.*` 事件回推；install 仅认 check 验签缓存，前端无法注入未验签 URL/哈希。URL 仅放行 https（http 限 loopback）。
 - **代码签名**（M6）：`build.ps1 -Sign` 对本机产出的全部 exe 做 Authenticode（signtool 探测 PATH/Windows Kits；证书经 `FREEDOM_SIGN_PFX[_PASSWORD]` 或 `FREEDOM_SIGN_THUMBPRINT` 环境变量注入，不落仓库；signtool 或证书缺席仅警告不失败）。updater 可选二级复核：`Update.RequireSignature` 开启后产物还须过 **WinVerifyTrust**（离线确定性，无网络吊销检查），非 Windows 平台开启该项直接拒绝安装。真证书签名验证 `阻塞:` 于代码签名证书（用户侧资产）。
 - **运行时引导探测**（M6）：Windows 侧 `os.info.webview2Runtime` 回显系统 WebView2 Runtime 版本（EdgeUpdate 注册表探测，HKCU 优先 HKLM 兜底，"N/A" 占位视为未检出），前端可据此预检环境并提示安装。
+- **零工具链打包（npm 线，freedom-cli v1.13.0）**：`npm i -g @yufengtadian/freedom-cli` → `freedom init` → `freedom build`。壳为预编译通用二进制（`cmd/shell`；包内自带 win/linux 壳，其余平台从 GitHub Release 资产 `freedom-shell-<plat>` 按需下载），应用内容来自 exe 同目录 `resources/`（config.json / index.html），最终用户无需 Go/CGO 工具链。`security: 'high'` 时前端与配置加密为单一 `app.bin`（FRDM1 容器：AES-256-CTR + HMAC-SHA256，PBKDF2 按 exe 名派生密钥），篡改/改名即拒绝运行（`resources.go` / `security.go`）。
 
 ## 测试
 
@@ -162,7 +163,7 @@ go test -v ./...   # 同一套断言跑 Go / Node / Python / Rust 四个后端�
 - **数据层**：`path.*` 标准目录、`store.*` 命名 JSON KV（原子落盘、坏文件 `.corrupt-*` 留证）、`os.info`、`process.exit/restart`。
 - **后端健壮性**：`SetRestartPolicy` 崩溃自愈（指数退避、上限放弃），`backend.crashed/restarted/exited` 事件；stdout 行读取内存有界。
 
-**安全边界**（前端不可信前提下的白名单）：`shell.open` 仅放行 http/https/mailto；deep-link 拒绝注册/删除系统保留 scheme；自启项删除前校验属主；剪贴板写入须挂窗口属主；入站 WM_COPYDATA 校验魔数与 64KB 上限。**执行线程约束**：绑定函数在 UI 消息泵内同步执行，耗时任务须自行转 goroutine + 事件回推。
+**安全边界**（前端不可信前提下的白名单）：`shell.open` 仅放行 http/https/mailto；deep-link 拒绝注册/删除系统保留 scheme；自启项删除前校验属主；剪贴板写入须挂窗口属主；入站 WM_COPYDATA 校验魔数与 64KB 上限。**执行线程约束**（M1 起）：`Bind` 的后端方法在 worker goroutine 并发执行（完成序不保证，与 Tauri command / Electron IPC 同语义）；`sys/tray/window` 内置桥仍同步跑在 UI 消息泵内，其中涉子进程/文件 IO 的须自行 `go func` 异步化。
 
 ## 与 Wails / Tauri 对比
 
@@ -187,7 +188,7 @@ go test -v ./...   # 同一套断言跑 Go / Node / Python / Rust 四个后端�
 
 ## 后续路线
 
-- [ ] `cmd/freedom` CLI：一条命令生成任意语言后端的新项目骨架
+- [x] `cmd/freedom` CLI：一条命令生成任意语言后端的新项目骨架（M7：`freedom new/build`，Go 源码路线；npm 发布路线见下）
 - [ ] 前端产物自动单文件化（vite-plugin-singlefile）流水线
 - [x] 多窗口 / 无边框 / 透明窗口支持（M2 多窗口注册表 + window.create/close/list/focus）
 - [x] Linux 系统能力与托盘实装（M4：剪贴板/通知/openExternal/自启/GTK3 托盘）

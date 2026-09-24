@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Freedom App</title>
+  <style>
+    /* 极简模板：使用系统原生标题栏（titlebar: 'native'），无自绘标题栏 / 无演示内容 */
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+      background: #111827;
+      color: #e5e7eb;
+      display: flex; align-items: center; justify-content: center;
+      min-height: 100%;
+      overflow: hidden;
+      user-select: none;
+    }
+    .center { text-align: center; }
+    h1 { font-size: 26px; font-weight: 700; }
+    .desc { margin-top: 10px; color: #9ca3af; font-size: 14px; }
+    button {
+      margin-top: 18px; padding: 9px 20px; border: none; border-radius: 8px;
+      background: #6366f1; color: #fff; font-size: 14px; cursor: pointer;
+    }
+    button:hover { background: #4f46e5; }
+    .result { margin-top: 10px; color: #a5b4fc; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div class="center">
+    <h1>Freedom App</h1>
+    <div class="desc">你的桌面应用已就绪（极简模板，系统原生标题栏）。</div>
+    <button id="pingBtn">测试桥接</button>
+    <div class="result" id="result">点击上方按钮验证前后端桥接。</div>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

@@ -13,3 +13,6 @@ examples/*/freedomapp_windows_*.syso
 # 构建与临时产物
 build-tmp/
 dist/
+
+# freedom-cli 随包预编译壳（发布期产出的二进制，不入库）
+freedom-cli/shell/*/freedom-shell*
