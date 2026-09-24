@@ -58,6 +58,8 @@ func stateOnScreen(st WindowState) bool {
 // 全屏中跳过：存的应是全屏前的几何（进入全屏前的最后一次 ExitSizeMove 已落过盘），
 // 全屏矩形落盘会在下次启动还原成一个占满屏幕的普通窗口。
 func (a *App) persistWindowState(hwnd uintptr, dir string) {
+	a.wsMu.Lock()
+	defer a.wsMu.Unlock()
 	if v, ok := windowRuntimes.Load(hwnd); ok {
 		if v.(*windowRuntime).getFullscreen() {
 			return

@@ -29,6 +29,11 @@ type copyDataStruct struct {
 	LpData uintptr
 }
 
+// validCopyData 入站 WM_COPYDATA 守卫：魔数、非空、指针有效、负载 ≤64KB。
+func validCopyData(dwData uintptr, cbData uint32, lpData uintptr) bool {
+	return dwData == forwardWindowMagic && cbData > 0 && cbData <= 64*1024 && lpData != 0
+}
+
 type msgWindow struct {
 	mu        sync.Mutex
 	hwnd      uintptr
@@ -66,10 +71,30 @@ func ensureMsgWindow(title string) (*msgWindow, error) {
 	if initErr != nil {
 		return nil, initErr
 	}
-	if msgWindowInst == nil || !msgWindowInst.created {
+	if msgWindowInst == nil {
+		return nil, fmt.Errorf("freedom: 消息窗口不可用")
+	}
+	msgWindowInst.mu.Lock()
+	created := msgWindowInst.created
+	msgWindowInst.mu.Unlock()
+	if !created {
 		return nil, fmt.Errorf("freedom: 消息窗口不可用")
 	}
 	return msgWindowInst, nil
+}
+
+// setTitle 更新窗口标题（单实例以 appID 为标题供 FindWindowW 定位；
+// 窗口可能先由热键等能力以默认标题创建，此时需纠正）。
+func (mw *msgWindow) setTitle(title string) {
+	mw.mu.Lock()
+	hwnd := mw.hwnd
+	mw.mu.Unlock()
+	if hwnd == 0 || title == "" {
+		return
+	}
+	if t, err := syscall.UTF16PtrFromString(title); err == nil {
+		procSetWindowText.Call(hwnd, uintptr(unsafe.Pointer(t)))
+	}
 }
 
 func msgWndProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
@@ -95,7 +120,9 @@ func msgWndProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 	case wmCopyData:
 		if mw != nil && lParam != 0 {
 			cds := (*copyDataStruct)(unsafe.Pointer(lParam))
-			if cds.CbData > 0 && cds.LpData != 0 {
+			// 校验魔数与长度：任意进程都可向本窗口投 COPYDATA，
+			// 未验 DwData 会把伪造内存当 JSON 解析，未限 CbData 可放大内存占用。
+			if validCopyData(cds.DwData, cds.CbData, cds.LpData) {
 				buf := make([]byte, cds.CbData)
 				copy(buf, unsafe.Slice((*byte)(unsafe.Pointer(cds.LpData)), cds.CbData))
 				mw.mu.Lock()
@@ -117,7 +144,7 @@ func msgWndProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 // runLoop 在锁定线程上创建隐藏窗口并泵消息（窗口随进程存活，不销毁）。
 func (mw *msgWindow) runLoop(title string) {
 	runtime.LockOSThread()
-	className, _ := syscall.UTF16PtrFromString("FreedomMsgWnd")
+	className, _ := syscall.UTF16PtrFromString(siWndClass)
 	windowTitle := className
 	if title != "" {
 		t, err := syscall.UTF16PtrFromString(title)

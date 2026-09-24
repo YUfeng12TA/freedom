@@ -11,19 +11,44 @@ package freedom
 // freedom.taskbar / freedom.window.setBackdrop / freedom.dialog 等。
 
 import (
+	"bytes"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"image/png"
+	"os"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"unsafe"
 )
+
+var comInitDone atomic.Bool
 
 var (
 	ole32          = syscall.NewLazyDLL("ole32.dll")
 	procCoCreateInstance = ole32.NewProc("CoCreateInstance")
 	procCoTaskMemFree    = ole32.NewProc("CoTaskMemFree")
+	procCoInitializeEx   = ole32.NewProc("CoInitializeEx")
 )
+
+// comEnsureInit 在桥接回调所在 OS 线程上初始化 STA COM。
+// webview_go 的 Bind 回调同步运行在 UI 线程消息泵内，故进程内一次初始化即可
+// 覆盖全部 COM 消费者（taskbar/dialog）；RPC_E_CHANGED_MODE（WebView2 已把
+// 该线程初始化为 MTA）视为可用——对话框退化但不崩。
+func comEnsureInit() error {
+	if comInitDone.Load() {
+		return nil
+	}
+	r, _, e := procCoInitializeEx.Call(0, 2 /*COINIT_APARTMENTTHREADED*/)
+	// S_OK=0 / S_FALSE=1（该线程已按相同模型初始化）均成功。
+	if r == 0 || r == 1 || r == 0x80010106 { // 末者 RPC_E_CHANGED_MODE
+		comInitDone.Store(true)
+		return nil
+	}
+	return fmt.Errorf("CoInitializeEx: hr=%#x (%w)", uint32(r), e)
+}
 
 // comGUID 对应 Windows GUID 结构（16 字节）。
 type comGUID struct {
@@ -45,8 +70,26 @@ func comGUIDFromString(s string) comGUID {
 	fmt.Sscanf(parts[0], "%08x", &g.Data1)
 	fmt.Sscanf(parts[1], "%04x", &g.Data2)
 	fmt.Sscanf(parts[2], "%04x", &g.Data3)
-	// Data4 保留 8 字节，前两字节来自 parts[3]，后六字节来自 parts[4]。
-	_ = parts
+	// Data4 为 8 个独立字节（网络序）：前 2 字节来自 parts[3]，后 6 字节来自 parts[4]。
+	// 注意：必须逐字节十六进制解码，绝不能整体 Sscanf 成 uint64（字节序会错）。
+	if len(parts[3]) == 4 && len(parts[4]) == 12 {
+		for i := 0; i < 2; i++ {
+			b, err := hex.DecodeString(parts[3][i*2 : i*2+2])
+			if err != nil {
+				return comGUID{}
+			}
+			g.Data4[i] = b[0]
+		}
+		for i := 0; i < 6; i++ {
+			b, err := hex.DecodeString(parts[4][i*2 : i*2+2])
+			if err != nil {
+				return comGUID{}
+			}
+			g.Data4[2+i] = b[0]
+		}
+	} else {
+		return comGUID{}
+	}
 	return g
 }
 
@@ -120,6 +163,10 @@ const (
 
 // taskbarList3 惰性初始化 ITaskbarList3 COM 对象（进程内单例）。
 func taskbarList3() uintptr {
+	if err := comEnsureInit(); err != nil {
+		fmt.Fprintf(os.Stderr, "freedom: %v\n", err)
+		return 0
+	}
 	var ppv uintptr
 	hr, _, _ := procCoCreateInstance.Call(
 		uintptr(unsafe.Pointer(&clsidTaskbarList)),
@@ -286,30 +333,86 @@ func windowSetBorderColor(hwnd uintptr, color uint32) error {
 
 // ---- 系统对话框 ----
 
-// hiconFromPNG 从 PNG 字节创建 HICON（CreateIconFromResourceEx）。
-// 调用方负责 procDestroyIcon 释放；失败返回 0。
+// hiconFromPNG 从 PNG 字节创建 HICON。
+// 走 image/png 解码 → 32bpp 预乘 BGRA DIB + 1bpp 全零 AND 掩码 → CreateIconIndirect
+// 合成（CreateIconFromResourceEx 要求 ICONDIR 资源格式，裸 PNG 传进去必然失败）。
+// 调用方负责 procDestroyIcon 释放；失败返回 0。建议传入目标尺寸（16/24/32px）的图，
+// 本函数不做缩放。
 func hiconFromPNG(pngData []byte) uintptr {
 	if len(pngData) == 0 {
 		return 0
 	}
-	// 注意：CreateIconFromResourceEx 需要资源格式的图标数据；PNG 直接传也可
-	//（系统内部可解析 PNG-compressed icon），但为稳妥，先尝试直接从 PNG 创建。
-	// 传入的字节需保持存活至调用结束。
-	h, _, _ := procCreateIconFromResourceEx.Call(
-		uintptr(unsafe.Pointer(&pngData[0])),
-		uintptr(len(pngData)),
-		1,             // fIcon = TRUE
-		0x00030000,    // dwVersion (3.0)
-		0, 0,          // cxDesired / cyDesired = 0（使用默认）
-		0,             // LR_DEFAULTCOLOR
-	)
-	if h == 0 {
+	img, err := png.Decode(bytes.NewReader(pngData))
+	if err != nil {
 		return 0
 	}
-	return h
+	b := img.Bounds()
+	w, h := b.Dx(), b.Dy()
+	if w <= 0 || h <= 0 || w > 256 || h > 256 {
+		return 0
+	}
+
+	type bitmapInfoHeader struct {
+		size          uint32
+		width, height int32
+		planes        uint16
+		bitCount      uint16
+		compression   uint32
+		sizeImage     uint32
+		xPels, yPels  int32
+		clrUsed       uint32
+		clrImportant  uint32
+	}
+
+	// 颜色面：32bpp、负高=自顶向下；像素为预乘 BGRA（图标 alpha 合成的要求）。
+	var bih bitmapInfoHeader
+	bih.size = uint32(unsafe.Sizeof(bih))
+	bih.width, bih.height = int32(w), -int32(h)
+	bih.planes, bih.bitCount, bih.sizeImage = 1, 32, uint32(w*h*4)
+	var colorBits uintptr
+	hbmColor, _, _ := procCreateDIBSection.Call(0, uintptr(unsafe.Pointer(&bih)),
+		0 /*DIB_RGB_COLORS*/, uintptr(unsafe.Pointer(&colorBits)), 0, 0)
+	if hbmColor == 0 || colorBits == 0 {
+		return 0
+	}
+	dst := unsafe.Slice((*byte)(unsafe.Pointer(colorBits)), w*h*4)
+	for i := 0; i < w; i++ {
+		for j := 0; j < h; j++ {
+			r, g, bl, a := img.At(b.Min.X+i, b.Min.Y+j).RGBA() // 16bit 预乘
+			o := (j*w + i) * 4
+			dst[o+0] = byte(bl >> 8)
+			dst[o+1] = byte(g >> 8)
+			dst[o+2] = byte(r >> 8)
+			dst[o+3] = byte(a >> 8)
+		}
+	}
+
+	// AND 掩码：1bpp 全零（透明由 alpha 通道表达）。
+	maskStride := ((w + 31) / 32) * 4
+	var bihMask bitmapInfoHeader
+	bihMask.size = uint32(unsafe.Sizeof(bihMask))
+	bihMask.width, bihMask.height = int32(w), int32(2*h)
+	bihMask.planes, bihMask.bitCount = 1, 1
+	bihMask.sizeImage = uint32(maskStride * 2 * h)
+	hbmMask, _, _ := procCreateDIBSection.Call(0, uintptr(unsafe.Pointer(&bihMask)),
+		0, 0, 0, 0)
+	if hbmMask == 0 {
+		procDeleteObject.Call(hbmColor)
+		return 0
+	}
+
+	type iconInfo struct {
+		fIcon                 int32
+		xHotspot, yHotspot    uint32
+		hbmMask, hbmColor     uintptr
+	}
+	ii := iconInfo{fIcon: 1, hbmMask: hbmMask, hbmColor: hbmColor}
+	hicon, _, _ := procCreateIconIndirect.Call(uintptr(unsafe.Pointer(&ii)))
+	procDeleteObject.Call(hbmMask)
+	procDeleteObject.Call(hbmColor)
+	return hicon
 }
 
-var procCreateIconFromResourceEx = user32win.NewProc("CreateIconFromResourceEx")
 
 // syscallMessageBox 调用系统消息框。返回按钮标识（ok/yes/no/cancel）。
 func syscallMessageBox(hwnd uintptr, title, message, buttons, icon string) (string, error) {
@@ -410,6 +513,9 @@ type fileDialogFilter struct {
 
 // syscallOpenDialog 弹出系统"打开文件"对话框，返回选中文件路径列表（取消返回空列表）。
 func syscallOpenDialog(hwnd uintptr, title string, filters []fileDialogFilter, multi bool) ([]string, error) {
+	if err := comEnsureInit(); err != nil {
+		return nil, err
+	}
 	var ppv uintptr
 	hr, _, _ := procCoCreateInstance.Call(
 		uintptr(unsafe.Pointer(&clsidFileOpenDialog)), 0, 0x1,
@@ -485,6 +591,9 @@ func syscallOpenDialog(hwnd uintptr, title string, filters []fileDialogFilter, m
 
 // syscallSaveDialog 弹出系统"另存为"对话框，返回保存路径（取消返回空串）。
 func syscallSaveDialog(hwnd uintptr, title, defaultName string, filters []fileDialogFilter) (string, error) {
+	if err := comEnsureInit(); err != nil {
+		return "", err
+	}
 	var ppv uintptr
 	hr, _, _ := procCoCreateInstance.Call(
 		uintptr(unsafe.Pointer(&clsidFileSaveDialog)), 0, 0x1,
@@ -682,11 +791,19 @@ func (a *App) sysCapCall(method string, paramsJSON string) (result interface{}, 
 	case "clipboard.read":
 		return clipboardReadText()
 	case "clipboard.write":
-		return nil, clipboardWriteText(argStr("text"))
+		return nil, clipboardWriteText(argStr("text"), hwnd)
 	case "shell.open":
 		return nil, shellOpen(argStr("target"))
 	case "notification.show":
-		return nil, showToast(argStr("title"), argStr("body"))
+		// Toast 经 PowerShell 子进程投影，冷启动 1-3s——异步派发，
+		// 绝不在 UI 线程同步等待（桥接回调运行在消息泵内，同步=冻结窗口）。
+		title, body := argStr("title"), argStr("body")
+		go func() {
+			if err := showToast(title, body); err != nil {
+				fmt.Fprintf(os.Stderr, "freedom: %v\n", err)
+			}
+		}()
+		return nil, nil
 	case "autostart.get":
 		name := argStr("name")
 		if name == "" {

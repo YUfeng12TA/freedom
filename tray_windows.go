@@ -120,14 +120,16 @@ type menuItem struct {
 
 // trayState 保存当前托盘实例（单窗口框架内为单例）。
 type trayState struct {
-	mu      sync.Mutex
-	hwnd    uintptr           // 隐藏消息窗口
-	menu    uintptr           // 右键 popup 菜单
-	menuBar uintptr           // 原生菜单栏 HMENU
-	items   map[uint32]string // menu id -> 前端 id
-	nextID  uint32
-	emit    func(event string, data interface{})
-	icon    uintptr // 当前托盘图标 HICON
+	mu         sync.Mutex
+	hwnd       uintptr           // 隐藏消息窗口
+	menu       uintptr           // 右键 popup 菜单
+	menuIDs    []uint32          // menu 占用的条目 id（重建时清理映射）
+	menuBar    uintptr           // 原生菜单栏 HMENU
+	menuBarIDs []uint32          // menuBar 占用的条目 id
+	items      map[uint32]string // menu id -> 前端 id
+	nextID     uint32
+	emit       func(event string, data interface{})
+	icon       uintptr // 当前托盘图标 HICON
 }
 
 var (
@@ -282,31 +284,40 @@ func trayShowMenu(ts *trayState) {
 }
 
 // buildMenu 递归构建 HMENU（用于托盘右键与菜单栏子菜单）。
-// 返回菜单句柄与 id 映射（追加到 ts.items）。
-func buildMenu(ts *trayState, items []menuItem) uintptr {
+// 返回菜单句柄与本次分配的全部条目 id（供整体替换时清理旧映射）。
+func buildMenu(ts *trayState, items []menuItem) (uintptr, []uint32) {
 	hMenu, _, _ := procCreatePopupMenu.Call()
 	if hMenu == 0 {
-		return 0
+		return 0, nil
 	}
-	appendMenuItems(ts, hMenu, items, false)
-	return hMenu
+	var ids []uint32
+	appendMenuItems(ts, hMenu, items, false, &ids)
+	return hMenu, ids
 }
 
-// appendMenuItems 把条目追加到指定菜单。
-func appendMenuItems(ts *trayState, hMenu uintptr, items []menuItem, isMenuBar bool) {
-	for i, it := range items {
+// appendMenuItems 把条目追加到指定菜单；新分配的 id 记入 *ids。
+func appendMenuItems(ts *trayState, hMenu uintptr, items []menuItem, isMenuBar bool, ids *[]uint32) {
+	for _, it := range items {
 		if it.Type == "separator" {
 			procAppendMenuW.Call(hMenu, mfSeparator, 0, 0)
 			continue
 		}
 		if it.Type == "submenu" || (isMenuBar && len(it.Submenu) > 0) {
-			sub := buildMenu(ts, it.Submenu)
+			label, err := syscall.UTF16PtrFromString(it.Label)
+			if err != nil {
+				continue // 标签含 NUL：跳过该条目
+			}
+			sub, subIDs := buildMenu(ts, it.Submenu)
 			if sub == 0 {
 				continue
 			}
-			label, _ := syscall.UTF16PtrFromString(it.Label)
+			*ids = append(*ids, subIDs...)
 			procAppendMenuW.Call(hMenu, mfPopup|mfEnabled, sub, uintptr(unsafe.Pointer(label)))
 			continue
+		}
+		label, err := syscall.UTF16PtrFromString(it.Label)
+		if err != nil {
+			continue // 标签含 NUL：跳过该条目（id 不消耗）
 		}
 		var flags uintptr = mfString | mfEnabled
 		if it.Checked != nil && *it.Checked {
@@ -315,46 +326,62 @@ func appendMenuItems(ts *trayState, hMenu uintptr, items []menuItem, isMenuBar b
 		if it.Enabled != nil && !*it.Enabled {
 			flags |= mfGrayed
 		}
+		ts.mu.Lock()
 		id := ts.nextID
 		ts.nextID++
-		ts.mu.Lock()
 		ts.items[id] = it.ID
 		ts.mu.Unlock()
-		label, _ := syscall.UTF16PtrFromString(it.Label)
-		if isMenuBar && i == 0 {
-			// 菜单栏首个条目用 MF_BYPOSITION 占位（顶层菜单由 SetMenu 接管）。
-		}
+		*ids = append(*ids, id)
 		procAppendMenuW.Call(hMenu, flags, uintptr(id), uintptr(unsafe.Pointer(label)))
 	}
 }
 
-// traySetMenu 设置托盘右键菜单（整体替换）。
+// traySetMenu 设置托盘右键菜单（整体替换，旧 id 映射随之清理）。
 func traySetMenu(ts *trayState, items []menuItem) {
 	ts.mu.Lock()
 	old := ts.menu
+	oldIDs := ts.menuIDs
 	ts.menu = 0
+	ts.menuIDs = nil
 	ts.mu.Unlock()
 	if old != 0 {
 		procDestroyMenu.Call(old)
 	}
+	releaseItemIDs(ts, oldIDs)
 	if len(items) == 0 {
 		return
 	}
-	h := buildMenu(ts, items)
+	h, ids := buildMenu(ts, items)
 	ts.mu.Lock()
 	ts.menu = h
+	ts.menuIDs = ids
 	ts.mu.Unlock()
 }
 
-// menuBarSet 设置主窗口原生菜单栏（整体替换）。
+// releaseItemIDs 从 id→前端 id 映射中移除一批条目（防重建后残留无主映射无限增长）。
+func releaseItemIDs(ts *trayState, ids []uint32) {
+	if len(ids) == 0 {
+		return
+	}
+	ts.mu.Lock()
+	for _, id := range ids {
+		delete(ts.items, id)
+	}
+	ts.mu.Unlock()
+}
+
+// menuBarSet 设置主窗口原生菜单栏（整体替换，旧 id 映射随之清理）。
 func menuBarSet(hwnd uintptr, ts *trayState, items []menuItem) {
 	ts.mu.Lock()
 	old := ts.menuBar
+	oldIDs := ts.menuBarIDs
 	ts.menuBar = 0
+	ts.menuBarIDs = nil
 	ts.mu.Unlock()
 	if old != 0 {
 		procDestroyMenu.Call(old)
 	}
+	releaseItemIDs(ts, oldIDs)
 	if len(items) == 0 {
 		procSetMenu.Call(hwnd, 0)
 		procDrawMenuBar.Call(hwnd)
@@ -364,13 +391,21 @@ func menuBarSet(hwnd uintptr, ts *trayState, items []menuItem) {
 	if hBar == 0 {
 		return
 	}
+	var ids []uint32
 	for _, top := range items {
-		label, _ := syscall.UTF16PtrFromString(top.Label)
 		if top.Type == "separator" {
 			continue
 		}
+		label, err := syscall.UTF16PtrFromString(top.Label)
+		if err != nil {
+			continue // 标签含 NUL：跳过该条目
+		}
 		if len(top.Submenu) > 0 {
-			sub := buildMenu(ts, top.Submenu)
+			sub, subIDs := buildMenu(ts, top.Submenu)
+			if sub == 0 {
+				continue
+			}
+			ids = append(ids, subIDs...)
 			procAppendMenuW.Call(hBar, mfPopup|mfEnabled, sub, uintptr(unsafe.Pointer(label)))
 		} else {
 			// 顶层无子菜单：视为可点击菜单项。
@@ -378,16 +413,18 @@ func menuBarSet(hwnd uintptr, ts *trayState, items []menuItem) {
 			if top.Checked != nil && *top.Checked {
 				flags |= mfChecked
 			}
+			ts.mu.Lock()
 			id := ts.nextID
 			ts.nextID++
-			ts.mu.Lock()
 			ts.items[id] = top.ID
 			ts.mu.Unlock()
+			ids = append(ids, id)
 			procAppendMenuW.Call(hBar, flags, uintptr(id), uintptr(unsafe.Pointer(label)))
 		}
 	}
 	ts.mu.Lock()
 	ts.menuBar = hBar
+	ts.menuBarIDs = ids
 	ts.mu.Unlock()
 	procSetMenu.Call(hwnd, hBar)
 	procDrawMenuBar.Call(hwnd)
@@ -413,6 +450,9 @@ func trayDestroy(ts *trayState) {
 		procDestroyMenu.Call(ts.menuBar)
 		ts.menuBar = 0
 	}
+	ts.menuIDs = nil
+	ts.menuBarIDs = nil
+	ts.items = map[uint32]string{} // 已持锁：直接重建映射，不留无主条目
 	if ts.icon != 0 {
 		procDestroyIcon.Call(ts.icon)
 		ts.icon = 0

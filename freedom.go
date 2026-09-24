@@ -78,11 +78,14 @@ type App struct {
 	cfg     Config
 	view    webview.WebView
 	viewMu  sync.RWMutex // 保护 view：Emit/Quit/WindowHandle 承诺可从任意 goroutine 调用
+	wsMu    sync.Mutex   // 串行化 window-state 落盘（拖拽异步保存可与销毁保存交叠）
 	backend Backend
 	onReady func(a *App)
 }
 
 // appForEvents 指向当前运行的 App，供平台层回调（单实例/热键等）向 Emit 事件。
+// 契约：一个进程只跑一个 App——托盘/消息窗口/热键等平台层状态均为进程级单例，
+// 并发创建多个 App 会让事件串门。
 var appForEvents atomic.Pointer[App]
 
 func currentApp() *App { return appForEvents.Load() }
@@ -136,6 +139,8 @@ func (a *App) OnReady(fn func(a *App)) {
 //   - 参数与返回值通过 JSON 编解码，前端用 window.freedom.call(name, ...args) 调用，
 //     返回 Promise（resolve 为返回值，reject 为 error 的字符串表示）。
 //   - 返回值约定：可返回 (T, error) 或仅 (T) 或仅 error 或空。
+//   - 执行线程：绑定函数在 UI 线程的消息泵内同步执行（webview 回调语义）。
+//     耗时处理会冻结窗口——长任务须自行转 goroutine 异步执行，结果经 Emit 推回前端。
 func (a *App) Bind(name string, fn interface{}) error {
 	eb, ok := a.backend.(*EmbedBackend)
 	if !ok {

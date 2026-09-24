@@ -109,7 +109,7 @@ func collectResults(res []reflect.Value) (interface{}, error) {
 		return nil, nil
 	case 1:
 		if res[0].Type().Implements(errorType) {
-			if !res[0].IsNil() {
+			if !isNilValue(res[0]) {
 				return nil, res[0].Interface().(error)
 			}
 			return nil, nil
@@ -119,11 +119,22 @@ func collectResults(res []reflect.Value) (interface{}, error) {
 		if !res[1].Type().Implements(errorType) {
 			return nil, fmt.Errorf("freedom: second return value must be error")
 		}
-		if !res[1].IsNil() {
+		if !isNilValue(res[1]) {
 			return res[0].Interface(), res[1].Interface().(error)
 		}
 		return res[0].Interface(), nil
 	default:
 		return nil, fmt.Errorf("freedom: function may return at most a value and an error")
 	}
+}
+
+// isNilValue 判空。绑定函数可返回实现了 error 接口的值类型
+// （如带 Error() 方法的 struct），对这类 Kind 调 reflect.Value.IsNil 会 panic。
+func isNilValue(v reflect.Value) bool {
+	switch v.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface,
+		reflect.Map, reflect.Ptr, reflect.Slice, reflect.UnsafePointer:
+		return v.IsNil()
+	}
+	return false
 }

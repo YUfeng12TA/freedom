@@ -72,6 +72,13 @@ func (b *atomicBool) Load() bool {
 // windowRuntimes 映射 hwnd → 运行态；子类化回调经此找回 App。
 var windowRuntimes sync.Map
 
+// 回调地址在初始化时一次性固化：syscall.NewCallback 每次调用都占用全局句柄表，
+// 在热路径（每次子类化/枚举显示器）里重复 NewCallback 会泄漏且可能溢出。
+var (
+	windowSubclassCB = syscall.NewCallback(windowSubclassProc)
+	enumMonitorsCB   = syscall.NewCallback(enumMonitorsProc)
+)
+
 // freedomSubclassID 是 SetWindowSubclass 的子类标识。
 const freedomSubclassID = 0x46524431 // "FRD1"
 
@@ -119,6 +126,19 @@ func windowSubclassProc(hwnd, msg, wParam, lParam, subID, ref uintptr) uintptr {
 			rt.app.Emit("window.closeRequested", nil)
 			return 0
 		}
+	case wmCommand:
+		// 主窗口原生菜单栏的条目点击：WM_COMMAND 发给菜单属主窗口，
+		// 与 tray 隐藏窗口的右键 popup 共用同一 id→前端 id 映射。
+		// 注意：不得在此锁 trayProcMu——属主线程可能正持锁跨线程建窗口，会互等死锁。
+		id := uint32(wParam & 0xFFFF)
+		if ts := trayStateInst; ts != nil {
+			ts.mu.Lock()
+			label, ok := ts.items[id]
+			ts.mu.Unlock()
+			if ok {
+				ts.emit("tray:menu", map[string]interface{}{"id": label})
+			}
+		}
 	}
 	r, _, _ := procDefSubclassProc.Call(hwnd, msg, wParam, lParam)
 	return r
@@ -133,15 +153,15 @@ func (a *App) installWindowEvents() {
 	rt := &windowRuntime{app: a}
 	windowRuntimes.Store(hwnd, rt)
 	// SetWindowSubclass(hwnd, pfnSubclass, uIdSubclass, dwRefData)
-	if r, _, _ := procSetWindowSubclass.Call(hwnd, syscall.NewCallback(windowSubclassProc),
-		freedomSubclassID, 0); r == 0 {
+	if r, _, _ := procSetWindowSubclass.Call(hwnd, windowSubclassCB, freedomSubclassID, 0); r == 0 {
 		windowRuntimes.Delete(hwnd)
 	}
 }
 
-// uninstallWindowEvents 在窗口销毁后清理运行态映射。
+// uninstallWindowEvents 摘除子类化并清理运行态映射。
 func (a *App) uninstallWindowEvents() {
 	if hwnd := a.WindowHandle(); hwnd != 0 {
+		procRemoveWindowSubclass.Call(hwnd, windowSubclassCB, freedomSubclassID)
 		windowRuntimes.Delete(hwnd)
 	}
 }
@@ -243,7 +263,7 @@ func listMonitors() []monitorEntry {
 	monitorScan.mu.Lock()
 	defer monitorScan.mu.Unlock()
 	monitorScan.list = nil
-	procEnumDisplayMonitors.Call(0, 0, syscall.NewCallback(enumMonitorsProc), 0)
+	procEnumDisplayMonitors.Call(0, 0, enumMonitorsCB, 0)
 	return monitorScan.list
 }
 

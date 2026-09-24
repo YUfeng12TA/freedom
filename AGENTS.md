@@ -20,9 +20,13 @@
 - `bridge.go` — 内嵌 Go 后端：反射分发（`app.Bind`）。
 - `backend_proc.go` — 进程后端：stdio IPC（启动/调用/事件/关闭），注入 `FREEDOM_BACKEND=1`、`FREEDOM_IPC=stdio`。
 - `assets_embed.go` — 前端资源 `go:embed`（assets/freedom.js SDK + default.html）。
-- `window_windows.go` — Windows 原生窗口层（user32/dwmapi）：标题栏策略、居中、样式。
+- `window_windows.go` — Windows 原生窗口层（user32/dwmapi）：标题栏策略、居中、样式、共用 NewProc 声明处。
+- `events_windows.go` — 子类化（comctl32 SetWindowSubclass）：窗口事件、关闭拦截、WM_COMMAND→tray:menu、monitor 枚举。
 - `tray_windows.go` — 系统托盘 + 原生菜单（Shell_NotifyIcon / HMENU，事件经 `App.Emit` 推前端）。
-- `syscap_windows.go` — 系统能力层：任务栏进度（ITaskbarList3）、DWM 背景效果、系统对话框（COM）。
+- `syscap_windows.go` — 系统能力层：任务栏进度（ITaskbarList3）、DWM 背景效果、系统对话框（COM，comEnsureInit）。
+- `sysint_windows.go` — 系统集成：热键解析、剪贴板、Toast、shell.open 白名单、autostart 属主校验、URL Scheme 保留名单。
+- `msgwindow_windows.go` / `singleinstance_windows.go` — 独立消息窗口线程（WM_HOTKEY/WM_COPYDATA）与 CreateMutexW 权威单实例锁。
+- `store.go` / `osver_windows.go` — 平台无关数据层（path/store/window-state/os/process，经 sysGeneric 分发）与 Windows 侧几何/版本支撑。
 - 各 `*_windows.go` 均有对应 `*_other.go` 占位实现（build tag `//go:build windows`），跨平台编译靠这对文件。
 
 ## Conventions
@@ -33,6 +37,9 @@
 - PowerShell 脚本：含中文必须存带 BOM 的 UTF-8，`param()` 必须是首条可执行语句；原生命令失败 `$ErrorActionPreference` 不生效，须显式查 `$LASTEXITCODE`（见 build.ps1 的 `Invoke-Native`）。
 - Rust 后端零依赖单文件，`rustc -O` 直接编译，不走 cargo（crates.io 网络受限的教训）。
 - 前端 SDK（assets/freedom.js）每次调用动态读 `window.__freedom_bridge`，规避 WebView 注入时序问题。
+- **Bind 回调同步运行在 UI 线程消息泵内**：耗时 handler 冻结窗口；系统能力派发里凡涉子进程/文件 IO 的须自行 `go func` 异步化（见 syscap_windows.go notification.show）。
+- **syscall.NewCallback 只在包级变量或 once 初始化里固化一次**，禁止在热路径（子类化、EnumDisplayMonitors）每次调用（全局句柄表泄漏）；见 events_windows.go windowSubclassCB/enumMonitorsCB。
+- 单实例以 `CreateMutexW` 为权威（FindWindow 只用于定位转发目标）；入站 WM_COPYDATA 必须过 `validCopyData`（魔数+64KB 上限）。
 - 错误处理沿 Go 惯例；测试断言四语言后端共用一套（backend_proc_test.go）。
 
 ## Notes

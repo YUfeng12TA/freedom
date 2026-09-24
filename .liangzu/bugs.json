@@ -1,7 +1,7 @@
 {
   "version": 4,
   "subKind": "bugs",
-  "lastUpdated": "2026-09-23T21:00:00+08:00",
+  "lastUpdated": "2026-09-24T11:30:00+08:00",
   "bugRegistry": [
     {
       "id": "B01",
@@ -88,6 +88,160 @@
       "fix": "补齐引号、删除损坏标记条目；node JSON.parse 校验通过",
       "regressionTest": "node -e JSON.parse(readFileSync(...)) 退出码 0（2026-09-23 实测）",
       "fixedAt": "2026-09-23T21:00:00+08:00"
+    },
+    {
+      "id": "B-20260924-001",
+      "sev": "critical",
+      "file": "sysint_windows.go",
+      "line": 214,
+      "summary": "shellOpen 对前端 target 零校验直入 ShellExecuteW open——可打开本地路径/shell: 命名空间，前端 XSS 即 RCE 跳板",
+      "status": "fixed",
+      "fix": "shellTargetAllowed 白名单：仅 http/https/mailto，其余（含空串、绝对路径）拒绝",
+      "regressionTest": "go test -race -run TestShellTargetAllowed（2026-09-24 实测绿）",
+      "fixedAt": "2026-09-24T11:30:00+08:00"
+    },
+    {
+      "id": "B-20260924-002",
+      "sev": "critical",
+      "file": "sysint_windows.go",
+      "line": 300,
+      "summary": "registerProtocol/unregisterProtocol 允许注册或删除 http/https/file/shell 等系统保留 scheme——可劫持全系统网页链接",
+      "status": "fixed",
+      "fix": "protocolSchemeAllowed 保留名单（http/https/file/ftp/mailto/shell/search-ms/javascript/data/about/resource/res + ms-/microsoft. 前缀），注册与注销双向拒绝",
+      "regressionTest": "go test -race -run TestProtocolSchemeAllowed（2026-09-24 实测绿）",
+      "fixedAt": "2026-09-24T11:30:00+08:00"
+    },
+    {
+      "id": "B-20260924-003",
+      "sev": "major",
+      "file": "syscap_windows.go",
+      "line": 62,
+      "summary": "comGUIDFromString 曾将 Data4 后 8 字节整体解析（字节序错），COM 接口查询静默失败",
+      "status": "fixed",
+      "fix": "parts[3]/parts[4] 逐字节 hex 解码进 Data4；非法输入返回零值",
+      "regressionTest": "go test -race -run TestComGUIDData4Layout（IFileDialog CLSID 字节布局断言，2026-09-24 实测绿）",
+      "fixedAt": "2026-09-24T11:30:00+08:00"
+    },
+    {
+      "id": "B-20260924-004",
+      "sev": "major",
+      "file": "syscap_windows.go",
+      "line": 40,
+      "summary": "全工程无 CoInitializeEx：ITaskbarList3/IFileDialog 在未初始化线程上调用 COM 必失败",
+      "status": "fixed",
+      "fix": "comEnsureInit（STA，容忍 RPC_E_CHANGED_MODE）接线到 taskbarList3/syscallOpenDialog/syscallSaveDialog",
+      "regressionTest": "go build + COM 入口调用点复核（三处均先过 comEnsureInit）",
+      "fixedAt": "2026-09-24T11:30:00+08:00"
+    },
+    {
+      "id": "B-20260924-005",
+      "sev": "major",
+      "file": "sysint_windows.go",
+      "line": 130,
+      "summary": "clipboardWriteText OpenClipboard(0) 且 EmptyClipboard 返回值未查——无属主清空别人剪贴板、失败后继续写致半状态",
+      "status": "fixed",
+      "fix": "签名增 ownerHwnd（0 即拒），EmptyClipboard 失败早退；派发端传 a.WindowHandle()",
+      "regressionTest": "代码复核（剪贴板属主语义无法纯单测）+ 全量 go test -race 绿",
+      "fixedAt": "2026-09-24T11:30:00+08:00"
+    },
+    {
+      "id": "B-20260924-006",
+      "sev": "major",
+      "file": "sysint_windows.go",
+      "line": 250,
+      "summary": "setAutostart 不校验 name 与现值属主：前端可传任意名删除/覆盖其他软件的 HKCU Run 启动项",
+      "status": "fixed",
+      "fix": "name 过 sanitizeName 拒空；删除/覆盖前 regQuerySz 现值，valueOwnedBySelf 不含本 exe 即拒绝",
+      "regressionTest": "go test -race -run TestValueOwnedBySelf（2026-09-24 实测绿）",
+      "fixedAt": "2026-09-24T11:30:00+08:00"
+    },
+    {
+      "id": "B-20260924-007",
+      "sev": "major",
+      "file": "msgwindow_windows.go",
+      "line": 95,
+      "summary": "WM_COPYDATA 接收侧不验 DwData 魔数与 CbData 上限：任意窗口可投伪造/超大负载",
+      "status": "fixed",
+      "fix": "validCopyData 守卫：魔数 forwardWindowMagic + 0<CbData≤64KB + LpData 非空",
+      "regressionTest": "go test -race -run TestValidCopyData（2026-09-24 实测绿）",
+      "fixedAt": "2026-09-24T11:30:00+08:00"
+    },
+    {
+      "id": "B-20260924-008",
+      "sev": "major",
+      "file": "singleinstance_windows.go",
+      "line": 40,
+      "summary": "单实例以 FindWindowW 为权威：两进程并发查询互不可见，各自认定主实例（TOCTOU 双主）；且转发失败时二次进程静默退出丢用户参数",
+      "status": "fixed",
+      "fix": "CreateMutexW(Local\\Freedom-SingleInstance-<appID>) 为权威，FindWindow 仅定位转发目标；二次进程 3s 轮询等窗口，超时降级继续运行；SendMessageTimeout 后 KeepAlive(payload)；主实例 setTitle 纠正默认标题",
+      "regressionTest": "go test -race -run TestRequestSingleInstanceLock（同进程真互斥体+WM_COPYDATA 往返，2026-09-24 实测绿）",
+      "fixedAt": "2026-09-24T11:30:00+08:00"
+    },
+    {
+      "id": "B-20260924-009",
+      "sev": "major",
+      "file": "backend_proc.go",
+      "line": 260,
+      "summary": "readLoop 用 ReadBytes('\\n')：后端狂吐无换行数据时无界攒内存可 OOM 壳进程；maxLine 在读侧不生效",
+      "status": "fixed",
+      "fix": "readLimitedLine 受限行读取（超限即弃至行尾），maxLine 每行经 mu 读取；Handle 超时值锁内快照",
+      "regressionTest": "go test -race -run 'TestReadLimitedLine|TestProbe4OversizedLine'（含 5MB 无换行流用例，2026-09-24 实测绿）",
+      "fixedAt": "2026-09-24T11:30:00+08:00"
+    },
+    {
+      "id": "B-20260924-010",
+      "sev": "major",
+      "file": "bridge.go",
+      "line": 112,
+      "summary": "collectResults 对实现了 error 的值类型（struct/int 带 Error() 方法）直接 reflect.Value.IsNil → panic 击穿桥接",
+      "status": "fixed",
+      "fix": "isNilValue 按 Kind 分派，仅 nilable 类型调 IsNil",
+      "regressionTest": "go test -race -run TestCollectResultsValueError（2026-09-24 实测绿）",
+      "fixedAt": "2026-09-24T11:30:00+08:00"
+    },
+    {
+      "id": "B-20260924-011",
+      "sev": "major",
+      "file": "store.go",
+      "line": 158,
+      "summary": "store/window-state 原子写用固定 .tmp 名（并发互相覆盖致 rename 失败）；坏 JSON 被下次保存静默覆盖丢用户数据",
+      "status": "fixed",
+      "fix": "writeAtomic 唯一 tmp 名（pid+seq）+ rename 重试；不可解析文件改名 <path>.corrupt-<ts> 留证；persistWindowState 经 wsMu 串行化",
+      "regressionTest": "go test -race -run 'TestWriteAtomicConcurrent|TestStoreCorruptBackup|TestWindowStateCorruptBackup'（2026-09-24 实测绿）",
+      "fixedAt": "2026-09-24T11:30:00+08:00"
+    },
+    {
+      "id": "B-20260924-012",
+      "sev": "major",
+      "file": "events_windows.go",
+      "line": 136,
+      "summary": "调用点每次 NewCallback（subclass+monitors 两处句柄表泄漏）；uninstall 不摘子类化；主窗口菜单栏 WM_COMMAND 无人转发前端（菜单点击无响应）",
+      "status": "fixed",
+      "fix": "回调地址包级固化 windowSubclassCB/enumMonitorsCB；uninstallWindowEvents 调 RemoveWindowSubclass；子类化 proc 增 case wmCommand 查 trayState.items 发 tray:menu",
+      "regressionTest": "go build + 子类化生命周期走查（菜单点击链路需真机托盘回归）",
+      "fixedAt": "2026-09-24T11:30:00+08:00"
+    },
+    {
+      "id": "B-20260924-013",
+      "sev": "minor",
+      "file": "tray_windows.go",
+      "line": 296,
+      "summary": "菜单构建忽略 UTF16PtrFromString 错误（NUL 标签产生空条目）；重建菜单后 ts.items 旧映射无主泄漏；nextID 裸读写",
+      "status": "fixed",
+      "fix": "标签编码失败跳条目（id 不消耗）；menuIDs/menuBarIDs 跟踪本次分配，重建与销毁时 releaseItemIDs 清理；nextID 收进 ts.mu",
+      "regressionTest": "go build + 重建路径走查；全量 go test -race 绿",
+      "fixedAt": "2026-09-24T11:30:00+08:00"
+    },
+    {
+      "id": "B-20260924-014",
+      "sev": "minor",
+      "file": "syscap_windows.go",
+      "line": 800,
+      "summary": "notification.show 同步 exec powershell（秒级）跑在 UI 线程消息泵内——发通知冻结窗口",
+      "status": "fixed",
+      "fix": "dispatch 改 go func 异步执行，失败写 stderr；hiconFromPNG 重写同时消除 CreateIconFromResourceEx 误用",
+      "regressionTest": "go build + 派发路径复核（Bind 同步执行约束已写入 freedom.go 文档注释）",
+      "fixedAt": "2026-09-24T11:30:00+08:00"
     }
   ]
 }

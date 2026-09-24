@@ -8,6 +8,8 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 )
 
 // 数据层（对标 Tauri path / store / window-state / os / process 插件）：
@@ -74,6 +76,34 @@ func sanitizeName(s string) string {
 	return cleaned
 }
 
+// ---- 原子落盘与损坏备份 ----
+
+var tmpSeq atomic.Uint64
+
+// writeAtomic 先写唯一命名的临时文件再 rename 替换。
+// 固定 ".tmp" 名会被并发落盘互相覆盖（且崩溃残留会污染下次写入）；
+// 并发替换同一目标时 Windows 的 MoveFileEx 会间歇 ACCESS_DENIED，重试等到位。
+func writeAtomic(path string, b []byte) error {
+	tmp := fmt.Sprintf("%s.tmp-%d-%d", path, os.Getpid(), tmpSeq.Add(1))
+	if err := os.WriteFile(tmp, b, 0o644); err != nil {
+		return err
+	}
+	var err error
+	for i := 0; i < 5; i++ {
+		if err = os.Rename(tmp, path); err == nil {
+			return nil
+		}
+		time.Sleep(time.Duration(10*(i+1)) * time.Millisecond)
+	}
+	os.Remove(tmp)
+	return err
+}
+
+// backupCorrupt 把无法解析的 JSON 文件改名留证，避免随后的正常保存静默覆盖用户数据。
+func backupCorrupt(path string) {
+	_ = os.Rename(path, fmt.Sprintf("%s.corrupt-%d", path, time.Now().UnixNano()))
+}
+
 // ---- store：命名 JSON KV（落盘即写，进程内串行） ----
 
 type storeFile struct {
@@ -97,6 +127,8 @@ func storeFor(dir, name string) (*storeFile, error) {
 		var m map[string]json.RawMessage
 		if json.Unmarshal(b, &m) == nil {
 			sf.data = m
+		} else {
+			backupCorrupt(path) // 坏文件留证，随后 set/delete 的保存不再静默覆盖
 		}
 	}
 	actual, _ := storeCache.LoadOrStore(path, sf)
@@ -155,11 +187,7 @@ func (sf *storeFile) flushLocked() error {
 	if err != nil {
 		return err
 	}
-	tmp := sf.path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, sf.path) // 原子替换，避免写一半损坏
+	return writeAtomic(sf.path, b) // 原子替换，避免写一半损坏
 }
 
 // ---- window state（位置/尺寸记忆）----
@@ -184,8 +212,12 @@ func loadWindowState(dir string) (WindowState, bool) {
 	if err != nil {
 		return st, false
 	}
-	if json.Unmarshal(b, &st) != nil || st.Width <= 0 || st.Height <= 0 {
-		return st, false
+	if json.Unmarshal(b, &st) != nil {
+		backupCorrupt(windowStatePath(dir))
+		return WindowState{}, false
+	}
+	if st.Width <= 0 || st.Height <= 0 {
+		return WindowState{}, false
 	}
 	return st, true
 }
@@ -195,11 +227,7 @@ func saveWindowState(dir string, st WindowState) error {
 		return err
 	}
 	b, _ := json.Marshal(st)
-	tmp := windowStatePath(dir) + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, windowStatePath(dir))
+	return writeAtomic(windowStatePath(dir), b)
 }
 
 // ---- os / process 信息 ----

@@ -6,10 +6,12 @@ package freedom
 // 运行：go test -count=1 -run TestProbe -v .
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -220,4 +222,55 @@ func TestProbe4OversizedLine(t *testing.T) {
 		t.Logf("id=2 仍无响应（信息项：超长行来源调用挂起，符合'仅该行过大'的局部影响）")
 	}
 	_ = runtime.GOOS
+}
+
+// ---------------------------------------------------------------------------
+// W6 回归：受限行读取器（readLoop 不再用 ReadBytes 无界攒内存）
+// ---------------------------------------------------------------------------
+
+func TestReadLimitedLine(t *testing.T) {
+	cases := []struct {
+		name      string
+		in        string
+		limit     int
+		wantLine  string
+		wantDrop  bool
+		wantEOFAt string // 剩余未消费字节应为该后缀（校验读取游标停在行尾之后）
+	}{
+		{"normal line", "hello\nworld\n", 100, "hello", false, "world\n"},
+		{"crlf keeps cr", "a\r\nb\n", 100, "a\r", false, "b\n"},
+		{"exact limit", "abc\n", 4, "abc", false, ""},
+		{"oversized dropped", strings.Repeat("x", 50) + "\nok\n", 10, "", true, "ok\n"},
+		{"eof partial line", "tail", 100, "tail", false, ""},
+		{"no limit", strings.Repeat("y", 200) + "\n", 0, strings.Repeat("y", 200), false, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			rd := bufio.NewReader(strings.NewReader(c.in))
+			line, dropped, err := readLimitedLine(rd, c.limit)
+			if dropped != c.wantDrop {
+				t.Fatalf("dropped=%v want %v", dropped, c.wantDrop)
+			}
+			if string(line) != c.wantLine {
+				t.Fatalf("line=%q want %q", line, c.wantLine)
+			}
+			if c.limit == 0 && err != nil {
+				t.Fatalf("no-limit path err=%v", err)
+			}
+			rest, _ := io.ReadAll(rd)
+			if got := string(rest); got != c.wantEOFAt {
+				t.Fatalf("cursor left at %q want %q", got, c.wantEOFAt)
+			}
+		})
+	}
+	// 超限且无换行的病态流：读到 EOF 为止，内存不超过 limit+缓冲量级
+	huge := strings.NewReader(strings.Repeat("z", 5*1024*1024))
+	rd := bufio.NewReaderSize(huge, 64*1024)
+	line, dropped, err := readLimitedLine(rd, 4096)
+	if !dropped || len(line) != 0 {
+		t.Fatalf("5MB no-newline stream: dropped=%v len=%d", dropped, len(line))
+	}
+	if err != io.EOF {
+		t.Fatalf("want io.EOF at stream end, got %v", err)
+	}
 }

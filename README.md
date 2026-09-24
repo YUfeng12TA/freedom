@@ -130,6 +130,17 @@ GitHub Actions：`.github/workflows/build.yml` 在三个 runner 上分别编译�
 go test -v ./...   # 同一套断言跑 Go / Node / Python / Rust 四个后端（调用/错误/事件）
 ```
 
+## 桌面系统能力（对标 Tauri v2，W1–W6 补齐）
+
+前端经 `window.freedom` SDK（assets/freedom.js）统一调用，Windows 侧全部原生实现（user32/comctl32/Shell API）：
+
+- **窗口**：setPosition/setSize/setTitle/置顶/全屏/最小化还原/拖动、显示器枚举与 DPI 缩放、resize/move/focus 事件、关闭拦截（closeRequested → 前端确认放行）、位置尺寸跨启动记忆（`Config.RememberWindowState`）。
+- **系统集成**：剪贴板读写、全局热键（独立消息窗口线程泵 WM_HOTKEY）、Toast 通知、开机自启（HKCU Run）、URL Scheme/deep-link、托盘图标+原生菜单（含窗口菜单栏，点击回推 `tray:menu`）、单实例（CreateMutexW 权威 + WM_COPYDATA 参数转发）。
+- **数据层**：`path.*` 标准目录、`store.*` 命名 JSON KV（原子落盘、坏文件 `.corrupt-*` 留证）、`os.info`、`process.exit/restart`。
+- **后端健壮性**：`SetRestartPolicy` 崩溃自愈（指数退避、上限放弃），`backend.crashed/restarted/exited` 事件；stdout 行读取内存有界。
+
+**安全边界**（前端不可信前提下的白名单）：`shell.open` 仅放行 http/https/mailto；deep-link 拒绝注册/删除系统保留 scheme；自启项删除前校验属主；剪贴板写入须挂窗口属主；入站 WM_COPYDATA 校验魔数与 64KB 上限。**执行线程约束**：绑定函数在 UI 消息泵内同步执行，耗时任务须自行转 goroutine + 事件回推。
+
 ## 与 Wails / Tauri 对比
 
 | 能力 | Freedom | Wails v3 | Tauri |
@@ -146,11 +157,13 @@ go test -v ./...   # 同一套断言跑 Go / Node / Python / Rust 四个后端�
 - **webview_go 无 SetPosition**：Windows 居中改用 `user32.MoveWindow` 直接操作 HWND。
 - **PowerShell 脚本编码**：含中文的 `.ps1` 必须存为带 BOM 的 UTF-8，且 `param()` 须在脚本首条可执行语句之前。
 - **cargo 拉取 crates.io 受阻**：Rust 后端改为零依赖单文件，直接 `rustc -O` 编译，无需网络。
+- **Windows 并发 rename 同一目标**：`MoveFileEx` 会间歇返回 ACCESS_DENIED——原子落盘须唯一临时名 + 有限重试（store.go writeAtomic）。
+- **GUID 的 Data4 是 8 个独立字节**：不能把 hex 段整体转成 uint64（字节序错），COM 接口查询会静默失败。
 
 ## 后续路线
 
 - [ ] `cmd/freedom` CLI：一条命令生成任意语言后端的新项目骨架
 - [ ] 前端产物自动单文件化（vite-plugin-singlefile）流水线
 - [ ] 多窗口 / 无边框 / 透明窗口支持
-- [ ] 后端进程崩溃自动重启
+- [x] 后端进程崩溃自动重启（RestartPolicy + backend.crashed/restarted 事件）
 

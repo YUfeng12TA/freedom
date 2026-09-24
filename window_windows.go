@@ -56,6 +56,14 @@ var (
 	// 显示器枚举（sysCapCall 的 window.monitors 使用）。
 	procEnumDisplayMonitors = user32win.NewProc("EnumDisplayMonitors")
 
+	// W6 审查修复追加：PNG→HICON 绘制（gdi32）、图标合成、子类化摘除、单实例互斥量。
+	gdi32                  = syscall.NewLazyDLL("gdi32.dll")
+	procCreateDIBSection   = gdi32.NewProc("CreateDIBSection")
+	procDeleteObject       = gdi32.NewProc("DeleteObject")
+	procCreateIconIndirect = user32win.NewProc("CreateIconIndirect")
+	procRemoveWindowSubclass = comctl32.NewProc("RemoveWindowSubclass")
+	procCreateMutexW       = kernel32.NewProc("CreateMutexW")
+
 	shcore               = syscall.NewLazyDLL("shcore.dll")
 	procGetDpiForMonitor = shcore.NewProc("GetDpiForMonitor")
 

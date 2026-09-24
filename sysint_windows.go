@@ -132,16 +132,22 @@ func clipboardReadText() (string, error) {
 }
 
 // clipboardWriteText 写入系统剪贴板文本。
-func clipboardWriteText(text string) error {
+// ownerHwnd 为剪贴板属主窗口（OpenClipboard 要求有效句柄，传 0 会静默失去属主语义）。
+func clipboardWriteText(text string, ownerHwnd uintptr) error {
+	if ownerHwnd == 0 {
+		return fmt.Errorf("freedom: 剪贴板写入缺少属主窗口句柄")
+	}
 	u16, err := syscall.UTF16FromString(text)
 	if err != nil {
 		return fmt.Errorf("freedom: 剪贴板文本含 NUL: %w", err)
 	}
-	if r, _, e := procOpenClipboard.Call(0); r == 0 {
+	if r, _, e := procOpenClipboard.Call(ownerHwnd); r == 0 {
 		return fmt.Errorf("freedom: OpenClipboard: %w", e)
 	}
 	defer procCloseClipboard.Call()
-	procEmptyClipboard.Call()
+	if r, _, e := procEmptyClipboard.Call(); r == 0 {
+		return fmt.Errorf("freedom: EmptyClipboard: %w", e)
+	}
 	size := uintptr(len(u16) * 2)
 	h, _, e := procGlobalAlloc.Call(gmemMoveable, size)
 	if h == 0 {
@@ -195,10 +201,23 @@ func showToast(title, body string) error {
 
 // ---- openExternal ----
 
-// shellOpen 用系统默认关联程序打开文件/URL（SW_SHOWNORMAL=1）。
+// shellTargetAllowed 校验 openExternal 目标：仅放行 http/https/mailto URL。
+// ShellExecuteW 的 "open" 动词可执行任意合法字符串（如 shell:、shell\explorer.exe 等），
+// 前端传入不可全信，白名单之外的 scheme 与本地路径一律拒绝。
+func shellTargetAllowed(target string) bool {
+	lower := strings.ToLower(target)
+	return strings.HasPrefix(lower, "http://") ||
+		strings.HasPrefix(lower, "https://") ||
+		strings.HasPrefix(lower, "mailto:")
+}
+
+// shellOpen 用系统默认关联程序打开 URL（白名单见 shellTargetAllowed，SW_SHOWNORMAL=1）。
 func shellOpen(target string) error {
 	if target == "" {
 		return fmt.Errorf("freedom: shell.open 缺少 target")
+	}
+	if !shellTargetAllowed(target) {
+		return fmt.Errorf("freedom: 拒绝打开非白名单目标 %q（仅允许 http/https/mailto）", target)
 	}
 	p, err := syscall.UTF16PtrFromString(target)
 	if err != nil {
@@ -277,13 +296,33 @@ func regQuerySz(hk uintptr, name string) (string, bool, error) {
 }
 
 // setAutostart 写入/删除 HKCU Run 启动项；args 为附加启动参数。
+// 名称经 sanitizeName 收敛；删除/覆盖前先做属主校验——现值指向非本程序时拒绝，
+// 防止前端传入任意 name 破坏其他软件的启动项。
 func setAutostart(name string, enabled bool, args string) error {
+	name = sanitizeName(name)
+	if name == "" {
+		return fmt.Errorf("freedom: 自启项名称为空或非法")
+	}
 	hk, err := regOpen(hkeyCurrentUser, runKeyPath, keyWrite)
 	if err != nil {
 		return err
 	}
 	defer procRegCloseKey.Call(hk)
+	exePath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("freedom: 无法定位自身路径: %w", err)
+	}
+	cur, found, err := regQuerySz(hk, name)
+	if err != nil {
+		return err
+	}
+	if found && !valueOwnedBySelf(cur, exePath) {
+		return fmt.Errorf("freedom: 启动项 %q 已存在且不属于本程序（值为 %q），拒绝覆盖", name, cur)
+	}
 	if !enabled {
+		if !found {
+			return nil
+		}
 		np, err := syscall.UTF16PtrFromString(name)
 		if err != nil {
 			return err
@@ -293,10 +332,6 @@ func setAutostart(name string, enabled bool, args string) error {
 		}
 		return nil
 	}
-	exePath, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("freedom: 无法定位自身路径: %w", err)
-	}
 	value := `"` + exePath + `"`
 	if a := strings.TrimSpace(args); a != "" {
 		value += " " + a
@@ -304,7 +339,18 @@ func setAutostart(name string, enabled bool, args string) error {
 	return regSetSz(hk, name, value)
 }
 
+// valueOwnedBySelf 判断 Run 键值是否指向本 exe（大小写不敏感前缀匹配引号内路径）。
+func valueOwnedBySelf(value, exePath string) bool {
+	v := strings.ToLower(strings.TrimSpace(value))
+	p := strings.ToLower(exePath)
+	return strings.HasPrefix(v, `"`+p+`"`) || strings.HasPrefix(v, p)
+}
+
 func getAutostart(name string) (bool, error) {
+	name = sanitizeName(name)
+	if name == "" {
+		return false, fmt.Errorf("freedom: 自启项名称为空或非法")
+	}
 	hk, err := regOpen(hkeyCurrentUser, runKeyPath, keyRead)
 	if err != nil {
 		return false, err
@@ -316,11 +362,30 @@ func getAutostart(name string) (bool, error) {
 
 // ---- URL Scheme（deep link 注册表侧）----
 
+// reservedSchemes 是系统/浏览器保留协议：注册它们会劫持网页链接或 shell 行为，一律拒绝。
+var reservedSchemes = map[string]bool{
+	"http": true, "https": true, "file": true, "ftp": true, "mailto": true,
+	"shell": true, "search-ms": true, "javascript": true, "data": true,
+	"about": true, "resource": true, "res": true, "mhtml": true, "ms-appx": true,
+}
+
+// protocolSchemeAllowed 判定 scheme 是否允许注册（保留名单 + ms-/microsoft. 前缀排除）。
+func protocolSchemeAllowed(scheme string) bool {
+	lower := strings.ToLower(scheme)
+	if reservedSchemes[lower] {
+		return false
+	}
+	return !strings.HasPrefix(lower, "ms-") && !strings.HasPrefix(lower, "microsoft.")
+}
+
 // registerProtocol 在 HKCU\Software\Classes 下注册 URL Scheme：
 // 之后系统内任意处打开 "<scheme>:..." 都会带参数拉起本 exe。
 func registerProtocol(scheme, displayName string) error {
 	if scheme == "" || !validScheme(scheme) {
 		return fmt.Errorf("freedom: 非法 scheme %q（需匹配 ^[a-zA-Z][a-zA-Z0-9+.-]*$）", scheme)
+	}
+	if !protocolSchemeAllowed(scheme) {
+		return fmt.Errorf("freedom: 拒绝注册保留 scheme %q", scheme)
 	}
 	exePath, err := os.Executable()
 	if err != nil {
@@ -354,6 +419,9 @@ func registerProtocol(scheme, displayName string) error {
 func unregisterProtocol(scheme string) error {
 	if scheme == "" || !validScheme(scheme) {
 		return fmt.Errorf("freedom: 非法 scheme %q", scheme)
+	}
+	if !protocolSchemeAllowed(scheme) {
+		return fmt.Errorf("freedom: 拒绝删除保留 scheme %q", scheme)
 	}
 	path := classesBase + `\` + scheme
 	sp, err := syscall.UTF16PtrFromString(path)

@@ -24,3 +24,23 @@
 - W4: Close 不再自己 Wait（防双重 Wait）——进程回收统一归 readLoop，Close 等 pdone 信号后必要时 Kill。
 - W4: -race 下把测试二进制当"后端分身"冷启动约 1s，事件收集窗口须 >=5s 且按期望个数提前收。
 - W4: onEvent 直传 Go 值不经 JSON——断言 attempt 用 %v 而非 float64 断言。
+
+## W6 审查清单与裁定（双独立审查代理 → 主代理逐条源码复核）
+
+已修并闭环（对应 bugs B-20260924-001..014，全带回归或复核）：
+- shell.open 白名单（http/https/mailto）；deep-link 保留 scheme 双向拒绝；autostart 属主校验（valueOwnedBySelf）；剪贴板写入需属主 hwnd + EmptyClipboard 检查。
+- COM：GUID Data4 逐字节解码；comEnsureInit(STA) 接线三入口；hiconFromPNG 重写为 CreateDIBSection→CreateIconIndirect。
+- 单实例：CreateMutexW 权威（消 TOCTOU 双主）+ 3s 轮询 + 转发失败降级续跑；COPYDATA 入站 validCopyData（魔数+≤64KB）；SendMessageTimeout 后 KeepAlive(payload)。
+- IPC：readLimitedLine 有界行读取（5MB 无换行流不涨内存）；timeout/maxLine 锁内快照；collectResults isNilValue 防值类型 error panic。
+- 数据：writeAtomic 唯一 tmp+rename 重试（Windows 并发替换间歇 ACCESS_DENIED 实测触发过）；坏 JSON 一律 .corrupt-<ts> 留证；persistWindowState wsMu 串行化。
+- 事件/托盘：回调地址包级固化（NewCallback 泄漏×2）；uninstall 摘子类化；WM_COMMAND→tray:menu 打通菜单栏点击；菜单 id 映射随重建清理、UTF16 错误跳条目；notification.show 异步化（UI 线程冻结）。
+- 文档：Bind 同步执行约束、单 App/进程契约写入 freedom.go。
+
+复核判否（审查代理误报，未改）：
+- go vet 8 处 "possible misuse of unsafe.Pointer"：syscall 返回值→指针的标准模式，x/sys 同款，误报。
+- toast 转义（xmlEscape/psSingleQuote）、sanitizeName 防穿越、vtable 索引、剪贴板配对：审查代理逐字验证封闭。
+
+裁定与遗留：
+- 待裁：webview_go Bind 同步执行是根因级约束（耗时 handler 冻结 UI）。异步化改造（回调 ID+后台派发+结果回推）是跨核心契约重构，超出对标补齐范围，登记为候选波次 W7。
+- 阻塞：updater/installer 对标差距——freedom-cli 为 gitlink(38bbd2e) 但无 .gitmodules URL，本仓不可见（`git submodule status` + 目录为空），缺只有用户能提供的子模块仓库地址。
+- IPC 方法级 allowlist 评估结论：前端→壳通道已按能力收口（window/sys/tray 三门 + 本波白名单）；壳→后端 NDJSON 为自有子进程，无第三方输入面，不设 allowlist（防过度设计，铁律 17）。
