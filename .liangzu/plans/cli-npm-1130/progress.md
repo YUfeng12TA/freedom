@@ -20,5 +20,5 @@
 | R6 | main+tag v1.13.0→7b79db1、CI run 35965094005 success、Release 395399461 资产三平台齐（darwin 资产 Mach-O arm64 文件头实验）、CLI 下载 URL 200、包内 win/linux/darwin 三壳重构建（含 UAF 修复，--version=1.13.0） | done |
 
 | R7 | npm publish 1.13.0 | 用户终端 2FA 发布；dist-tags latest=1.13.0、time 2026-09-24T07:13 done |
-| R8 | README 双端同步 + v1.13.1 文档发布 | freedom-cli/README（v1.13.x 块+CI 壳来源段）、security.js 注释勘误、根 README（目录结构/CI 资产流/踩坑+2/npm 行）、AGENTS 版本行、package.json→1.13.1 已改；待 tag v1.13.1 CI 绿 + Release 三壳 + npm view=1.13.1 | 进行中 |
+| R8 | README 双端同步 + v1.13.1 文档发布 | 已改：freedom-cli/README、security.js 注释、根 README、AGENTS、package.json→1.13.1（b4ee52a，main+tag 已推）；GitHub 侧 done：tag CI run 35972202338 success、main run 35972197705 success、Release 395457352 三壳资产齐（win 7334912B/linux 6734760B/darwin 6139458B）；npm 侧 EOTP 拦下后用户裁定终端 `npm publish --otp` 完成，实测 npm view version=1.13.1 done |
 | R7 | npm whoami=yufengtadian 已过；publish 卡 E403 账号 2FA——需当次 OTP 或 bypass-2fa granular token（仅用户可提供） | 阻塞 |
