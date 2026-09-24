@@ -108,16 +108,6 @@ type notifyIconDataW struct {
 	HBalloonIcon     uintptr
 }
 
-// menuItem 描述一个托盘/菜单栏条目（JSON 透传）。
-type menuItem struct {
-	ID      string     `json:"id"`
-	Label   string     `json:"label"`
-	Type    string     `json:"type"`    // "item"（默认）/ "separator" / "submenu"
-	Enabled *bool      `json:"enabled"` // nil=默认启用
-	Checked *bool      `json:"checked"`
-	Submenu []menuItem `json:"submenu"`
-}
-
 // trayState 保存当前托盘实例（单窗口框架内为单例）。
 type trayState struct {
 	mu         sync.Mutex

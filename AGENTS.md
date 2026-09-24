@@ -28,9 +28,12 @@
 - `tray_windows.go` — 系统托盘 + 原生菜单（Shell_NotifyIcon / HMENU，事件经 `App.Emit` 推前端）。
 - `syscap_windows.go` — 系统能力层：任务栏进度（ITaskbarList3）、DWM 背景效果、系统对话框（COM，comEnsureInit）。
 - `sysint_windows.go` — 系统集成：热键解析、剪贴板、Toast、shell.open 白名单、autostart 属主校验、URL Scheme 保留名单。
+- `syscap_linux.go` — Linux 系统能力：剪贴板（wl-clipboard 优先、失败回退 xclip）、xdg-open 白名单打开、notify-send 通知、XDG autostart `.desktop` 属主校验；taskbar/dialog/shortcut/protocol 等 Windows 专有项显式报 not supported。
+- `tray_linux.go` — GTK3 托盘（cgo GtkStatusIcon + 原生菜单，事件经 `App.Emit`；需 CGO_ENABLED=1 与 gtk3 头文件）。
+- `sysint_common.go` / `tray_common.go` — 无 build tag 的跨平台共享层：openExternal/scheme 白名单、deep-link 参数、dataURL 解析、菜单条目模型（Windows/Linux 两侧复用）。
 - `msgwindow_windows.go` / `singleinstance_windows.go` — 独立消息窗口线程（WM_HOTKEY/WM_COPYDATA）与 CreateMutexW 权威单实例锁。
 - `store.go` / `osver_windows.go` — 平台无关数据层（path/store/window-state/os/process，经 sysGeneric 分发）与 Windows 侧几何/版本支撑。
-- 各 `*_windows.go` 均有对应 `*_other.go` 占位实现（build tag `//go:build windows`），跨平台编译靠这对文件。
+- 各 `*_windows.go` / `*_linux.go` 能力面以 `*_other.go` 占位（tag `!windows && !linux`）兜底编译；macOS 实装仍在路上。
 
 ## Conventions
 

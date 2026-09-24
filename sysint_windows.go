@@ -3,7 +3,6 @@
 package freedom
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -201,16 +200,6 @@ func showToast(title, body string) error {
 
 // ---- openExternal ----
 
-// shellTargetAllowed 校验 openExternal 目标：仅放行 http/https/mailto URL。
-// ShellExecuteW 的 "open" 动词可执行任意合法字符串（如 shell:、shell\explorer.exe 等），
-// 前端传入不可全信，白名单之外的 scheme 与本地路径一律拒绝。
-func shellTargetAllowed(target string) bool {
-	lower := strings.ToLower(target)
-	return strings.HasPrefix(lower, "http://") ||
-		strings.HasPrefix(lower, "https://") ||
-		strings.HasPrefix(lower, "mailto:")
-}
-
 // shellOpen 用系统默认关联程序打开 URL（白名单见 shellTargetAllowed，SW_SHOWNORMAL=1）。
 func shellOpen(target string) error {
 	if target == "" {
@@ -362,22 +351,6 @@ func getAutostart(name string) (bool, error) {
 
 // ---- URL Scheme（deep link 注册表侧）----
 
-// reservedSchemes 是系统/浏览器保留协议：注册它们会劫持网页链接或 shell 行为，一律拒绝。
-var reservedSchemes = map[string]bool{
-	"http": true, "https": true, "file": true, "ftp": true, "mailto": true,
-	"shell": true, "search-ms": true, "javascript": true, "data": true,
-	"about": true, "resource": true, "res": true, "mhtml": true, "ms-appx": true,
-}
-
-// protocolSchemeAllowed 判定 scheme 是否允许注册（保留名单 + ms-/microsoft. 前缀排除）。
-func protocolSchemeAllowed(scheme string) bool {
-	lower := strings.ToLower(scheme)
-	if reservedSchemes[lower] {
-		return false
-	}
-	return !strings.HasPrefix(lower, "ms-") && !strings.HasPrefix(lower, "microsoft.")
-}
-
 // registerProtocol 在 HKCU\Software\Classes 下注册 URL Scheme：
 // 之后系统内任意处打开 "<scheme>:..." 都会带参数拉起本 exe。
 func registerProtocol(scheme, displayName string) error {
@@ -436,20 +409,6 @@ func unregisterProtocol(scheme string) error {
 	return nil
 }
 
-func validScheme(s string) bool {
-	if s == "" || !((s[0] >= 'a' && s[0] <= 'z') || (s[0] >= 'A' && s[0] <= 'Z')) {
-		return false
-	}
-	for i := 1; i < len(s); i++ {
-		c := s[i]
-		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' ||
-			c == '+' || c == '-' || c == '.') {
-			return false
-		}
-	}
-	return true
-}
-
 // regCreate 逐级创建（打开已存在的键）并返回句柄。
 func regCreate(base uintptr, path string) (uintptr, error) {
 	p, err := syscall.UTF16PtrFromString(path)
@@ -464,10 +423,4 @@ func regCreate(base uintptr, path string) (uintptr, error) {
 		return 0, fmt.Errorf("RegCreateKeyExW(%s): errno=%d (%w)", path, hr, e)
 	}
 	return hk, nil
-}
-
-// launchArgsJSON 返回进程启动参数（不含 exe 自身），供前端解析 deep link。
-func launchArgsJSON() json.RawMessage {
-	b, _ := json.Marshal(os.Args[1:])
-	return b
 }

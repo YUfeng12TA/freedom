@@ -12,7 +12,6 @@ package freedom
 
 import (
 	"bytes"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -671,19 +670,6 @@ func shellItemDisplayName(item uintptr) (string, error) {
 		n++
 	}
 	return syscall.UTF16ToString(unsafe.Slice(p, n)), nil
-}
-
-// dataURLToBytes 解析 "data:...;base64,XXXX" 为原始字节。
-func dataURLToBytes(dataURL string) []byte {
-	idx := strings.Index(dataURL, "base64,")
-	if idx < 0 {
-		return nil
-	}
-	b, err := base64.StdEncoding.DecodeString(dataURL[idx+len("base64,"):])
-	if err != nil {
-		return nil
-	}
-	return b
 }
 
 // sysCapCall 处理前端 __freedom_sys 的系统能力请求。
