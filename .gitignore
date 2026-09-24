@@ -1,0 +1,8 @@
+# 工具与探索残留
+.rivet/
+.zcode/
+freedom_call_log.txt
+
+# freedomres 编译产物（源码在 tools/freedomres/，二进制不入库）
+tools/freedomres
+tools/freedomres.exe

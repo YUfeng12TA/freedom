@@ -28,6 +28,10 @@ import (
 	webview "github.com/webview/webview_go"
 )
 
+// Version 是应用版本号，构建期经 -ldflags "-X freedom.Version=x.y.z" 注入
+// （见 build.ps1/build.sh 的 -Version/VERSION）。前端经 os.info 的 appVersion 读取。
+var Version = "dev"
+
 // TitleBarMode 描述窗口标题栏策略。
 type TitleBarMode string
 

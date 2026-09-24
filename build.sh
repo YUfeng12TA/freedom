@@ -22,7 +22,8 @@
 #   dist/backends/node_backend.mjs
 #   dist/backends/py_backend.py
 #
-# 用法：./build.sh    （Windows 上请用 build.ps1）
+# 用法：./build.sh                      （Windows 上请用 build.ps1）
+#       VERSION=1.2.3 ./build.sh        # 版本戳注入（-X freedom.Version）+ strip
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")" && pwd)"
@@ -30,9 +31,18 @@ dist="$root/dist"
 bk="$dist/backends"
 mkdir -p "$dist" "$bk"
 
+# 版本戳：VERSION 为空则不注入；字符白名单防参数注入
+ldflags=""
+if [ -n "${VERSION:-}" ]; then
+    case "$VERSION" in
+        *[!0-9A-Za-z.\-+]*) echo "VERSION 含非法字符: $VERSION" >&2; exit 1 ;;
+    esac
+    ldflags="-s -w -X freedom.Version=$VERSION"
+fi
+
 echo "==> go build 壳层 (hello / multiproc)"
-CGO_ENABLED=1 go build -o "$dist/hello" ./examples/hello
-CGO_ENABLED=1 go build -o "$dist/multiproc" ./examples/multiproc
+CGO_ENABLED=1 go build -ldflags "$ldflags" -o "$dist/hello" ./examples/hello
+CGO_ENABLED=1 go build -ldflags "$ldflags" -o "$dist/multiproc" ./examples/multiproc
 
 echo "==> go build Go 后端"
 CGO_ENABLED=1 go build -o "$bk/go_backend" ./examples/multiproc/backends
@@ -47,6 +57,17 @@ if command -v rustc >/dev/null 2>&1; then
     (cd "$root/examples/multiproc/backends" && rustc -O -o "$bk/rust_backend" rust_backend.rs)
 else
     echo "==> 跳过 Rust 后端（未安装 rustc）"
+fi
+
+# 校验清单（sha256sum -c 兼容格式；macOS 无 sha256sum 时退回 shasum -a 256）
+if command -v sha256sum >/dev/null 2>&1; then
+    echo "==> 生成 SHA256SUMS.txt"
+    (cd "$dist" && find . -type f ! -name SHA256SUMS.txt | sort | xargs sha256sum | sed 's|\./||;s| \./| |' > SHA256SUMS.txt)
+elif command -v shasum >/dev/null 2>&1; then
+    echo "==> 生成 SHA256SUMS.txt"
+    (cd "$dist" && find . -type f ! -name SHA256SUMS.txt | sort | xargs shasum -a 256 | sed 's|\./||;s| \./| |' > SHA256SUMS.txt)
+else
+    echo "==> 警告：无 sha256sum/shasum，跳过校验清单"
 fi
 
 echo ""

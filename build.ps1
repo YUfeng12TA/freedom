@@ -9,12 +9,22 @@
 #   dist/backends/py_backend.py       Python 后端（脚本，需 python3）
 #
 # 用法：
-#   .\build.ps1            # 构建全部
-#   .\build.ps1 -SkipRust  # 跳过 Rust（本机无 rustc 时）
+#   .\build.ps1                  # 构建全部（不注版本，Version=dev）
+#   .\build.ps1 -Version 1.2.3   # 版本戳注入（-X freedom.Version）+ strip
+#   .\build.ps1 -SkipRust        # 跳过 Rust（本机无 rustc 时）
 param(
-    [switch]$SkipRust
+    [switch]$SkipRust,
+    [string]$Version = ""
 )
 $ErrorActionPreference = "Stop"
+
+# 壳层链接参数：GUI 子系统恒在；-Version 时追加符号剥离与版本注入。
+# 白名单校验防命令注入（$Version 会进入 go build 参数字符串）。
+$ldflags = "-H windowsgui"
+if ($Version) {
+    if ($Version -notmatch '^[0-9A-Za-z.\-+]+$') { throw "-Version 含非法字符: $Version" }
+    $ldflags = "-s -w -X freedom.Version=$Version $ldflags"
+}
 
 # $ErrorActionPreference 对原生命令（go/rustc）不生效，必须显式检查 $LASTEXITCODE，
 # 否则编译失败会静默继续并以"构建完成"收场。
@@ -43,8 +53,8 @@ $env:CGO_ENABLED = "1"
 Push-Location $root
 try {
     # GUI 子系统（-H windowsgui）：运行时壳层与后端均不弹出 cmd 黑窗
-    Invoke-Native "go build hello" { go build -ldflags "-H windowsgui" -o (Join-Path $dist "hello.exe") ./examples/hello }
-    Invoke-Native "go build multiproc" { go build -ldflags "-H windowsgui" -o (Join-Path $dist "multiproc.exe") ./examples/multiproc }
+    Invoke-Native "go build hello" { go build -ldflags $ldflags -o (Join-Path $dist "hello.exe") ./examples/hello }
+    Invoke-Native "go build multiproc" { go build -ldflags $ldflags -o (Join-Path $dist "multiproc.exe") ./examples/multiproc }
 } finally {
     Pop-Location
 }
@@ -76,6 +86,18 @@ if ($hasRust -and -not $SkipRust) {
 } else {
     Write-Warning "跳过 Rust 后端（未安装 rustc 或 -SkipRust）"
 }
+
+# 5) 校验清单（sha256sum -c 兼容格式：小写哈希 + 两空格 + dist 内相对路径）
+Write-Host "==> 生成 SHA256SUMS.txt"
+$sums = Get-ChildItem -Recurse $dist -File |
+    Where-Object { $_.Name -ne "SHA256SUMS.txt" } | Sort-Object FullName |
+    ForEach-Object {
+        $h = (Get-FileHash -Algorithm SHA256 $_.FullName).Hash.ToLower()
+        $rel = $_.FullName.Substring($dist.Length + 1).Replace("\", "/")
+        "$h  $rel"
+    }
+# LF 行尾：Set-Content 写 CRLF 会让 GNU sha256sum -c 把 \r 算进文件名而报错
+[IO.File]::WriteAllText((Join-Path $dist "SHA256SUMS.txt"), (($sums -join "`n") + "`n"), [Text.Encoding]::ASCII)
 
 Write-Host ""
 Write-Host "构建完成 -> $dist"

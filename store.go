@@ -235,12 +235,13 @@ func saveWindowState(dir string, st WindowState) error {
 func osInfo() map[string]interface{} {
 	host, _ := os.Hostname()
 	return map[string]interface{}{
-		"platform":  runtime.GOOS,
-		"arch":      runtime.GOARCH,
-		"hostname":  host,
-		"osVersion": osVersionString(), // 平台分文件：osver_windows.go / osver_other.go
-		"goVersion": runtime.Version(),
-		"numCPU":    runtime.NumCPU(),
+		"platform":   runtime.GOOS,
+		"arch":       runtime.GOARCH,
+		"hostname":   host,
+		"osVersion":  osVersionString(), // 平台分文件：osver_windows.go / osver_other.go
+		"goVersion":  runtime.Version(),
+		"appVersion": Version, // 构建期 ldflags 注入，见 freedom.go
+		"numCPU":     runtime.NumCPU(),
 	}
 }
 

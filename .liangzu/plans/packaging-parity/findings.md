@@ -1,0 +1,26 @@
+# findings — packaging-parity
+
+## 工具链探测（2026-09-24 实测）
+- `makensis` / `signtool` / `upx`：**均不在 PATH**（`command -v` 空）→ NSIS 编译与代码签名本机不可跑，只能产模板/脚本，实机执行留 CI 或用户。
+- `go env GOPROXY` = `https://goproxy.cn,direct`，`go get github.com/tc-hib/winres@latest` 成功（v0.3.1 + nfnt/resize + golang.org/x/image）→ 纯 Go Windows 资源编译可行，绕开 windres/rc 外部依赖。
+- 现有 build.ps1/build.sh：只 go build 出 exe + 复制脚本后端，**无版本注入、无 .syso 资源、无校验和、无安装包、无更新器**。
+
+## 打包产物差距矩阵（Freedom vs Tauri bundler / electron-builder / Wails）
+| 能力 | Tauri | electron-builder | Wails | Freedom 现状 | 本波 |
+|---|---|---|---|---|---|
+| 版本号注入二进制 | ✅ | ✅ | ✅ | ❌（无 Version 字段落 exe） | G1 |
+| 校验和(SHA256)产物 | ✅ | ✅ | 部分 | ❌ | G1 |
+| Windows 图标/VERSIONINFO | ✅ | ✅ | ✅ | ❌（exe 无图标、属性全空） | G2 |
+| 应用图标 | ✅ | ✅ | ✅ | ❌ | G3 |
+| 自动更新（签名校验） | ✅ 插件 | ✅ | ❌ | ❌（且子模块空） | G4 |
+| NSIS/portable 安装包 | ✅ | ✅ | ❌ | ❌ | G5 |
+| CI 产物矩阵 | ✅ | ✅ | ✅ | 仅编译，无上传产物 | G6 |
+
+## 关键约束/裁定
+- **代码签名排除**：本机无 signtool，且证书是用户资产 → 只做可选钩子（环境变量传 pfx），不臆造签名流程。`阻塞:` 缺证书与 signtool，属用户侧。
+- **updater 安全底线**：manifest 必须 ed25519 验签（公钥编译期注入 Config.Update.PublicKey），下载产物必须过 manifest 的 sha256；两者任一不过即拒装。禁止无验签的"下载即替换"。
+- **换装时序**：运行中 exe 被 OS 锁定 → Windows 用 MoveFileEx(REPLACE|DELAY_ON_ERROR) 排期重启替换，非 Windows 用原子 rename 覆盖 inode。更新只在**下次启动生效**，不做热替换。
+
+## G1 实测证据
+- `powershell build.ps1 -Version 0.2.0-test`：`go version -m dist/hello.exe` 显示 `-ldflags="-s -w -X freedom.Version=0.2.0-test -H windowsgui"`；`grep -c 0.2.0-test` 在 hello/multiproc.exe 各命中 3 次；`cd dist && sha256sum -c SHA256SUMS.txt` 全 OK；`go test -race -count=1 ./` → ok 7.021s。
+- 坑：PowerShell `Set-Content` 写 CRLF 行尾的 SHA256SUMS.txt 会让 GNU `sha256sum -c` 把 `\r` 当文件名一部分报 "No such file" → 校验清单必须 LF（用 `[IO.File]::WriteAllText` 显式 `` `n ``）。

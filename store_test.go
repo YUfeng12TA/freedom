@@ -231,4 +231,7 @@ func TestSysGenericDispatch(t *testing.T) {
 	if !isMap || m["arch"] == "" {
 		t.Fatalf("os.info shape wrong: %+v", res)
 	}
+	if m["appVersion"] != Version {
+		t.Fatalf("os.info appVersion=%v, want Version=%v", m["appVersion"], Version)
+	}
 }
