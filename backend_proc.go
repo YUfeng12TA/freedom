@@ -29,6 +29,7 @@ import (
 // 后端可据此判断自己运行在 Freedom 壳内。
 type ProcBackend struct {
 	command []string // 启动 argv，重启策略据此重建子进程
+	dir     string   // 子进程工作目录（SetDir）；空则继承壳进程当前目录
 	cmd     *exec.Cmd
 	stdin   io.WriteCloser
 	mu      sync.Mutex
@@ -99,6 +100,13 @@ func NewProcBackend(command ...string) *ProcBackend {
 	}
 }
 
+// SetDir 设置后端子进程的工作目录（链式返回自身）。通用壳用它把后端 CWD 定到
+// resources/，使 config.json 里的相对路径参数按 resources/ 解析。
+func (p *ProcBackend) SetDir(dir string) *ProcBackend {
+	p.dir = dir
+	return p
+}
+
 // SetRestartPolicy 启用后端进程崩溃自动重启（默认关闭）。
 // 崩溃时向壳广播事件 "backend.crashed" {code, attempt, restarting}，
 // 重启成功拉起后广播 "backend.restarted" {attempt}。
@@ -167,6 +175,9 @@ func (p *ProcBackend) start() error {
 // 调用方须持有 p.mu。
 func (p *ProcBackend) launchLocked() error {
 	cmd := exec.Command(p.command[0], p.command[1:]...)
+	if p.dir != "" {
+		cmd.Dir = p.dir // 相对路径参数（backend/main.mjs）据此目录解析
+	}
 	hideWindow(cmd) // Windows 下隐藏后端进程的 cmd 黑窗（跨平台空实现）
 	cmd.Env = append(os.Environ(), "FREEDOM_BACKEND=1", "FREEDOM_IPC=stdio")
 	cmd.Stderr = os.Stderr // 后端 stderr 日志原样转发

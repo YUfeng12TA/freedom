@@ -19,6 +19,7 @@ package freedom
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"sync"
@@ -90,6 +91,11 @@ type App struct {
 	wsMu    sync.Mutex   // 串行化 window-state 落盘（拖拽异步保存可与销毁保存交叠）
 	backend Backend
 	onReady func(a *App)
+
+	// 运行时资源覆盖（resources.go）：secure = high 模式（app.bin 解密成功），
+	// backendExplicit = 用户经 Bind 显式使用内嵌后端（config.json 的 backend 不得再替换）。
+	secure          bool
+	backendExplicit bool
 
 	// upMu 保护 upPending：CheckUpdate 验签通过的更新条目，install 桥接只认它
 	//（前端无法注入未验签的 URL/哈希）。见 updater.go。
@@ -174,7 +180,13 @@ func (a *App) Bind(name string, fn interface{}) error {
 	if !ok {
 		return fmt.Errorf("freedom: Bind 仅适用于内嵌 Go 后端；当前后端为 %T，方法请在进程后端中注册", a.backend)
 	}
-	return eb.Bind(name, fn)
+	if err := eb.Bind(name, fn); err != nil {
+		return err
+	}
+	// 用户显式绑定方法 = 显式指定内嵌后端：resources/config.json 的 backend
+	// 配置不再覆盖，避免内嵌方法被进程后端静默替换而全部失效。
+	a.backendExplicit = true
+	return nil
 }
 
 // Unbind 移除先前 Bind 的方法（内嵌后端）。
@@ -186,6 +198,22 @@ func (a *App) Unbind(name string) {
 
 // Run 启动窗口并进入主事件循环，阻塞直到窗口被关闭。
 func (a *App) Run() {
+	// 通用壳：先加载 exe 同目录 resources/ 覆盖窗口与后端配置（CLI build 写入；
+	// 缺失则使用编译期/默认配置）。配置存在但非法时打印告警不中断启动。
+	if err := a.loadRuntimeConfig(); err != nil {
+		// H2：high 模式资源解密/完整性校验失败必须拒绝运行——不显示窗口、
+		// 不回退占位页，防止资源被篡改/替换后静默降级运行。
+		var se *secureFatalError
+		if errors.As(err, &se) {
+			fmt.Printf("freedom: 安全模式资源校验失败，拒绝运行：%v\n", err)
+			return
+		}
+		fmt.Printf("freedom: warning: %v\n", err)
+	}
+	// high 模式：反调试检测（调试器下静默退出，防止逆向解密逻辑）。
+	if a.secure {
+		antiDebugCheck()
+	}
 	// 平台层回调（单实例转发/热键）经 currentApp 找到本实例推送事件。
 	appForEvents.Store(a)
 	defer appForEvents.Store(nil)
@@ -408,7 +436,19 @@ func (a *App) windowControl(action string, paramsJSON string) (result interface{
 }
 
 // resolveHTML 依据配置返回页面内容。
+// 优先级：exe 同目录 resources/（high 模式 app.bin 或 index.html，预编译通用壳）
+// > cfg.HTML（go:embed 源码构建）> 内置占位页。
 func (a *App) resolveHTML() (string, error) {
+	html, err := loadRuntimeHTML()
+	if err == nil && html != "" {
+		return html, nil
+	}
+	// H2 双保险：high 模式校验失败时禁止回退 cfg.HTML/占位页（拒绝运行）。
+	// 正常路径下 Run 已捕获 secureFatalError 提前 return，此处防御调用顺序调整。
+	var se *secureFatalError
+	if errors.As(err, &se) {
+		return "", err
+	}
 	if a.cfg.HTML != nil {
 		return a.cfg.HTML()
 	}
