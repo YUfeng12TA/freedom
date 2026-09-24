@@ -17,6 +17,8 @@ const KEY_TYPES = {
   security: 'security',
   icon: 'string',
   outDir: 'string',
+  url: 'string',
+  singleInstance: 'bool',
 };
 
 // 把 CLI/TUI 传入的值规范化为配置语义上的目标值；非法即抛错。
@@ -115,7 +117,21 @@ function setConfig(dir, key, value) {
     break;
   }
   if (!replaced) {
-    throw new Error(`配置项 ${key} 未在 freedom.config.js 中找到（注释行不参与修改），请手动添加。`);
+    // 模板里的新能力键（url / singleInstance）默认是注释示例，用户不必先手动取消注释：
+    // 找不到未注释的键就在结尾 `};` 前插入一行，仍保持 `freedom config set` 一条命令可用。
+    let endIdx = -1;
+    for (let i = lines.length - 1; i >= 0; i--) {
+      if (/^\s*\}\s*;?\s*$/.test(lines[i])) {
+        endIdx = i;
+        break;
+      }
+    }
+    if (endIdx < 0) {
+      throw new Error(`配置项 ${key} 未在 freedom.config.js 中找到（注释行不参与修改），请手动添加。`);
+    }
+    lines.splice(endIdx, 0, `  ${key}: ${rendered},`);
+    fs.writeFileSync(cfgPath, lines.join('\n'), 'utf8');
+    return norm;
   }
   fs.writeFileSync(cfgPath, lines.join('\n'), 'utf8');
   return norm;
@@ -143,6 +159,8 @@ const KNOWN_KEYS = {
   security: 'none',
   icon: undefined,
   outDir: 'dist',
+  url: undefined,
+  singleInstance: false,
 };
 
 async function showConfig(dir) {
@@ -152,6 +170,7 @@ async function showConfig(dir) {
     return `  ${k}: ${JSON.stringify(v)}`;
   });
   lines.push(`  backend: ${cfg.backend ? JSON.stringify(cfg.backend) : 'undefined'}`);
+  lines.push(`  updater: ${cfg.updater ? JSON.stringify(cfg.updater) : 'undefined'}`);
   return lines.join('\n');
 }
 

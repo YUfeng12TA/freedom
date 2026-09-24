@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -69,6 +70,14 @@ type Config struct {
 	// HTML 返回要加载到窗口的前端页面内容（内存加载，无本地端口）。
 	// 为 nil 时使用框架内置的默认占位页。
 	HTML func() (string, error)
+	// URL 非空时主窗口直接 Navigate 到该地址（如 `freedom dev` 的 vite 服务器），
+	// 优先于 HTML/resources 页面。SDK 经 Init 在每次导航前注入，桥接不失效。
+	// 仅放行 http/https（dev/HMR 走 localhost ws，页面源本身不许 file:// 等面）。
+	URL string
+	// SingleInstance 启用单实例：二次启动把命令行参数转发给主实例后自行退出；
+	// 主实例前端收 `app.secondInstance` 事件（{args}）。Windows 生效，
+	// 其他平台为无操作（始终视为唯一实例）。
+	SingleInstance bool
 	// AppID 是应用标识，决定数据/配置目录名与单实例窗口类标题。
 	// 为空时回退可执行文件名（去扩展名）。一经发布不要更改，否则用户数据"丢失"。
 	AppID string
@@ -81,6 +90,11 @@ type Config struct {
 	// Capabilities 收口前端 sys/tray/window 三桥的可调用面（M3）。
 	// nil（默认）全开；语义见 capability.go。os.info 回显生效配置。
 	Capabilities *Capabilities
+}
+
+// pageURLAllowed 校验主窗口 URL 页面源：仅 http/https 放行（file:// 等本地面拒绝）。
+func pageURLAllowed(raw string) bool {
+	return strings.HasPrefix(raw, "http://") || strings.HasPrefix(raw, "https://")
 }
 
 // App 是 Freedom 应用实例。
@@ -232,6 +246,11 @@ func (a *App) Run() {
 	// 平台层回调（单实例转发/热键）经 currentApp 找到本实例推送事件。
 	appForEvents.Store(a)
 	defer appForEvents.Store(nil)
+	// 单实例：二次启动的参数已在 RequestSingleInstance 内转发给主实例，
+	// 本进程不建窗直接返回（主实例前端收 app.secondInstance 事件）。
+	if a.cfg.SingleInstance && !RequestSingleInstance(a.effectiveAppID()) {
+		return
+	}
 	// M2：标记运行中（NewWindow 的前置条件）并登记主窗口；退出前回收次级窗口。
 	a.winMu.Lock()
 	a.running = true
@@ -247,10 +266,19 @@ func (a *App) Run() {
 		a.running = false
 		a.winMu.Unlock()
 	}()
-	html, err := a.resolveHTML()
-	if err != nil {
-		fmt.Printf("freedom: failed to resolve HTML: %v\n", err)
-		return
+	// URL 模式（dev 服务器/远程页）：跳过页面内容解析，稍后 Navigate。
+	// scheme 白名单：只放行 http/https，file:// 等本地面一律拒绝。
+	if a.cfg.URL != "" && !pageURLAllowed(a.cfg.URL) {
+		fmt.Printf("freedom: 拒绝非 http/https 的 URL %q，回退页面源\n", a.cfg.URL)
+		a.cfg.URL = ""
+	}
+	var html string
+	if a.cfg.URL == "" {
+		var err error
+		if html, err = a.resolveHTML(); err != nil {
+			fmt.Printf("freedom: failed to resolve HTML: %v\n", err)
+			return
+		}
 	}
 
 	w := webview.New(a.cfg.Debug)
@@ -352,7 +380,11 @@ func (a *App) Run() {
 
 	// 注：onReady 不再在 SetHtml 前触发（H3），改由前端 SDK 在页面
 	// DOMContentLoaded 后经 __freedom__ready 回调，保证初始化事件不丢失。
-	w.SetHtml(html)
+	if a.cfg.URL != "" {
+		w.Navigate(a.cfg.URL) // Init 注入对每次导航生效，URL 模式桥接同样可用
+	} else {
+		w.SetHtml(html)
+	}
 	w.Run()
 }
 

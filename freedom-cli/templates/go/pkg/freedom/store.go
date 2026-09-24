@@ -349,6 +349,14 @@ func (a *App) storeFor(name string) (*storeFile, error) {
 	return storeFor(dir, name)
 }
 
+// effectiveAppID 是数据目录与单实例锁共用的应用标识：Config.AppID 优先，回退 exe 名。
+func (a *App) effectiveAppID() string {
+	if a.cfg.AppID != "" {
+		return a.cfg.AppID
+	}
+	return defaultAppID()
+}
+
 // appPath 解析 path.get：kind 目录 + 可选子目录名（默认 AppID，回退 exe 名）。
 func (a *App) appPath(kind, name string) (string, error) {
 	if name == "" {

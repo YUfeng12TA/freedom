@@ -169,6 +169,13 @@ export default {
   icon: undefined,       // 应用图标：Windows 用 .ico（推荐多尺寸），macOS 用 .icns
   outDir: 'dist',        // 产物目录：'dist'（默认）| '.'（项目根目录）| 任意路径
   // backend: { command: 'node', args: ['backend/main.mjs'] },  // 任意语言后端进程
+  // singleInstance: true,   // 二次启动转发参数给已运行实例后退出（前端收 app.secondInstance）
+  // dev: { command: 'npm run dev' },  // freedom dev 拉起的前端 dev server 命令
+  // updater: {                       // 应用自更新（freedom keygen 生成密钥，公钥填这里）
+  //   manifestURL: 'https://your.host/latest.json',
+  //   publicKey: '<freedom keygen 输出的 base64 公钥>',
+  //   requireSignature: false,       // true 时产物还须通过平台代码签名复核（仅 Windows）
+  // },
 };
 ```
 
@@ -228,18 +235,41 @@ window.freedom.window.minimize();                       // 窗口控制
 ```
 freedom tui                          # 交互式终端界面
 freedom init <目录> [--force]
-freedom build [--platform win-x64|darwin-arm64|linux-x64|all] [--no-cache] [--security none|basic|high]
+freedom dev [--port <n>|--url <u>] [--command <cmd>]   # 热更开发流：拉起 vite 并把壳窗口指到 dev server
+freedom build [--platform win-x64|darwin-arm64|linux-x64|all] [--no-cache] [--security none|basic|high] [--installer]
 freedom titlebar <native|frameless>
 freedom security <none|basic|high>     # 设置安全模式（写入配置）
 freedom icon <path>                    # 设置应用图标（Windows 用 .ico，macOS 用 .icns）
 freedom config [get|set]
 freedom shell list|download <platform>|build <platform>
 freedom dmg [--platform <plat>]      # 在 macOS 上把 .app 打包为 .dmg
+freedom keygen [--force]             # 生成应用自更新 ed25519 密钥对（私钥留 .freedom/keys/，公钥进配置）
+freedom manifest --artifact <产物> --url <下载地址> [--version x] [--notes txt]  # 产出签名更新清单 dist/latest.json
 freedom version                     # 显示版本并检测最新版本
 freedom update                      # 检查新版本并给出升级命令（同 check-update）
 freedom tutorial
 freedom help
 ```
+
+## 开发热更（freedom dev）
+
+`freedom dev` 对标 `tauri dev` / `wails dev`：它拉起项目自己的前端 dev server（默认 `npm run dev`，可用配置 `dev.command` 或 `--command` 覆盖），
+从其输出里解析 `http://localhost:<port>`（也可用 `--port` / `--url` 直接指定），把随包通用壳复制到 `.freedom/dev/` 并写入
+`url` 模式的 `resources/config.json`（默认开开发者工具），随后拉起壳窗口——改代码由 vite HMR 直接反映到窗口里，不必反复重打包。
+`.freedom/dev/` 是开发临时目录，与正式产物 `dist/` 互不影响；配置了 `backend/` 时会一并镜像复制，任意语言后端同样能在 dev 流里联调。
+`Ctrl-C` 退出时会树杀 dev server 与壳进程（Windows 走 `taskkill /T /F`，不留孤儿子进程）。
+
+## 安装包与自更新发布环
+
+- `freedom build --installer`：每个目标平台额外产出 `<应用名>-<平台>-portable.zip`（解压即用的便携包）；
+  Windows 再产出已填充的 NSIS 脚本 `<应用名>-setup-<版本>.nsi`，本机装有 NSIS（`makensis` 在 PATH）时直接编译出
+  `<应用名>-setup-<版本>.exe`，否则给出指引让你在装有 NSIS 的机器上一条命令编译（缺 makensis 属环境能力而非产物缺陷）。
+- 应用自更新（对标 electron-updater / tauri updater）三步：
+  1. `freedom keygen` 生成 ed25519 密钥对，私钥存 `.freedom/keys/update_ed25519`（发布方资产，勿入库 / 勿分发）；
+  2. 公钥写入 `freedom.config.js` 的 `updater.publicKey`（连同 `manifestURL`），`freedom build` 会透传进产物的 `config.json`；
+  3. 发版时 `freedom manifest --artifact dist/<产物> --url https://.../<产物>` 产出签名清单 `dist/latest.json`，上传到 `manifestURL` 即可。
+  运行时前端用 `freedom.update.check()` / `freedom.update.install()`，清单验签（payload `freedom-update-v1\n<version>\n<url>\n<sha256>`）
+  与 sha256 校验都在壳内完成（`updater.go`），签名与 Go 侧验签有跨语言回归测试守着。
 
 ## 任意语言后端
 

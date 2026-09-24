@@ -94,6 +94,52 @@ func TestRuntimeConfigOverlayPlain(t *testing.T) {
 	}
 }
 
+// P-A 能力透传：config.json 的 url/singleInstance/updater 覆盖到 Config；
+// updater 半截配置（缺 publicKey）必须不启用；缺省时保持编译期值。
+func TestRuntimeConfigOverlayCapabilities(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "resources")
+	writeResources(t, dir, map[string][]byte{"config.json": []byte(
+		`{"name":"demo","url":"http://localhost:5173","singleInstance":true,` +
+			`"updater":{"manifestURL":"https://example.com/latest.json","publicKey":"cHVibGlrZXk=","requireSignature":true}}`)})
+	withResourcesDir(t, dir, "demo")
+
+	a := New(Config{})
+	if err := a.loadRuntimeConfig(); err != nil {
+		t.Fatalf("loadRuntimeConfig: %v", err)
+	}
+	if a.cfg.URL != "http://localhost:5173" || !a.cfg.SingleInstance {
+		t.Fatalf("url/singleInstance: %+v", a.cfg)
+	}
+	if a.cfg.Update == nil || a.cfg.Update.ManifestURL == "" || a.cfg.Update.PublicKey != "cHVibGlrZXk=" || !a.cfg.Update.RequireSignature {
+		t.Fatalf("updater: %+v", a.cfg.Update)
+	}
+
+	// 半截 updater（缺 publicKey）：不启用更新，其余字段照常应用。
+	dir2 := filepath.Join(t.TempDir(), "resources")
+	writeResources(t, dir2, map[string][]byte{"config.json": []byte(
+		`{"updater":{"manifestURL":"https://example.com/latest.json"}}`)})
+	withResourcesDir(t, dir2, "demo")
+	b := New(Config{})
+	if err := b.loadRuntimeConfig(); err != nil {
+		t.Fatalf("loadRuntimeConfig: %v", err)
+	}
+	if b.cfg.Update != nil {
+		t.Fatalf("half updater must not enable: %+v", b.cfg.Update)
+	}
+
+	// 无这些字段：保持零值（默认多实例、无 URL、无更新器）。
+	dir3 := filepath.Join(t.TempDir(), "resources")
+	writeResources(t, dir3, map[string][]byte{"config.json": []byte(`{"title":"x"}`)})
+	withResourcesDir(t, dir3, "demo")
+	c := New(Config{})
+	if err := c.loadRuntimeConfig(); err != nil {
+		t.Fatalf("loadRuntimeConfig: %v", err)
+	}
+	if c.cfg.URL != "" || c.cfg.SingleInstance || c.cfg.Update != nil {
+		t.Fatalf("defaults must stay untouched: %+v", c.cfg)
+	}
+}
+
 // Bind 显式内嵌后端后，config.json 的 backend 不得替换（否则内嵌方法全失效）。
 func TestBackendExplicitGuardsOverlay(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "resources")
@@ -200,5 +246,19 @@ func TestSecureIntegrityBackendFile(t *testing.T) {
 	var se *secureFatalError
 	if err := New(Config{}).loadRuntimeConfig(); !errors.As(err, &se) {
 		t.Fatalf("tampered backend file must refuse: %v", err)
+	}
+}
+
+// 主窗口 URL 白名单：仅 http/https；file://、javascript: 等拒绝。
+func TestPageURLAllowed(t *testing.T) {
+	for _, ok := range []string{"http://localhost:5173", "https://example.com/app"} {
+		if !pageURLAllowed(ok) {
+			t.Fatalf("must allow %q", ok)
+		}
+	}
+	for _, bad := range []string{"file:///C:/Windows", "javascript:alert(1)", "HTTP://x", ""} {
+		if pageURLAllowed(bad) {
+			t.Fatalf("must reject %q", bad)
+		}
 	}
 }

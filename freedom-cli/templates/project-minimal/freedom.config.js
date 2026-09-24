@@ -55,4 +55,18 @@ export default {
   // 示例（Node 后端）：
   //   backend: { command: 'node', args: ['backend/main.mjs'] }
   // backend: undefined,
+
+  // 单实例：true 时二次启动把命令行参数转发给已运行实例后自动退出，
+  //         主实例前端收 freedom.on('app.secondInstance', ({args})=>…)（Windows 生效）。
+  // singleInstance: false,
+
+  // 自动更新（发布环：freedom keygen 生成密钥 → 公钥填这里 → 发版 freedom manifest 签 latest.json）：
+  // updater: {
+  //   manifestURL: 'https://your.host/latest.json',
+  //   publicKey: '<freedom keygen 输出的 base64 公钥>',
+  //   requireSignature: false, // 开启后产物还须通过平台代码签名复核（仅 Windows）
+  // },
+
+  // dev 流自定义启动命令（默认 `npm run dev`，freedom dev 用它拉起 vite 并热更壳窗口）：
+  // dev: { command: 'npm run dev' },
 };

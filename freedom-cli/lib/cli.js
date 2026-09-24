@@ -28,8 +28,14 @@ function help() {
   L.push(`  ${paint('freedom build [--platform <p>]', C.fg.cyan)}   ${dim('前端打包并分发桌面应用（默认当前平台）')}`);
   L.push(`      ${dim('--platform win|mac|linux|all')}    ${dim('指定目标平台（all = 三平台全量）')}`);
   L.push(`      ${dim('--no-cache')}                      ${dim('忽略前端构建缓存，强制重新打包')}`);
+  L.push(`      ${dim('--security <none|basic|high>')}    ${dim('资源安全模式（high = resources 加密为 app.bin）')}`);
+  L.push(`      ${dim('--installer')}                     ${dim('附带安装包产物：便携 zip + Windows NSIS 安装器（有 makensis 时编译 setup.exe，否则产出已填充的 .nsi）')}`);
   L.push(`  ${paint('freedom verify [--platform <p>]', C.fg.cyan)}   ${dim('校验已构建产物完整性并打印产物结构（CI 可依赖退出码）')}`);
   L.push(`  ${paint('freedom dmg [--platform <plat>]', C.fg.cyan)}  ${dim('将已构建的 .app 打包为 .dmg（需 macOS）')}`);
+  L.push(section('开发与更新'));
+  L.push(`  ${paint('freedom dev [--port <n>|--url <u>] [--command <cmd>]', C.fg.cyan)} ${dim('dev server 联调壳窗口：HMR 热更，改码免重打包')}`);
+  L.push(`  ${paint('freedom keygen', C.fg.cyan)}              ${dim('生成应用自更新 ed25519 密钥对（公钥进配置，私钥发布方保管）')}`);
+  L.push(`  ${paint('freedom manifest --artifact <产物> --url <下载地址> [--version x]', C.fg.cyan)} ${dim('产出签名的更新清单 latest.json')}`);
   L.push(section('外观'));
   L.push(`  ${paint('freedom titlebar <native|frameless>', C.fg.cyan)} ${dim('一键切换标题栏策略')}`);
   L.push(`  ${paint('freedom icon <path>', C.fg.cyan)}     ${dim('设置应用图标（Win .ico / mac .icns）')}`);
@@ -140,6 +146,62 @@ async function run(argv) {
       return 0;
     }
 
+    case 'dev': {
+      const optVal = (name) => {
+        const a = rest.find((x) => x.startsWith(`--${name}=`));
+        if (a) return a.split('=')[1];
+        const i = rest.indexOf(`--${name}`);
+        return i >= 0 && rest[i + 1] && !rest[i + 1].startsWith('--') ? rest[i + 1] : undefined;
+      };
+      const url = optVal('url');
+      const port = optVal('port');
+      const { dev: runDev } = require('./dev');
+      try {
+        const done = await runDev({ dir: process.cwd(), url, port: port ? Number(port) : undefined, command: optVal('command') });
+        console.log(`${ok(String(done))}`);
+      } catch (e) {
+        console.error(`${err(e.message)}`);
+        return 1;
+      }
+      return 0;
+    }
+
+    case 'keygen': {
+      const { keygen } = require('./release');
+      try {
+        console.log(await keygen({ dir: process.cwd(), force: rest.includes('--force') }));
+      } catch (e) {
+        console.error(`${err(e.message)}`);
+        return 1;
+      }
+      return 0;
+    }
+
+    case 'manifest': {
+      const optVal = (name) => {
+        const a = rest.find((x) => x.startsWith(`--${name}=`));
+        if (a) return a.split('=')[1];
+        const i = rest.indexOf(`--${name}`);
+        return i >= 0 && rest[i + 1] && !rest[i + 1].startsWith('--') ? rest[i + 1] : undefined;
+      };
+      const { manifest } = require('./release');
+      try {
+        console.log(await manifest({
+          dir: process.cwd(),
+          artifact: optVal('artifact'),
+          url: optVal('url'),
+          version: optVal('version'),
+          notes: optVal('notes'),
+          key: optVal('key'),
+          out: optVal('out'),
+        }));
+      } catch (e) {
+        console.error(`${err(e.message)}`);
+        return 1;
+      }
+      return 0;
+    }
+
     case 'build': {
       const platArg = rest.find((a) => a.startsWith('--platform') || a.startsWith('-p'));
       let platform;
@@ -171,9 +233,13 @@ async function run(argv) {
         platform,
         noCache: rest.includes('--no-cache'),
         security,
+        installer: rest.includes('--installer'),
       });
       for (const r of results) {
         console.log(`${ok('构建完成')} ${paint(`[${r.plat}]`, C.fg.magenta, C.bold)} ${paint(r.outFile, C.fg.white)}`);
+        for (const p of r.installers || []) {
+          console.log(`  ${dim('安装包产物：')}${paint(p, C.fg.white)}`);
+        }
       }
       return 0;
     }

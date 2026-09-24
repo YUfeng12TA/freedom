@@ -161,6 +161,8 @@ macOS/Linux 交叉编译不可行（依赖系统 WebKit），必须走目标平�
 - **代码签名**（M6）：`build.ps1 -Sign` 对本机产出的全部 exe 做 Authenticode（signtool 探测 PATH/Windows Kits；证书经 `FREEDOM_SIGN_PFX[_PASSWORD]` 或 `FREEDOM_SIGN_THUMBPRINT` 环境变量注入，不落仓库；signtool 或证书缺席仅警告不失败）。updater 可选二级复核：`Update.RequireSignature` 开启后产物还须过 **WinVerifyTrust**（离线确定性，无网络吊销检查），非 Windows 平台开启该项直接拒绝安装。真证书签名验证 `阻塞:` 于代码签名证书（用户侧资产）。
 - **运行时引导探测**（M6）：Windows 侧 `os.info.webview2Runtime` 回显系统 WebView2 Runtime 版本（EdgeUpdate 注册表探测，HKCU 优先 HKLM 兜底，"N/A" 占位视为未检出），前端可据此预检环境并提示安装。
 - **零工具链打包（npm 线，freedom-cli v1.13.1）**：`npm i -g @yufengtadian/freedom-cli` → `freedom init` → `freedom build`。壳为预编译通用二进制（`cmd/shell`；win/linux 壳随包分发，其余平台从 GitHub Release 资产 `freedom-shell-<plat>` 按需下载，可用 `FREEDOM_SHELL_TAG` 覆盖版本），应用内容来自 exe 同目录 `resources/`（config.json / index.html），最终用户无需 Go/CGO 工具链。`security: 'high'` 时前端与配置加密为单一 `app.bin`（FRDM1 容器：AES-256-CTR + HMAC-SHA256，PBKDF2 按 exe 名派生密钥），篡改/改名即拒绝运行（`resources.go` / `security.go`，参数与 freedom-cli `lib/security.js` 跨语言同步互验）。
+- **配置透传面（`resources/config.json` ↔ `runtimeConfigFile`）**：除窗口几何 / 标题栏 / debug 外，还透传 `url`（远程或 dev server 页面，仅 http/https 白名单，经 `w.Navigate` 加载，HMR 可用）、`singleInstance`（接线 `RequestSingleInstance`，二次启动转发参数并退出，前端收 `app.secondInstance`）、`updater{manifestURL,publicKey,requireSignature}`（`Config.Update`）。CLI 侧 `freedom dev` 即靠 `url` 字段把壳窗口指向 vite dev server；改契约须同步 `freedom-cli/lib/build.js` 的 `renderConfigJSON`（Go↔JS 双侧各有断言）。
+- **发布环（npm 线）**：`freedom keygen` 生成 ed25519 密钥对（私钥 `.freedom/keys/`，公钥进 `freedom.config.js`）→ `freedom build` 透传 updater 配置 → `freedom manifest --artifact <产物> --url <地址>` 产出签名 `latest.json`；`freedom build --installer` 另产便携 zip 与 NSIS 安装器（有 `makensis` 时直接编译 setup.exe）。Node 签名与 Go 验签由 `updater_jsinterop_test.go` 跨语言回归守着。
 
 ## 测试
 

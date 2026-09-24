@@ -40,19 +40,30 @@ type runtimeBackend struct {
 	Args    []string `json:"args"`
 }
 
+// runtimeUpdater 描述 config.json 中的自动更新配置（对应 updater.go 的 UpdateConfig；
+// 公钥为 base64 std 的 ed25519 32 字节公钥，私钥属发布方资产——签名由 freedom CLI 生成）。
+type runtimeUpdater struct {
+	ManifestURL      string `json:"manifestURL"`
+	PublicKey        string `json:"publicKey"`
+	RequireSignature *bool  `json:"requireSignature"`
+}
+
 // runtimeConfigFile 描述 resources/config.json 的磁盘结构。
 // 由 freedom CLI 在 build 阶段根据 freedom.config.js 生成；Name 仅作来源标记不应用。
 type runtimeConfigFile struct {
-	Name      string          `json:"name"`
-	Title     string          `json:"title"`
-	TitleBar  string          `json:"titlebar"`
-	Width     int             `json:"width"`
-	Height    int             `json:"height"`
-	MinWidth  int             `json:"minWidth"`
-	MinHeight int             `json:"minHeight"`
-	Center    *bool           `json:"center"`
-	Debug     *bool           `json:"debug"`
-	Backend   *runtimeBackend `json:"backend"`
+	Name           string          `json:"name"`
+	Title          string          `json:"title"`
+	TitleBar       string          `json:"titlebar"`
+	Width          int             `json:"width"`
+	Height         int             `json:"height"`
+	MinWidth       int             `json:"minWidth"`
+	MinHeight      int             `json:"minHeight"`
+	Center         *bool           `json:"center"`
+	Debug          *bool           `json:"debug"`
+	Backend        *runtimeBackend `json:"backend"`
+	URL            string          `json:"url"`
+	SingleInstance *bool           `json:"singleInstance"`
+	Updater        *runtimeUpdater `json:"updater"`
 }
 
 // resourcesDirOverride 是单测缝：非空时替代 exe 同目录的 resources 定位。
@@ -142,6 +153,21 @@ func (a *App) applyRuntimeConfig(rc *runtimeConfigFile) {
 	}
 	if rc.Debug != nil {
 		a.cfg.Debug = *rc.Debug
+	}
+	if rc.URL != "" {
+		a.cfg.URL = rc.URL
+	}
+	if rc.SingleInstance != nil {
+		a.cfg.SingleInstance = *rc.SingleInstance
+	}
+	// 自动更新：manifestURL 与 publicKey 缺一即视为未配置（半截配置宁可不启用，
+	// 也不让壳带着空公钥去更新）。
+	if rc.Updater != nil && rc.Updater.ManifestURL != "" && rc.Updater.PublicKey != "" {
+		uc := &UpdateConfig{ManifestURL: rc.Updater.ManifestURL, PublicKey: rc.Updater.PublicKey}
+		if rc.Updater.RequireSignature != nil {
+			uc.RequireSignature = *rc.Updater.RequireSignature
+		}
+		a.cfg.Update = uc
 	}
 	// 外部后端进程配置：仅在壳未显式绑定后端时生效（用户 Bind 过内嵌方法 =
 	// 显式内嵌后端，config.json 不得静默替换，否则其方法全部失效）。

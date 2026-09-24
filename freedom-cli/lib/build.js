@@ -149,8 +149,8 @@ async function build(projectDir, opts = {}) {
   const results = await Promise.all(
     platforms.map(async (plat) => {
       const targetDir = multi ? path.join(outDirPath, plat) : outDirPath;
-      const outFile = await emitPlatform({ plat, name, version, targetDir, html, configJSON, backendDir, hasBackend, autoDownload, icon, security });
-      return { plat, outFile };
+      const emitted = await emitPlatform({ plat, name, version, targetDir, html, configJSON, backendDir, hasBackend, autoDownload, icon, security, installer: opts.installer === true });
+      return { plat, ...emitted };
     })
   );
 
@@ -184,7 +184,7 @@ async function build(projectDir, opts = {}) {
   return { results };
 }
 
-async function emitPlatform({ plat, name, version, targetDir, html, configJSON, backendDir, hasBackend, autoDownload, icon, security }) {
+async function emitPlatform({ plat, name, version, targetDir, html, configJSON, backendDir, hasBackend, autoDownload, icon, security, installer }) {
   // 取预编译壳二进制
   const shell = localShellPath(plat);
   if (!fs.existsSync(shell)) {
@@ -260,6 +260,10 @@ async function emitPlatform({ plat, name, version, targetDir, html, configJSON, 
     copyDir(backendDir, path.join(resDir, 'backend'));
   }
 
+  // --installer：便携 zip + Windows NSIS 安装器。先于 mac 的 .app 生成，
+  // 使 zip 内容只含「exe + resources」，不把 .app 与 .app.zip 二次打包进去。
+  const installers = installer ? await buildInstaller({ plat, name, version, targetDir, exeName }) : [];
+
   // macOS：额外生成 .app bundle + .app.zip（供 mac 用户解压即用）
   // 壳加载 exe 同目录 resources/，故把 resources 放进 Contents/MacOS/ 即可运行，无需改壳。
   if (isMacPlat(plat)) {
@@ -269,7 +273,7 @@ async function emitPlatform({ plat, name, version, targetDir, html, configJSON, 
     );
   }
 
-  return outFile;
+  return { outFile, installers };
 }
 
 // 把 .ico 图标注入到 Windows exe 的 PE 资源（RT_ICON + RT_GROUP_ICON），
@@ -402,26 +406,86 @@ ${iconEntry}  <key>CFBundleExecutable</key>
 }
 
 // 把目录压成 .zip：跨平台零额外依赖（历史 bug B27）
-// - Windows：系统 tar 为 bsdtar，`-a` 按扩展名自动选 zip 压缩器，可用；
-// - Linux/macOS：GNU tar 的 `-a` 不支持 .zip（仅 gzip/bzip2/xz 等），
-//   改用系统 zip 命令（Linux/macOS 自带或常见，缺失时给出安装提示）。
+// - Windows：bsdtar 的 `-a` 按扩展名自动选 zip 压缩器，可用；但必须绝对路径锁定系统
+//   tar.exe —— Git Bash / MSYS 会把 GNU tar 塞进 PATH 前面，GNU tar 不认 `-a` 且把
+//   `D:\...` 当远程主机（`Cannot connect to D: resolve failed`）。
+// - Linux/macOS：GNU tar 的 `-a` 不支持 .zip，改用系统 zip 命令（缺失时给出安装提示）。
 function zipDir(zipPath, dir) {
   const parent = path.dirname(dir);
   const base = path.basename(dir);
   if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath);
-  let res;
+  let cmd = 'zip';
+  let args = ['-r', '-q', zipPath, base];
   if (process.platform === 'win32') {
-    res = spawnSync('tar', ['-a', '-c', '-f', zipPath, base], { cwd: parent, encoding: 'utf8' });
-  } else {
-    res = spawnSync('zip', ['-r', '-q', zipPath, base], { cwd: parent, encoding: 'utf8' });
+    const sysRoot = process.env.SystemRoot || 'C:\\Windows';
+    const bsdtar = path.join(sysRoot, 'System32', 'tar.exe');
+    cmd = fs.existsSync(bsdtar) ? bsdtar : 'tar';
+    args = ['-a', '-c', '-f', zipPath, base];
   }
+  const res = spawnSync(cmd, args, { cwd: parent, encoding: 'utf8', windowsHide: true });
   if (res.error || res.status !== 0) {
-    const detail = (res.stderr || res.stdout || '').trim() || res.error.message;
+    const detail = (res.stderr || res.stdout || (res.error && res.error.message) || '').trim();
     const hint = process.platform !== 'win32'
       ? '\n（Linux/macOS 打包 zip 需要 zip 命令：Ubuntu: sudo apt install zip / macOS: brew install zip）'
       : '';
     throw new Error(`打包 ${base} 为 zip 失败：${detail}${hint}`);
   }
+}
+
+// --installer 产物：便携 zip 恒产出；Windows 额外填充 NSIS 模板，本机有 makensis
+// 时直接编译 setup.exe，无则产出已填充的 .nsi（缺 makensis 属环境能力而非代码缺陷）。
+// 顺序即排除策略：先压 zip 再写 .nsi/setup.exe，免维护"排除安装器中间物"清单。
+async function buildInstaller({ plat, name, version, targetDir, exeName }) {
+  const artifacts = [];
+
+  const zipPath = path.join(targetDir, `${name}-${plat}-portable.zip`);
+  const tmpPath = path.join(path.dirname(targetDir), `.freedom-portable-${process.pid}.zip`);
+  zipDir(tmpPath, targetDir);
+  await fsp.rename(tmpPath, zipPath);
+  artifacts.push(zipPath);
+
+  if (!isWinPlat(plat)) return artifacts;
+
+  const tplPath = path.join(__dirname, '..', 'templates', 'installer', 'app.nsi');
+  if (!fs.existsSync(tplPath)) {
+    process.stdout.write(`[freedom] 提示：缺少安装包模板 ${tplPath}，已跳过 NSIS。\n`);
+    return artifacts;
+  }
+  const fill = (s) =>
+    s.replace(/@NAME@/g, name)
+      .replace(/@VERSION@/g, version)
+      .replace(/@SRC@/g, targetDir)
+      .replace(/@OUT@/g, targetDir)
+      .replace(/@EXE@/g, exeName);
+  // NSIS 3 对无 BOM 的 UTF-8 脚本按代码页解释，模板含中文注释与 SimpChinese 文案，
+  // 故补 BOM（与 build.ps1 的 [Text.Encoding]::UTF8 写出行为一致）。
+  const body = fill(fs.readFileSync(tplPath, 'utf8'));
+  const nsiPath = path.join(targetDir, `${name}-setup-${version}.nsi`);
+  await fsp.writeFile(nsiPath, Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(body, 'utf8')]));
+  artifacts.push(nsiPath);
+
+  if (!hasTool('makensis')) {
+    process.stdout.write(
+      '[freedom] 未检测到 makensis（NSIS）：已产出填充好的 .nsi，在装有 NSIS 的机器上执行\n' +
+      `          makensis "${nsiPath}" 即可编译安装器。\n`
+    );
+    return artifacts;
+  }
+  const res = spawnSync('makensis', ['-V2', nsiPath], { encoding: 'utf8' });
+  if (res.status !== 0) {
+    const detail = (res.stderr || res.stdout || '').trim().slice(0, 600);
+    throw new Error(`makensis 编译失败（退出码 ${res.status}）：${detail}`);
+  }
+  const setupPath = path.join(targetDir, `${name}-setup-${version}.exe`);
+  process.stdout.write(`[freedom] NSIS 安装器已生成：${setupPath}\n`);
+  artifacts.push(setupPath);
+  return artifacts;
+}
+
+// 外部命令可用性探测（不影响主流程，仅决定是否尝试调用）。
+function hasTool(cmd) {
+  const res = spawnSync(cmd, ['-VERSION'], { encoding: 'utf8', windowsHide: true });
+  return !res.error;
 }
 
 // 从项目 package.json 取版本号（cfg.version 优先）
@@ -454,6 +518,17 @@ function renderConfigJSON(cfg, name) {
     obj.backend = {
       command: cfg.backend.command,
       args: Array.isArray(cfg.backend.args) ? cfg.backend.args : [],
+    };
+  }
+  // 能力透传（与壳 resources.go 对齐）：URL 直载 / 单实例 / 自动更新。
+  if (typeof cfg.url === 'string' && cfg.url) obj.url = cfg.url;
+  if (cfg.singleInstance === true) obj.singleInstance = true;
+  if (cfg.updater && typeof cfg.updater.manifestURL === 'string' && typeof cfg.updater.publicKey === 'string'
+      && cfg.updater.manifestURL && cfg.updater.publicKey) {
+    obj.updater = {
+      manifestURL: cfg.updater.manifestURL,
+      publicKey: cfg.updater.publicKey,
+      requireSignature: cfg.updater.requireSignature === true ? true : undefined,
     };
   }
   return JSON.stringify(obj, null, 2);
