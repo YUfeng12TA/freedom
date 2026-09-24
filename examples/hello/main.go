@@ -1,7 +1,7 @@
 // Freedom 框架示例应用：演示
-//   1. 前端调用后端（window.freedom.call）—— Greet / Add
-//   2. 错误处理（后端返回 error -> Promise.reject）
-//   3. 后端推送事件（app.Emit -> window.freedom.on）
+//  1. 前端调用后端（window.freedom.call）—— Greet / Add
+//  2. 错误处理（后端返回 error -> Promise.reject）
+//  3. 后端推送事件（app.Emit -> window.freedom.on）
 package main
 
 import (

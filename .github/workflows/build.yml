@@ -254,6 +254,21 @@ jobs:
           [ "$fail" = 0 ] && echo "MIRROR_OK"
           exit $fail
 
+      # third_party/ 是上游 vendor 副本，刻意保留其原始排版（重排会在升级同步时制造无意义 diff）。
+      # 文件集取自 git ls-files，避免把本地 dist/ build-tmp/ 里的副本算进来。
+      - name: gofmt clean
+        shell: bash
+        run: |
+          mapfile -t files < <(git ls-files '*.go' | grep -v 'third_party/')
+          bad=$(gofmt -l "${files[@]}" || true)
+          if [ -n "$bad" ]; then
+            echo "::error::存在未 gofmt 的 Go 文件（本地执行 gofmt -w 对应文件后重提）"
+            echo "$bad"
+            gofmt -d $bad | head -40
+            exit 1
+          fi
+          echo "GOFMT_OK ($(printf '%s\n' "${files[@]}" | wc -l) 文件)"
+
   # tag 推送时发布 Release：CLI 的 `freedom shell download <plat>` 依赖这些资产
   release:
     if: startsWith(github.ref, 'refs/tags/v')
