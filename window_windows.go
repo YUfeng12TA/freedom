@@ -104,7 +104,20 @@ var (
 	procRegQueryValueExW  = advapi32.NewProc("RegQueryValueExW")
 	procRegDeleteValueW   = advapi32.NewProc("RegDeleteValueW")
 	procRegCloseKey       = advapi32.NewProc("RegCloseKey")
+
+	procSetProcessDpiAwarenessContext = user32win.NewProc("SetProcessDpiAwarenessContext")
 )
+
+// DPI Per-Monitor V2 经进程启动时 API 声明，而非 .syso 内嵌 manifest——
+// WinLibs mingw 链接期会自动注入 default-manifest.o，与自定义 manifest 冲突。
+// init 先于消息循环执行，确保首个窗口创建前生效（对标 Tauri manifest 声明）。
+func init() {
+	if procSetProcessDpiAwarenessContext.Find() != nil {
+		return // Win10 1703 之前无此 API：保持系统默认感知级
+	}
+	const dpiPerMonitorV2 = ^uintptr(3) // (DPI_HANDLE)-4：DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
+	procSetProcessDpiAwarenessContext.Call(dpiPerMonitorV2)
+}
 
 const (
 	wsCaption    = 0x00C00000 // WS_CAPTION = WS_BORDER | WS_DLGFRAME

@@ -4,5 +4,7 @@
 freedom_call_log.txt
 
 # freedomres 编译产物（源码在 tools/freedomres/，二进制不入库）
-tools/freedomres
 tools/freedomres.exe
+
+# 构建期生成的 Windows 资源（版本随 -Version 变化，不入库）
+examples/*/freedomapp_windows_*.syso

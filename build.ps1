@@ -47,6 +47,21 @@ foreach ($t in @("go", "node", "python")) {
 }
 $hasRust = Get-Command rustc -ErrorAction SilentlyContinue
 
+# 0) Windows 资源生成（.syso：VERSIONINFO + 图标；go build 自动链接同目录 _windows_amd64.syso）
+#    DPI 感知不在此处——manifest 与 mingw default-manifest.o 冲突，壳层运行时 API 声明。
+Write-Host "==> freedomres 生成 .syso 资源"
+$resVer = if ($Version) { $Version } else { "0.0.0" }
+$iconFlag = @()
+$appIcon = Join-Path $root "assets\app.png"
+if (Test-Path $appIcon) { $iconFlag = @("-icon", $appIcon) }
+Push-Location (Join-Path $root "tools")
+try {
+    Invoke-Native "freedomres hello" { go run ./freedomres $iconFlag -out ../examples/hello/freedomapp -version $resVer -name "Freedom Hello" -desc "Freedom 内嵌模式示例" -publisher "Freedom" -orig-filename hello.exe }
+    Invoke-Native "freedomres multiproc" { go run ./freedomres $iconFlag -out ../examples/multiproc/freedomapp -version $resVer -name "Freedom Multiproc" -desc "Freedom 多后端示例壳" -publisher "Freedom" -orig-filename multiproc.exe }
+} finally {
+    Pop-Location
+}
+
 # 1) 壳层（三平台内核 webview_go，此处产出 Windows 版）
 Write-Host "==> go build 壳层 (hello / multiproc)"
 $env:CGO_ENABLED = "1"

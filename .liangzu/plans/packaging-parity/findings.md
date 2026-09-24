@@ -24,3 +24,8 @@
 ## G1 实测证据
 - `powershell build.ps1 -Version 0.2.0-test`：`go version -m dist/hello.exe` 显示 `-ldflags="-s -w -X freedom.Version=0.2.0-test -H windowsgui"`；`grep -c 0.2.0-test` 在 hello/multiproc.exe 各命中 3 次；`cd dist && sha256sum -c SHA256SUMS.txt` 全 OK；`go test -race -count=1 ./` → ok 7.021s。
 - 坑：PowerShell `Set-Content` 写 CRLF 行尾的 SHA256SUMS.txt 会让 GNU `sha256sum -c` 把 `\r` 当文件名一部分报 "No such file" → 校验清单必须 LF（用 `[IO.File]::WriteAllText` 显式 `` `n ``）。
+
+## G2/G3 实测证据与坑（E3）
+- 坑（关键）：cgo 外部链接时 WinLibs mingw 自动注入 `default-manifest.o`（%:if-exists 在 endfile spec），与 .syso 内嵌 RT_MANIFEST 冲突 → `ld: multiple non-default manifests`。裁定：freedomres 不写 manifest；DPI Per-Monitor V2 改由 window_windows.go init() 运行时 SetProcessDpiAwarenessContext(-4) 声明（Find() 守卫老系统），asInvoker 由 mingw 默认 manifest 提供。
+- 验证链：syso(含图标) 75KB → build.ps1 -Version 0.2.0-test exit=0 → VersionInfo 读出 ProductName/FileVersion → ExtractAssociatedIcon 返回 32x32 → go test -race ok 7.035s。
+- 图标资产 assets/app.png（1024px，ImageGen 生成）入仓；.gitignore 排除构建期生成的 examples/*/freedomapp_windows_*.syso（版本随 -Version 变化）。

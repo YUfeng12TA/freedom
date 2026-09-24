@@ -1,6 +1,7 @@
-// freedomres 生成 Windows 资源对象（.syso）：应用图标（PNG→多尺寸 ICO）、
-// VERSIONINFO 元数据、application manifest（DPI 感知 + Common Controls v6）。
-// go build 会自动链接同目录下 <base>_windows_<arch>.syso——免去 windres/rc 外部工具链。
+// freedomres 生成 Windows 资源对象（.syso）：应用图标（PNG→多尺寸 ICO）与
+// VERSIONINFO 元数据。go build 会自动链接同目录下 <base>_windows_<arch>.syso
+// ——免去 windres/rc 外部工具链。DPI 感知不在此声明（manifest 与 mingw 冲突），
+// 由壳层 window_windows.go 运行时 API 设置。
 //
 // 用法（在仓库根）：
 //
@@ -85,11 +86,10 @@ func main() {
 	set(version.OriginalFilename, *orig)
 	rs.SetVersionInfo(vi)
 
-	// asInvoker：提权由安装器决定，壳自身不请求；DPI v2 保证高分屏清晰。
-	rs.SetManifest(winres.AppManifest{
-		DPIAwareness:        winres.DPIPerMonitorV2,
-		UseCommonControlsV6: true,
-	})
+	// 不写 application manifest：DPI 感知由壳层运行时 API 声明
+	//（window_windows.go init），asInvoker 由 mingw default-manifest.o 提供。
+	// 自定义 manifest 与 cgo 外部链接期的 default-manifest.o 冲突
+	//（ld: multiple non-default manifests），见 findings。
 
 	type target struct {
 		suffix string
