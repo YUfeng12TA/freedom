@@ -4,6 +4,8 @@ package freedom
 
 import (
 	"unsafe"
+
+	webview "github.com/webview/webview_go"
 )
 
 const (
@@ -30,16 +32,15 @@ type monitorInfo struct {
 // 使用 MonitorFromWindow + GetMonitorInfo：多显示器下相对窗口实际所在屏幕居中，
 // 且基于工作区（扣除任务栏）计算，不会遮挡任务栏；查询失败时回退主屏全屏尺寸估算。
 func (a *App) applyCenter() {
-	// 与 Emit/Quit/WindowHandle 一致经 viewMu 访问，维持 view 字段的并发约定。
-	view := a.getView()
-	if !a.cfg.Center || view == nil {
+	if !a.cfg.Center {
 		return
 	}
-	hwnd := uintptr(unsafe.Pointer(view.Window()))
-	if hwnd == 0 {
-		return
-	}
-	a.centerHWND(hwnd)
+	// 与 Emit/Quit/WindowHandle 一致经 withView 访问，维持 view 字段的并发约定。
+	a.withView(func(view webview.WebView) {
+		if hwnd := uintptr(view.Window()); hwnd != 0 {
+			a.centerHWND(hwnd)
+		}
+	})
 }
 
 // centerHWND 把指定原生窗口按其所在显示器工作区居中（M2：次级窗口复用）。

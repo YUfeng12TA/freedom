@@ -3,6 +3,8 @@ package freedom
 import (
 	"encoding/json"
 	"strconv"
+
+	webview "github.com/webview/webview_go"
 )
 
 // M1 异步桥接：前端 __freedom_bridge(id, method, params) 只做投递，handler 在
@@ -26,13 +28,12 @@ func (a *App) dispatchBridge(id float64, method, paramsJSON string, onDone func(
 }
 
 // pushResolve 把 resolve 脚本投递回 UI 线程执行；窗口已销毁时静默丢弃。
+// 判空与 Dispatch 同在 withView 读锁临界区内，与 Run 拆除（写锁内 Destroy）互斥。
 func (a *App) pushResolve(js string) {
-	view := a.getView()
-	if view == nil {
-		return
-	}
-	view.Dispatch(func() {
-		view.Eval(js)
+	a.withView(func(view webview.WebView) {
+		view.Dispatch(func() {
+			view.Eval(js)
+		})
 	})
 }
 

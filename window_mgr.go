@@ -60,23 +60,35 @@ func (w *Window) live() bool {
 }
 
 // Close 请求关闭窗口：投递 Terminate 到该窗口消息泵；对尚在启动中的窗口，
-// 置 closing 标志由创建线程自行退出。幂等。
+// 置 closing 标志由创建线程自行退出。幂等。主窗口 Close 等价 App.Quit
+// （主窗口关闭 = 应用退出，与 Run 的回收语义一致）。
 func (w *Window) Close() {
+	if w.id == mainWindowID {
+		w.app.Quit()
+		return
+	}
+	// Dispatch 在 w.mu 临界区内发起：与销毁侧 destroyView（同锁内 Destroy）互斥，
+	// 不会对已销毁实例投递（否则 use-after-free）。
 	w.mu.Lock()
+	defer w.mu.Unlock()
 	w.closing = true
-	view := w.view
-	w.mu.Unlock()
-	if view != nil {
+	if view := w.view; view != nil {
 		view.Dispatch(view.Terminate)
 	}
 }
 
 // SetTitle 修改窗口标题（投递到该窗口消息泵）。
 func (w *Window) SetTitle(title string) {
+	if w.id == mainWindowID {
+		w.app.withView(func(view webview.WebView) {
+			view.Dispatch(func() { view.SetTitle(title) })
+		})
+		return
+	}
 	w.mu.Lock()
-	view := w.view
-	w.mu.Unlock()
-	if view != nil {
+	defer w.mu.Unlock()
+	if view := w.view; view != nil {
+		// 闭包捕获局部引用：延迟执行时不再读共享字段 w.view（可能已摘除）。
 		view.Dispatch(func() { view.SetTitle(title) })
 	}
 }
@@ -93,12 +105,21 @@ func (w *Window) handle() uintptr {
 // evalJS 在本窗口消息泵上执行脚本；窗口未存活时静默丢弃。
 func (w *Window) evalJS(js string) {
 	w.mu.Lock()
-	view := w.view
-	w.mu.Unlock()
-	if view == nil {
-		return
+	defer w.mu.Unlock()
+	if view := w.view; view != nil {
+		view.Dispatch(func() { view.Eval(js) })
 	}
-	view.Dispatch(func() { view.Eval(js) })
+}
+
+// destroyView 由窗口线程在消息循环退出后调用：摘引用与 Destroy 同处 w.mu
+// 临界区，之后一切读引用+Dispatch 的方法（Close/SetTitle/evalJS/handle）自动失活。
+func (w *Window) destroyView(view webview.WebView) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.view == view {
+		w.view = nil
+	}
+	view.Destroy()
 }
 
 // NewWindow 异步创建一个次级窗口并立即返回句柄。必须在 App.Run() 已启动后
@@ -184,7 +205,7 @@ func (a *App) runWindow(w *Window) {
 		fmt.Printf("freedom: window %q: failed to create webview\n", w.id)
 		return
 	}
-	defer view.Destroy()
+	defer w.destroyView(view)
 	w.mu.Lock()
 	if w.closing {
 		w.mu.Unlock()
@@ -216,21 +237,26 @@ func (a *App) runWindow(w *Window) {
 	if w.spec.URL != "" {
 		view.Navigate(w.spec.URL)
 	} else {
-		html := w.spec.Page
-		if html == "" {
-			src := a.resolveHTML
-			if w.spec.HTML != nil {
-				src = w.spec.HTML
-			}
-			var err error
-			if html, err = src(); err != nil {
-				fmt.Printf("freedom: window %q: resolve html: %v\n", w.id, err)
-				return
-			}
+		html, err := a.resolvePage(w.spec)
+		if err != nil {
+			fmt.Printf("freedom: window %q: resolve html: %v\n", w.id, err)
+			return
 		}
 		view.SetHtml(html)
 	}
 	view.Run()
+}
+
+// resolvePage 按声明优先序解析次级窗口页面源（URL 分支不走本函数）：
+// HTML（Go 侧函数）> Page（前端 create 内联 JSON）> 主窗口 Config.HTML。
+func (a *App) resolvePage(spec WindowSpec) (string, error) {
+	if spec.HTML != nil {
+		return spec.HTML()
+	}
+	if spec.Page != "" {
+		return spec.Page, nil
+	}
+	return a.resolveHTML()
 }
 
 // windowControlFor 处理次级窗口动作：窗口级动作在此拦截，其余下沉平台层
@@ -286,8 +312,17 @@ func (a *App) windowManage(action, paramsJSON string) (result interface{}, ok bo
 		}
 		_ = json.Unmarshal([]byte(orEmptyJSON(paramsJSON)), &p)
 		w := a.Window(p.ID)
-		if w == nil || w.id == mainWindowID {
+		if w == nil {
 			return nil, true, fmt.Errorf("freedom: no such window: %q", p.ID)
+		}
+		if w.id == mainWindowID {
+			// 主窗口：closeWindow 仍拒绝（关主窗口=退应用，走 App.Quit/用户关窗）；
+			// focusWindow 允许——M2 前主窗口是唯一窗口，聚焦即置顶主窗。
+			if action == "closeWindow" {
+				return nil, true, fmt.Errorf("freedom: cannot closeWindow main window")
+			}
+			_, err := windowControl(a.WindowHandle(), "focus", a.cfg.TitleBar, "{}")
+			return nil, true, err
 		}
 		if action == "closeWindow" {
 			w.Close()

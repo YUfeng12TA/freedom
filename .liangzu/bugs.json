@@ -1,7 +1,7 @@
 {
   "version": 4,
   "subKind": "bugs",
-  "lastUpdated": "2026-09-24T10:30:00+08:00",
+  "lastUpdated": "2026-09-24T12:45:16+08:00",
   "bugRegistry": [
     {
       "id": "B01",
@@ -319,6 +319,61 @@
       "fix": "回滚加 copyFileBack 兜底（改名失败退化为内容复制），错误信息落 .old 位置",
       "regressionTest": "TestDownloadArtifactAndSwap/swap-failure-rolls-back-to-old-exe",
       "fixedAt": "2026-09-24T10:30:00+08:00"
+    },
+    {
+      "id": "B-20260924-022",
+      "sev": "major",
+      "file": "examples/multiwin/main.go",
+      "line": 0,
+      "summary": "Linux/WSLg 二级窗口 SIGSEGV：webview 在 runtime.LockOSThread goroutine 中创建并 run，违反 GTK 主线程模型（webview_run 内 Pango/GTK critical 后崩溃）",
+      "status": "known",
+      "fix": "未修复——需把二级窗口创建 marshal 回 GTK 主循环（每窗口独立 main loop 不成立）；M2 线程模型为 Windows 设计，Linux 侧属架构级改造，另行专项波次",
+      "regressionTest": "无（运行时崩溃，单测层面 M2 多窗口逻辑在 Linux 全绿）",
+      "fixedAt": ""
+    },
+    {
+      "id": "B-20260924-023",
+      "sev": "major",
+      "file": "window_mgr.go",
+      "line": 0,
+      "summary": "次级窗口消息循环退出后 w.view 从不摘除，回收窗口句柄上 Close/SetTitle/evalJS 对已 Destroy 实例 Dispatch（UAF）",
+      "status": "fixed",
+      "fix": "把判引用+Dispatch 与摘引用+Destroy 收进同一 w.mu 临界区（destroyView 统一回收）",
+      "regressionTest": "TestWindowDestroyViewAfterDispatch",
+      "fixedAt": "2026-09-24T12:45:16+08:00"
+    },
+    {
+      "id": "B-20260924-024",
+      "sev": "major",
+      "file": "dispatch.go",
+      "line": 0,
+      "summary": "pushResolve/Emit/Quit 的 getView 判空与 Dispatch 非原子，Run 拆除链（backend.Close ~4s 窗口）可致已销毁实例 Dispatch（UAF）",
+      "status": "fixed",
+      "fix": "withView 读锁内完成判空+Dispatch；Run defer 写锁内摘引用+Destroy 互斥；applyCenter/WindowHandle 同改",
+      "regressionTest": "TestMainViewTeardownMutualExclusion",
+      "fixedAt": "2026-09-24T12:45:16+08:00"
+    },
+    {
+      "id": "B-20260924-025",
+      "sev": "minor",
+      "file": "window_mgr.go",
+      "line": 0,
+      "summary": "主窗口注册项 view 永不赋值：Window(\"main\").Close/WaitClosed 静默无效，focusWindow(\"main\") 报 no such window",
+      "status": "fixed",
+      "fix": "main Close 路由 App.Quit；SetTitle 经 withView；Run 退出时 close 主窗 doneCh；focusWindow(main) 走平台 focus",
+      "regressionTest": "TestMainWindowCloseRoutesToQuit",
+      "fixedAt": "2026-09-24T12:45:16+08:00"
+    },
+    {
+      "id": "B-20260924-026",
+      "sev": "minor",
+      "file": "window_mgr.go",
+      "line": 0,
+      "summary": "次级窗口页面源实际优先序 URL>Page>HTML 函数，与 WindowSpec 注释/AGENTS 声明（URL>HTML>Page）相反，Go 侧 HTML 被 Page 覆盖",
+      "status": "fixed",
+      "fix": "抽 resolvePage 按声明序解析",
+      "regressionTest": "TestResolvePagePrecedence",
+      "fixedAt": "2026-09-24T12:45:16+08:00"
     }
   ]
 }

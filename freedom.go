@@ -23,7 +23,6 @@ import (
 	"os"
 	"sync"
 	"sync/atomic"
-	"unsafe"
 
 	webview "github.com/webview/webview_go"
 )
@@ -113,17 +112,22 @@ var appForEvents atomic.Pointer[App]
 
 func currentApp() *App { return appForEvents.Load() }
 
-// setView / getView 提供 view 字段的并发安全访问。
+// setView 设置主窗口 webview 引用。
 func (a *App) setView(w webview.WebView) {
 	a.viewMu.Lock()
 	a.view = w
 	a.viewMu.Unlock()
 }
 
-func (a *App) getView() webview.WebView {
+// withView 在 viewMu 读锁内对主窗口 webview 执行 f；未创建/已摘除时静默跳过。
+// 与 Run 的拆除序列（写锁内摘引用 + Destroy）互斥：调用方拿到引用并 Dispatch 的
+// 窗口期内实例不可能被销毁，杜绝 check-then-destroy 竞态下的 use-after-free。
+func (a *App) withView(f func(view webview.WebView)) {
 	a.viewMu.RLock()
 	defer a.viewMu.RUnlock()
-	return a.view
+	if a.view != nil {
+		f(a.view)
+	}
 }
 
 // New 创建并初始化一个 Freedom 应用。调用 Run() 之前不会显示窗口。
@@ -193,6 +197,9 @@ func (a *App) Run() {
 	defer func() {
 		a.CloseWindows()
 		a.winMu.Lock()
+		if mw := a.windows[mainWindowID]; mw != nil {
+			close(mw.doneCh) // 主窗口随 Run 退出回收：Window("main").WaitClosed() 可等待
+		}
 		delete(a.windows, mainWindowID)
 		a.running = false
 		a.winMu.Unlock()
@@ -214,9 +221,12 @@ func (a *App) Run() {
 			fmt.Fprintf(os.Stderr, "freedom: backend close: %v\n", err)
 		}
 		a.uninstallWindowEvents()
-		// 销毁前摘除引用：Run 返回后 Emit/Quit/WindowHandle 不得再触碰已销毁的 webview。
-		a.setView(nil)
+		// 摘引用与 Destroy 必须同处一个写锁临界区：读锁侧（withView）判空后
+		// Dispatch 的窗口期内实例不会被销毁（否则 Emit/Quit/pushResolve UAF）。
+		a.viewMu.Lock()
+		a.view = nil
 		w.Destroy()
+		a.viewMu.Unlock()
 	}()
 
 	// 进程后端：启动后端进程并把其推送的事件转发到前端。
@@ -345,39 +355,34 @@ func (a *App) bridge(method string, paramsJSON string) (result json.RawMessage, 
 // Emit 把事件推送到前端。前端通过 window.freedom.on(event, cb) 订阅。
 // 线程安全：可从任意 goroutine 调用（进程后端推送的事件亦经由本函数）。
 func (a *App) Emit(event string, data interface{}) {
-	view := a.getView()
-	if view == nil {
-		return
-	}
 	eb, _ := json.Marshal(event)
 	db, err := json.Marshal(data)
 	if err != nil {
 		db = []byte("null")
 	}
 	js := "window.freedom && window.freedom.emit(" + string(eb) + "," + string(db) + ");"
-	view.Dispatch(func() {
-		view.Eval(js)
+	a.withView(func(view webview.WebView) {
+		view.Dispatch(func() {
+			view.Eval(js)
+		})
 	})
 	a.emitSecondary(js) // M2：事件广播到全部次级窗口
 }
 
 // Quit 关闭窗口并退出应用。可从任意 goroutine 调用。
 func (a *App) Quit() {
-	view := a.getView()
-	if view != nil {
-		view.Dispatch(func() {
-			view.Terminate()
-		})
-	}
+	a.withView(func(view webview.WebView) {
+		view.Dispatch(view.Terminate)
+	})
 }
 
 // WindowHandle 返回底层原生窗口句柄（Windows 上为 HWND）。
 func (a *App) WindowHandle() uintptr {
-	view := a.getView()
-	if view == nil {
-		return 0
-	}
-	return uintptr(unsafe.Pointer(view.Window()))
+	var h uintptr
+	a.withView(func(view webview.WebView) {
+		h = uintptr(view.Window())
+	})
+	return h
 }
 
 // windowControl 处理前端 window.freedom.window.* 的窗口控制请求。
