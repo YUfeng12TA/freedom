@@ -120,6 +120,8 @@ try {
     # GUI 子系统（-H windowsgui）：运行时壳层与后端均不弹出 cmd 黑窗
     Invoke-Native "go build hello" { go build -ldflags $ldflags -o (Join-Path $dist "hello.exe") ./examples/hello }
     Invoke-Native "go build multiproc" { go build -ldflags $ldflags -o (Join-Path $dist "multiproc.exe") ./examples/multiproc }
+    # 多窗口冒烟示例：控制台子系统保留——SMOKE_OK 走 stdout，CI 断言可直接捕获
+    Invoke-Native "go build multiwin" { go build -ldflags "-H windows" -o (Join-Path $dist "multiwin.exe") ./examples/multiwin }
 } finally {
     Pop-Location
 }

@@ -74,3 +74,19 @@
 - E-M6-3 race：主机 ok 7.377s、WSL ok 5.804s 全量绿。
 - **坑（harness BOM）**：node 生成的含中文 .ps1 无 BOM → PS5.1 按 ANSI 读坏引号报解析错——测试脚手架也得遵守「含中文必须带 BOM UTF-8」约定（build.ps1 本体 BOM 完好故无此患）。
 - 决策：Authenticode 为二级信号（主锚=ed25519 manifest），吊销检查关闭换离线确定性，README 已声明。`阻塞:` 真证书签名成功路径待用户侧证书。
+
+## M7 完成证据（E-M7）与坑
+- 实现：cmd/freedom/{main.go,build.go,templates.go}；new 五模板（embed=内嵌 Bind Go；proc=go/node/python/rust NDJSON responder）；build=go mod tidy+壳构建（Windows 自动补 .exe、-gui、-version 白名单）+backends/go 连带。
+- E-M7-1：主机 embed/go 骨架 `freedom build` 全过（scaffold-embed.exe / scaffold-go.exe+backends/app_backend.exe），go-proc 壳后台拉起 5s 存活 SCAFFOLD_ALIVE；host race 7.365s 绿。
+- E-M7-2：WSL node/python 骨架 go mod tidy+go build 过（NODE/PY_SCAFFOLD_BUILD_OK）、node --check/py_compile 语法门过、py 壳 WSLg 拉起 4s 存活 PY_SCAFFOLD_ALIVE。
+- **坑1（go.mod 空格路径）**：replace 目标路径含空格必须加引号（printf "%q"），否则 go.mod 解析成两个 token 报 malformed module path。
+- **坑2（stdlib flag 位置参数后不解析）**：`new <dir> -backend go` 需 reorderFlags 预重排（带值 flag 表驱动）。
+- **坑3（go build -o 不补 .exe）**：Windows 输出名需自己补后缀。
+- 遗留环境：freedom-cli/ 为悬空 gitlink（无 .gitmodules、对象 38bbd2e 不在本地），历史遗留不触碰；.gitignore 补 build-tmp/、dist/（旧跟踪文件已 git rm --cached）。
+- E-M8-1：终检 gates 双平台全绿——host mingw CGO `go build+vet+test -race` ok 7.386s EXIT=0；WSL 同三门 ok 5.815s EXIT=0；node SDK 10/10。
+- E-M8-2：`build.ps1` 实跑 EXIT=0，dist/ 产 hello/multiproc/multiwin.exe+SHA256SUMS+backends（M8 把 multiwin 纳入两构建脚本产物矩阵，build.sh 同步）。
+- E-M8-3：CI build.yml 步骤序修正——Multiwin smoke 移到 Package 之后（dist/ 由 Package 步骤产出），仅 Windows 分支实跑，Linux 因 B-20260924-022 不启用 display 分支；yaml.safe_load 步骤序复核 checkout→…→Package(W)→Package(M/L)→smoke→upload。
+- E-M8-4：WSLg multiwin 二级窗口 SIGSEGV 登记 B-20260924-022（major/known，GTK 主线程模型，架构级另批）；README 能力矩阵拆出「多窗口」行，Linux 标已知缺陷。
+- E-M8-5：CLI embed  flavor new+build 复冒烟过（scaffold-m8.exe 产出）；AGENTS.md 补 authenticode/cmd/freedom/Commands 构建行。
+- **坑4（CI 冒烟位置）**：冒烟步骤引用 dist/ 产物必须排在构建脚本步骤之后，否则 runner 上文件不存在。
+- E-M8-6：S3 审查（子代理，8c6e11c..f3006bf+M8 未提交）——M3 无绕过、M7 CLI 无注入、M6 验签时序/wintrust 布局正确、IPC 分帧无缺陷；抓出 UAF 家族 2 major+2 minor，全部当场修复（B-023..026）：withView 读锁内判空+Dispatch、destroyView 同锁摘除+Destroy、主窗 Close→Quit/focus 桥接、resolvePage 对齐声明优先序；回归测试 lifecycle_test.go 4 个（fake 在 Destroy 后 Dispatch 即 panic，旧代码必炸新代码全绿），Win race 全绿+multiwin SMOKE_OK；gofmt -w 误伤 13 个未改文件已 checkout 回滚（范围纪律）。

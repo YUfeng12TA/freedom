@@ -40,9 +40,10 @@ if [ -n "${VERSION:-}" ]; then
     ldflags="-s -w -X freedom.Version=$VERSION"
 fi
 
-echo "==> go build 壳层 (hello / multiproc)"
+echo "==> go build 壳层 (hello / multiproc / multiwin)"
 CGO_ENABLED=1 go build -ldflags "$ldflags" -o "$dist/hello" ./examples/hello
 CGO_ENABLED=1 go build -ldflags "$ldflags" -o "$dist/multiproc" ./examples/multiproc
+CGO_ENABLED=1 go build -ldflags "$ldflags" -o "$dist/multiwin" ./examples/multiwin
 
 echo "==> go build Go 后端"
 CGO_ENABLED=1 go build -o "$bk/go_backend" ./examples/multiproc/backends

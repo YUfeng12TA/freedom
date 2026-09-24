@@ -8,7 +8,8 @@
 
 ## Commands
 
-- 构建（Windows）：`.\build.ps1`（`-SkipRust` 可跳过 Rust）；macOS/Linux：`./build.sh`。产物输出 `dist/`（hello.exe、multiproc.exe、dist/backends/*）。
+- 构建（Windows）：`.\build.ps1`（`-SkipRust` 可跳过 Rust；`-Sign` Authenticode 签名；`-Installer` 产 zip+nsi）；macOS/Linux：`./build.sh`。产物输出 `dist/`（hello.exe、multiproc.exe、multiwin.exe、dist/backends/*、SHA256SUMS.txt）。
+- 脚手架 CLI：`go run ./cmd/freedom new <dir> -backend embed|go|node|python|rust`、`go run ./cmd/freedom build <dir> [-gui] [-version x.y.z]`。
 - 测试：先跑 build 脚本产出编译型后端，再 `go test ./...`（`backend_proc_test.go` 用同一套断言跑四语言后端；对应二进制缺失时该子测试自动跳过，不是失败）。
 - 运行示例：`.\dist\multiproc.exe [go|node|python|rust]`。
 - lint：项目未配置 linter（无 .golangci.yml 等配置文件）。
@@ -30,6 +31,8 @@
 - `sysint_windows.go` — 系统集成：热键解析、剪贴板、Toast、shell.open 白名单、autostart 属主校验、URL Scheme 保留名单。
 - `syscap_linux.go` — Linux 系统能力：剪贴板（wl-clipboard 优先、失败回退 xclip）、xdg-open 白名单打开、notify-send 通知、XDG autostart `.desktop` 属主校验；taskbar/dialog/shortcut/protocol 等 Windows 专有项显式报 not supported。
 - `tray_linux.go` — GTK3 托盘（cgo GtkStatusIcon + 原生菜单，事件经 `App.Emit`；需 CGO_ENABLED=1 与 gtk3 头文件）。
+- `authenticode_windows.go` / `authenticode_other.go` — M6 WinVerifyTrust 离线 Authenticode 复核（`Update.RequireSignature` 可选启用；非 Windows 诚实报错）。
+- `cmd/freedom/` — M7 项目 CLI：`new <dir> -backend embed|go|node|python|rust` 生成骨架（go.mod 以 replace 指向框架目录），`build [dir] -gui -version X.Y.Z` 包装壳层构建（存在 `backends/go` 时一并编译）。
 - `sysint_common.go` / `tray_common.go` — 无 build tag 的跨平台共享层：openExternal/scheme 白名单、deep-link 参数、dataURL 解析、菜单条目模型（Windows/Linux 两侧复用）。
 - `msgwindow_windows.go` / `singleinstance_windows.go` — 独立消息窗口线程（WM_HOTKEY/WM_COPYDATA）与 CreateMutexW 权威单实例锁。
 - `store.go` / `osver_windows.go` — 平台无关数据层（path/store/window-state/os/process，经 sysGeneric 分发）与 Windows 侧几何/版本支撑。

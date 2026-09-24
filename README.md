@@ -127,7 +127,8 @@ GitHub Actions：`.github/workflows/build.yml` 在三个 runner 上分别编译�
 
 | 能力 | Windows | Linux | macOS |
 | --- | --- | --- | --- |
-| 壳层/多窗口/异步桥/能力门控/数据层 | ✅ | ✅ | ✅（编译级：CI macos job 验证 vet+test+build；**无 Mac 实机运行验证**） |
+| 壳层/异步桥/能力门控/数据层 | ✅ | ✅ | ✅（编译级：CI macos job 验证 vet+test+build；**无 Mac 实机运行验证**） |
+| 多窗口（window.create） | ✅ | ⚠️ 已知缺陷：二级窗口在 GTK 主线程模型下崩溃（B-20260924-022），单窗口正常；macOS 未验证 | ⚠️（未实机验证） |
 | 系统托盘 | 原生 Shell_NotifyIcon | GTK3 StatusIcon（legacy 协议，GNOME 需扩展） | ✖（占位拒绝） |
 | 剪贴板 / 通知 / openExternal / 自启 | ✅ | wl-clipboard→xclip 回退 / notify-send / xdg-open / XDG autostart | ✖ |
 | 全局热键 / 单实例 / deep-link / 对话框 / 任务栏进度 | ✅ | ✖（not supported 显式报错） | ✖ |

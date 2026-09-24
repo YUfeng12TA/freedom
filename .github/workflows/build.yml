@@ -99,6 +99,15 @@ jobs:
           VERSION: ${{ steps.ver.outputs.version }}
         run: ./build.sh
 
+      # 多窗口运行时冒烟：拉起主/次窗口回环断言，SMOKE_OK 为验收串。
+      # 仅 Windows 有显示服务可跑；Linux 二级窗口线程模型缺陷已登记（.liangzu/bugs.json），
+      # macOS runner 无头，两者诚实 skip。
+      - name: Multiwin smoke (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          ./dist/multiwin.exe | tee smoke.log; grep -q SMOKE_OK smoke.log
+
       - uses: actions/upload-artifact@v4
         with:
           name: freedom-${{ runner.os }}

@@ -7,8 +7,8 @@
 - [x] M4 Linux 实装（WSL2 Ubuntu-22.04）：装 webkit2gtk-4.0-dev 等依赖，实装 notification/tray/openExternal/autostart/clipboard（一级），热键/单实例（二级，视预算）；WSLg 起窗冒烟。验收：WSL 内 CGO 构建成功 + WSLg 拉起存活断言 + 平台门控 go test。
 - [x] M5 macOS 边界收口：不写无法编译验证的盲码；CI 增 macos compile job 作编译级门，README 声明实机验证缺口。验收：yaml 静态可解析；`阻塞:` 记无 Mac/SDK。
 - [x] M6 签名与运行时引导：build.ps1 -Sign（signtool 探测，缺席 warn 不 fail）；updater 对 Windows 产物可选 Authenticode 校验（WinVerifyTrust）；WebView2 runtime 探测回显。验收：探测分支单测 + 脚本实跑警告路径 + 校验代码 race 绿（真证书 `阻塞:`）。
-- [ ] M7 cmd/freedom CLI：`freedom new` 脚手架（内嵌 Go / 进程四语言模板）+ `freedom build` 包装。验收：实跑生成 scaffold 且 `go build` 通过。
-- [ ] M8 终检：CI 矩阵（linux build job + macos compile job）、bugs 闭环 0 open、README/AGENTS 更新、全 gates 绿、提交。验收：全 gates 绿 + 账本全勾。
+- [x] M7 cmd/freedom CLI：`freedom new` 脚手架（内嵌 Go / 进程四语言模板）+ `freedom build` 包装。验收：实跑生成 scaffold 且 `go build` 通过。
+- [x] M8 终检：CI 矩阵（linux build job + macos compile job）、bugs 闭环 0 open、README/AGENTS 更新、全 gates 绿、提交。验收：全 gates 绿 + 账本全勾。
 
 ## 多方案（方向闸门 S3≥3）
 - A. **分波自建全能力**：按 M1–M8 顺序在本仓实现，Linux 用 WSL2 实测，macOS 只给 CI 编译门——证据链完整、与既有 W/G 波次账本同构。**选 A**。
