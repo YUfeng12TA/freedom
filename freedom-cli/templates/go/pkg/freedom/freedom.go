@@ -316,6 +316,8 @@ func (a *App) Run() {
 	}
 	a.applyCenter()
 	a.applyTitleBar()
+	// 标题栏 / 任务栏图标同步为 exe 内嵌图标（Windows；其他平台 no-op）。
+	a.setWindowIcon()
 	// 窗口事件与关闭拦截（Windows 经 WndProc 子类化；其他平台 no-op）。
 	a.installWindowEvents()
 	// 恢复上次退出的窗口几何（仅 Config.RememberWindowState 时生效）。

@@ -3,8 +3,14 @@
 package freedom
 
 import (
+	"bytes"
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"syscall"
 	"unsafe"
 )
@@ -34,6 +40,12 @@ var (
 	procGetModuleHandle = kernel32.NewProc("GetModuleHandleW")
 	procLoadImage       = user32win.NewProc("LoadImageW")
 	procDestroyIcon     = user32win.NewProc("DestroyIcon")
+	// PE 资源读取（exeIconData 提取内嵌 RT_ICON 用）与标题栏图标设置。
+	procFindResource   = kernel32.NewProc("FindResourceW")
+	procSizeofResource = kernel32.NewProc("SizeofResource")
+	procLoadResource   = kernel32.NewProc("LoadResource")
+	procLockResource   = kernel32.NewProc("LockResource")
+	procSendMessage    = user32win.NewProc("SendMessageW")
 
 	dwmapi                     = syscall.NewLazyDLL("dwmapi.dll")
 	procDwmExtendFrameIntoArea = dwmapi.NewProc("DwmExtendFrameIntoClientArea")
@@ -44,8 +56,8 @@ var (
 	procSetWindowSubclass = comctl32.NewProc("SetWindowSubclass")
 	procDefSubclassProc   = comctl32.NewProc("DefSubclassProc")
 
-	procGetWindowRect   = user32win.NewProc("GetWindowRect")
-	procGetClientRect   = user32win.NewProc("GetClientRect")
+	procGetWindowRect       = user32win.NewProc("GetWindowRect")
+	procGetClientRect       = user32win.NewProc("GetClientRect")
 	procBringWindowToTop    = user32win.NewProc("BringWindowToTop")
 	procIsIconic            = user32win.NewProc("IsIconic")
 	procIsWindowVisible     = user32win.NewProc("IsWindowVisible")
@@ -57,12 +69,12 @@ var (
 	procEnumDisplayMonitors = user32win.NewProc("EnumDisplayMonitors")
 
 	// W6 审查修复追加：PNG→HICON 绘制（gdi32）、图标合成、子类化摘除、单实例互斥量。
-	gdi32                  = syscall.NewLazyDLL("gdi32.dll")
-	procCreateDIBSection   = gdi32.NewProc("CreateDIBSection")
-	procDeleteObject       = gdi32.NewProc("DeleteObject")
-	procCreateIconIndirect = user32win.NewProc("CreateIconIndirect")
+	gdi32                    = syscall.NewLazyDLL("gdi32.dll")
+	procCreateDIBSection     = gdi32.NewProc("CreateDIBSection")
+	procDeleteObject         = gdi32.NewProc("DeleteObject")
+	procCreateIconIndirect   = user32win.NewProc("CreateIconIndirect")
 	procRemoveWindowSubclass = comctl32.NewProc("RemoveWindowSubclass")
-	procCreateMutexW       = kernel32.NewProc("CreateMutexW")
+	procCreateMutexW         = kernel32.NewProc("CreateMutexW")
 
 	shcore               = syscall.NewLazyDLL("shcore.dll")
 	procGetDpiForMonitor = shcore.NewProc("GetDpiForMonitor")
@@ -90,20 +102,20 @@ var (
 	procGlobalSize   = kernel32.NewProc("GlobalSize")
 	procGlobalFree   = kernel32.NewProc("GlobalFree")
 
-	procFindWindowW        = user32win.NewProc("FindWindowW")
+	procFindWindowW         = user32win.NewProc("FindWindowW")
 	procSendMessageTimeoutW = user32win.NewProc("SendMessageTimeoutW")
 
 	procShellExecuteW = shell32.NewProc("ShellExecuteW")
-	shlwapi            = syscall.NewLazyDLL("shlwapi.dll")
-	procSHDeleteKeyW   = shlwapi.NewProc("SHDeleteKeyW")
+	shlwapi           = syscall.NewLazyDLL("shlwapi.dll")
+	procSHDeleteKeyW  = shlwapi.NewProc("SHDeleteKeyW")
 
-	advapi32              = syscall.NewLazyDLL("advapi32.dll")
-	procRegOpenKeyExW     = advapi32.NewProc("RegOpenKeyExW")
-	procRegCreateKeyExW   = advapi32.NewProc("RegCreateKeyExW")
-	procRegSetValueExW    = advapi32.NewProc("RegSetValueExW")
-	procRegQueryValueExW  = advapi32.NewProc("RegQueryValueExW")
-	procRegDeleteValueW   = advapi32.NewProc("RegDeleteValueW")
-	procRegCloseKey       = advapi32.NewProc("RegCloseKey")
+	advapi32             = syscall.NewLazyDLL("advapi32.dll")
+	procRegOpenKeyExW    = advapi32.NewProc("RegOpenKeyExW")
+	procRegCreateKeyExW  = advapi32.NewProc("RegCreateKeyExW")
+	procRegSetValueExW   = advapi32.NewProc("RegSetValueExW")
+	procRegQueryValueExW = advapi32.NewProc("RegQueryValueExW")
+	procRegDeleteValueW  = advapi32.NewProc("RegDeleteValueW")
+	procRegCloseKey      = advapi32.NewProc("RegCloseKey")
 
 	procSetProcessDpiAwarenessContext = user32win.NewProc("SetProcessDpiAwarenessContext")
 )
@@ -140,6 +152,11 @@ const (
 
 	smCXSmall = 13 // SM_CXSMICON
 	smCYSmall = 14 // SM_CYSMICON
+
+	smCXIcon  = 11     // SM_CXICON：任务栏 / Alt-Tab 大图标尺寸
+	smCYIcon  = 12     // SM_CYICON
+	wmSetIcon = 0x0080 // WM_SETICON：设置窗口大/小图标（ICON_BIG=1 / ICON_SMALL=0）
+	rtIcon    = 3      // RT_ICON：ICO 内嵌单幅图像资源类型
 )
 
 // gwlStyle = GWL_STYLE（-16）。用变量声明，避免 uintptr 常量转换溢出。
@@ -205,6 +222,9 @@ func windowControl(hwnd uintptr, action string, mode TitleBarMode, paramsJSON st
 		// 仅 frameless 返回 true：hidden 模式保留 DWM 原生按钮，
 		// 前端若据 isFrameless 自绘按钮会与原生按钮重叠。
 		return mode == TitleBarFrameless, nil
+	case "appIcon":
+		// exe 内嵌图标 → PNG data URL（无边框自绘标题栏用）；无图标时返回 ""。
+		return exeAppIconDataURL(), nil
 
 	// ---- W1 对标 Tauri：位置 / 尺寸 ----
 	case "setPosition":
@@ -507,6 +527,154 @@ func loadExeIcon(cx, cy uintptr) uintptr {
 		}
 	}
 	return 0
+}
+
+// exeIconData 读取当前 exe 内嵌的 RT_ICON 资源原始字节。
+// 不依赖 RT_GROUP_ICON 的 ID（不同注入工具写入的资源 ID 可能不同）：
+// 先按 rcedit 约定 RT_ICON ID=1 读取，失败回退 ID=0，与 loadExeIcon 的 ID 假设解耦。
+func exeIconData() []byte {
+	hInst, _, _ := procGetModuleHandle.Call(0)
+	if hInst == 0 {
+		return nil
+	}
+	for _, id := range []uintptr{1, 0} {
+		// FindResourceW(hModule, MAKEINTRESOURCE(id), MAKEINTRESOURCE(RT_ICON))
+		hRes, _, _ := procFindResource.Call(hInst, id, rtIcon)
+		if hRes == 0 {
+			continue
+		}
+		size, _, _ := procSizeofResource.Call(hInst, hRes)
+		if size == 0 {
+			continue
+		}
+		hData, _, _ := procLoadResource.Call(hInst, hRes)
+		if hData == 0 {
+			continue
+		}
+		ptr, _, _ := procLockResource.Call(hData)
+		if ptr == 0 {
+			continue
+		}
+		return unsafe.Slice((*byte)(unsafe.Pointer(ptr)), size)
+	}
+	return nil
+}
+
+// isPNG 判断字节流是否为 PNG 编码（.ico 内嵌 PNG 时 RT_ICON 数据即 PNG）。
+func isPNG(b []byte) bool {
+	return len(b) >= 8 && b[0] == 0x89 && b[1] == 'P' && b[2] == 'N' && b[3] == 'G'
+}
+
+// exeAppIconDataURL 从当前 exe 的 PE 资源图标（RT_ICON）提取为 PNG data URL，
+// 供无边框模式前端自绘标题栏显示应用图标——不依赖 resources 文件夹里的任何文件。
+// 无法提取时返回空字符串（前端隐藏图标）。
+func exeAppIconDataURL() string {
+	data := exeIconData()
+	if len(data) == 0 {
+		return ""
+	}
+	if isPNG(data) {
+		return "data:image/png;base64," + base64.StdEncoding.EncodeToString(data)
+	}
+	img, err := dibToPNG(data)
+	if err != nil {
+		return ""
+	}
+	return "data:image/png;base64," + base64.StdEncoding.EncodeToString(img)
+}
+
+// setWindowIcon 把 exe 内嵌的应用程序图标同步到窗口标题栏与任务栏：
+//   - native 模式：标题栏图标（ICON_SMALL）与任务栏 / Alt-Tab 图标（ICON_BIG）均来自 exe 图标，
+//     保证「标题栏图标 = exe 图标」；
+//   - frameless 模式：无标题栏，但任务栏 / Alt-Tab 仍显示 exe 图标。
+//
+// 图标经 LoadImageW 从 PE 资源 RT_GROUP_ICON 加载，不依赖 resources 里的图标文件；
+// exe 未注入图标时静默跳过（保留系统默认图标）。
+func (a *App) setWindowIcon() {
+	hwnd := a.WindowHandle()
+	if hwnd == 0 {
+		return
+	}
+	cxIcon, _, _ := procGetSystemMetrics.Call(smCXIcon)
+	cyIcon, _, _ := procGetSystemMetrics.Call(smCYIcon)
+	cxSmall, _, _ := procGetSystemMetrics.Call(smCXSmall)
+	cySmall, _, _ := procGetSystemMetrics.Call(smCYSmall)
+	big := loadExeIcon(cxIcon, cyIcon)
+	small := loadExeIcon(cxSmall, cySmall)
+	if big != 0 {
+		procSendMessage.Call(hwnd, wmSetIcon, 1 /* ICON_BIG */, big)
+		procDestroyIcon.Call(big)
+	}
+	if small != 0 {
+		procSendMessage.Call(hwnd, wmSetIcon, 0 /* ICON_SMALL */, small)
+		procDestroyIcon.Call(small)
+	}
+}
+
+// dibToPNG 将 ICO 内嵌的 DIB 图像（BITMAPINFOHEADER 起始的裸 DIB，即 .ico 未内嵌
+// PNG 时的 RT_ICON 数据）纯 Go 解析为 PNG 字节，不依赖 GDI 绘图 API。
+// 支持 32/24 bpp；透明由 AND mask 决定（对应位=1 表示透明）。
+func dibToPNG(data []byte) ([]byte, error) {
+	if len(data) < 40 {
+		return nil, fmt.Errorf("DIB too short: %d bytes", len(data))
+	}
+	biSize := binary.LittleEndian.Uint32(data[0:4])
+	if biSize < 40 {
+		return nil, fmt.Errorf("unsupported BITMAPINFOHEADER size %d", biSize)
+	}
+	width := int(binary.LittleEndian.Uint32(data[4:8]))
+	heightRaw := int32(binary.LittleEndian.Uint32(data[8:12]))
+	bitCount := binary.LittleEndian.Uint16(data[14:16])
+	if width <= 0 || heightRaw == 0 {
+		return nil, fmt.Errorf("bad dimensions %dx%d", width, heightRaw)
+	}
+	bpp := (int(bitCount) + 7) / 8
+	if bpp != 3 && bpp != 4 {
+		return nil, fmt.Errorf("unsupported bitcount %d", bitCount)
+	}
+	height := int(heightRaw)
+	if height < 0 {
+		height = -height
+	}
+	// ICO 的 DIB 高度可能为实际像素高度的 2 倍（上方 XOR + 下方 AND mask），
+	// 此时需折半，否则图像会被纵向拉伸。
+	pixelRowBytes := (width*bpp + 3) &^ 3
+	andRowBytes := ((width + 31) / 32) * 4
+	pxLen := pixelRowBytes * height
+	if pxLen > len(data)-int(biSize) && height%2 == 0 {
+		height /= 2
+		pxLen = pixelRowBytes * height
+	}
+	pxStart := int(biSize)
+	andStart := pxStart + pxLen
+	// AND mask 是否存在以实际数据长度为准：ICO 的 DIB 若数据不足（无 AND mask 段），
+	// andStart+andRowBytes*height 会超出 len(data)，下方读取将越界 panic 崩掉壳进程。
+	hasAndMask := andStart+andRowBytes*height <= len(data)
+	img := image.NewRGBA(image.Rect(0, 0, width, height))
+	for y := 0; y < height; y++ {
+		srcY := height - 1 - y // DIB 自底向上：数据首行是图像末行
+		row := pxStart + srcY*pixelRowBytes
+		andRow := andStart + srcY*andRowBytes
+		for x := 0; x < width; x++ {
+			off := row + x*bpp
+			if off+bpp > len(data) {
+				return nil, fmt.Errorf("DIB data truncated at x=%d,y=%d", x, y)
+			}
+			b := data[off]
+			g := data[off+1]
+			r := data[off+2]
+			alpha := uint8(255)
+			if hasAndMask && (data[andRow+x/8]>>uint(7-x%8))&1 == 1 {
+				alpha = 0
+			}
+			img.SetRGBA(x, y, color.RGBA{R: r, G: g, B: b, A: alpha})
+		}
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 // applyTitleBar 依据配置调整窗口标题栏（Windows 实现）。

@@ -234,3 +234,26 @@ test('cli: agents install 按 --home 落盘，未知子命令退出 1', () => {
     rmSync(home, { recursive: true, force: true });
   }
 });
+
+// R1 回归：Desktop 模板必须自带可注入的 exe 图标——壳层运行时经 WM_SETICON 把
+// exe 内嵌图标同步到标题栏/任务栏，模板缺 icon.ico 时产物会退回系统默认图标。
+test('desktop: 模板声明 icon 且 icon.ico 为合法多尺寸 ICO', () => {
+  const dir = path.join(cliRoot, 'templates', 'desktop');
+  const cfg = readFileSync(path.join(dir, 'freedom.config.js'), 'utf8');
+  assert.ok(/\bicon:\s*'icon\.ico'/.test(cfg), 'freedom.config.js 应声明 icon: "icon.ico"');
+
+  const ico = readFileSync(path.join(dir, 'icon.ico'));
+  assert.equal(ico.readUInt16LE(0), 0, 'ICONDIR reserved 必须为 0');
+  assert.equal(ico.readUInt16LE(2), 1, 'ICONDIR type 必须为 1（图标）');
+  const count = ico.readUInt16LE(4);
+  assert.ok(count >= 4, `多尺寸阶梯至少 4 档，实际 ${count}`);
+  assert.ok(ico.length > 6 + count * 16, '目录项声明的数据区必须真实存在');
+  for (let i = 0; i < count; i++) {
+    const o = 6 + i * 16;
+    const px = ico.readUInt8(o) || 256;
+    assert.equal(px, ico.readUInt8(o + 1) || 256, `第 ${i} 项宽高应一致`);
+    assert.ok(ico.readUInt32LE(o + 8) > 0, `第 ${i} 项图像字节数为 0`);
+  }
+  const sizes = Array.from({ length: count }, (_, i) => ico.readUInt8(6 + i * 16) || 256);
+  assert.ok(sizes.includes(32) && sizes.includes(256), `应覆盖 32（任务栏）与 256（高分屏）：${sizes}`);
+});

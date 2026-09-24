@@ -2,9 +2,14 @@
 .rivet/
 .zcode/
 freedom_call_log.txt
+vibe_images/
+
+# 依赖安装产物（freedom-cli 本地开发时 npm install 生成）
+node_modules/
 
 # freedomres 编译产物（源码在 tools/freedomres/，二进制不入库）
 tools/freedomres.exe
+tools/freedomres/freedomres.exe
 
 # 构建期生成的 Windows 资源（版本随 -Version 变化，不入库）
 examples/*/freedomapp_windows_*.syso

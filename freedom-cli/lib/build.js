@@ -306,7 +306,16 @@ async function applyWindowsIcon(exePath, iconPath, name, version) {
     );
     return;
   }
-  const rcedit = require('rcedit'); // 惰性加载，避免未配置 icon 时增加启动开销
+  let rcedit;
+  try {
+    rcedit = require('rcedit'); // 惰性加载，避免未配置 icon 时增加启动开销
+  } catch (e) {
+    throw new Error(
+      'exe 图标注入需要依赖 rcedit，但未能加载（npm 安装不完整）。'
+      + '请在 freedom-cli 安装目录执行 npm install 后重试；'
+      + '或临时移除 freedom.config.js 的 icon 配置以跳过注入。'
+    );
+  }
   const info = { icon: iconPath };
   // rcedit 4.x 参数结构：FileDescription/ProductName 等字符串必须走
   // version-string（--set-version-string 键值对），file-version/product-version

@@ -43,7 +43,7 @@ test('W5: 命名空间与函数齐全', () => {
     window: ['setPosition', 'setSize', 'getPosition', 'getSize', 'innerSize', 'center', 'setTitle',
       'show', 'hide', 'focus', 'isVisible', 'isFocused', 'isMinimized', 'setAlwaysOnTop',
       'setSkipTaskbar', 'setResizable', 'setMaximizable', 'setMinimizable', 'setFullscreen',
-      'isFullscreen', 'interceptClose', 'getInfo', 'monitors', 'setBackdrop', 'bindButtons',
+      'isFullscreen', 'interceptClose', 'getInfo', 'appIcon', 'monitors', 'setBackdrop', 'bindButtons',
       'id', 'list', 'create', 'closeWindow', 'focusWindow'],
     clipboard: ['readText', 'writeText'],
     shell: ['open'],
@@ -76,6 +76,7 @@ test('W5: 调用路由——桥、方法名、参数编码逐项锁定', async (
   await f.window.setPosition(10, 20);
   await f.window.close(true);
   await f.window.setFullscreen(true);
+  await f.window.appIcon();
   await f.clipboard.writeText('hi');
   await f.shell.open('https://example.com');
   await f.store.set('k', { a: 1 }, 'prefs');
@@ -91,6 +92,7 @@ test('W5: 调用路由——桥、方法名、参数编码逐项锁定', async (
     'window:setPosition:{"x":10,"y":20}',
     'window:close:{"force":true}',
     'window:setFullscreen:{"on":true}',
+    'window:appIcon:{}',
     'sys:clipboard.write:{"text":"hi"}',
     'sys:shell.open:{"target":"https://example.com"}',
     'sys:store.set:{"store":"prefs","key":"k","value":{"a":1}}',

@@ -18,6 +18,11 @@ export default {
   security: 'none',
   outDir: 'dist',
 
+  // 应用图标：构建时注入 exe（Windows 用 rcedit 写 PE 资源），运行时壳层经
+  // WM_SETICON 同步到标题栏与任务栏。由 tools/freedomres -ico-out 从
+  // assets/freedom-desktop.png 生成（多尺寸阶梯 16/24/32/48/64/128/256）。
+  icon: 'icon.ico',
+
   // 后端 = Node 进程（零依赖），经 NDJSON/stdio 桥将 freedom CLI 能力暴露给界面。
   // 相对路径以 resources/ 为工作目录解析；CLI 入口由 freedom desktop 写入 cli-entry.json。
   backend: { command: 'node', args: ['backend/desktop.mjs'] },

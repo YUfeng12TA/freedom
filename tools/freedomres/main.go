@@ -36,7 +36,30 @@ func main() {
 	copy := flag.String("copyright", "", "LegalCopyright")
 	orig := flag.String("orig-filename", "", "OriginalFilename（默认取输出目标名）")
 	arch := flag.String("arch", "amd64", "amd64|386|all")
+	icoOut := flag.String("ico-out", "", "只产 .ico（PNG→多尺寸阶梯 ICO，供 rcedit/mac 注入用），不写 .syso")
 	flag.Parse()
+	if *icoOut != "" {
+		if *ico == "" {
+			log.Fatalf("-ico-out 需配合 -icon <png>")
+		}
+		icon, err := loadIcon(*ico)
+		if err != nil {
+			log.Fatalf("icon: %v", err)
+		}
+		f, err := os.Create(*icoOut)
+		if err != nil {
+			log.Fatalf("create %s: %v", *icoOut, err)
+		}
+		if err := icon.SaveICO(f); err != nil {
+			f.Close()
+			log.Fatalf("SaveICO: %v", err)
+		}
+		if err := f.Close(); err != nil {
+			log.Fatalf("close: %v", err)
+		}
+		fmt.Printf("已生成多尺寸 ICO：%s\n", *icoOut)
+		return
+	}
 	switch *arch {
 	case "amd64", "386", "all":
 	default:
@@ -50,18 +73,9 @@ func main() {
 
 	var rs winres.ResourceSet
 	if *ico != "" {
-		f, err := os.Open(*ico)
+		icon, err := loadIcon(*ico)
 		if err != nil {
 			log.Fatalf("icon: %v", err)
-		}
-		img, _, err := image.Decode(f)
-		f.Close()
-		if err != nil {
-			log.Fatalf("icon decode: %v", err)
-		}
-		icon, err := winres.NewIconFromResizedImage(img, nil) // nil=标准尺寸阶梯
-		if err != nil {
-			log.Fatalf("icon build: %v", err)
 		}
 		if err := rs.SetIcon(winres.Name("APPICON"), icon); err != nil {
 			log.Fatalf("SetIcon: %v", err)
@@ -117,6 +131,20 @@ func main() {
 		f.Close()
 		fmt.Println(path)
 	}
+}
+
+// loadIcon 读取 PNG 并缩放为 ICO 尺寸阶梯（winres 默认阶梯：16/24/32/48/64/128/256）。
+func loadIcon(path string) (*winres.Icon, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	img, _, err := image.Decode(f)
+	if err != nil {
+		return nil, err
+	}
+	return winres.NewIconFromResizedImage(img, nil)
 }
 
 // parseVersion "1.2.3" / "1.2.3.4"（可带 v 前缀或 -prerelease 后缀，后缀丢弃）。

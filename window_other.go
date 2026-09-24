@@ -9,10 +9,13 @@ import "fmt"
 // 前端仍可通过 window.freedom.window.isFrameless() 感知当前是否无边框。
 func (a *App) applyTitleBar() {}
 
+// setWindowIcon 在 macOS / Linux 上为空实现：图标由应用包（.icns / .desktop）决定。
+func (a *App) setWindowIcon() {}
+
 // installWindowEvents / uninstallWindowEvents 在非 Windows 平台为空实现
 // （窗口事件与关闭拦截依赖 WndProc 子类化，仅 Windows 提供）。
 func (a *App) installWindowEvents()   {}
-func (a *App) uninstallWindowEvents()  {}
+func (a *App) uninstallWindowEvents() {}
 
 // windowControl 处理前端 window.freedom.window.* 请求（macOS / Linux 占位实现）。
 // 动作集与 window_windows.go 保持一致：查询类返回中性值，动作类静默 no-op，
@@ -23,6 +26,9 @@ func windowControl(hwnd uintptr, action string, mode TitleBarMode, paramsJSON st
 		// 仅 frameless 返回 true（与 window_windows.go 语义一致）；
 		// hidden 模式回退原生标题栏，前端不应自绘按钮。
 		return mode == TitleBarFrameless, nil
+	case "appIcon":
+		// macOS / Linux 暂不提供 exe 内嵌图标提取，前端隐藏标题栏图标。
+		return "", nil
 	case "isMaximized", "isMinimized", "isVisible", "isFocused", "isFullscreen":
 		if action == "isVisible" {
 			return true, nil

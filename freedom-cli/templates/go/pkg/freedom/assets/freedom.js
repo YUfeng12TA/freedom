@@ -127,6 +127,9 @@
       // 聚合信息：title/outerX/outerY/outerWidth/outerHeight/innerWidth/innerHeight/
       // scaleFactor/visible/focused/maximized/minimized/alwaysOnTop/skipTaskbar/frameless/fullscreen。
       getInfo: function () { return windowAction('getInfo'); },
+      // appIcon()：exe 内嵌图标 → PNG data URL（无边框自绘标题栏用）；
+      // 未注入图标或非 Windows 平台返回空字符串。
+      appIcon: function () { return windowAction('appIcon'); },
       // 显示器列表（经 sys 桥接）：[{x,y,width,height,workX,workY,workWidth,workHeight,scaleFactor,isPrimary}]
       monitors: function () { return sysCall('window.monitors', {}); },
       // 窗口视觉效果（Win11）：backdrop: auto|none|solid|mica|acrylic；corner: round|roundSmall|square|default；borderColor: 0x00BBGGRR
