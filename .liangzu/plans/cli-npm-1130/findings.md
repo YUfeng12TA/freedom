@@ -12,3 +12,7 @@
 - npm whoami 仍 401（token 过期）；R7 发布必须由用户先 `npm login`（或提供新 token）。
 - 壳资产命名：Release 资产 = `freedom-shell-<plat>`（win 资产无 .exe 后缀；包内 shell/<plat>/freedom-shell[.exe] 有）。shell.js releaseUrl 已证。
 - npm 包 bundle shell 二进制（win/linux 7MB×2，pack 后 tgz 6.3MB），git 不入库（.gitignore freedom-cli/shell/*/freedom-shell*，files 字段白名单仍打包）。
+
+- CI 取证：job 日志需 admin——用 git credential manager 取 token（host=github.com，api.github.com 会挂 tty 提示）；logs 端点 302，重定向请求不得带 Authorization。
+- tag run 35963307853 / main run 35963305312 同因失败：linux/macos Package ./build.sh Permission denied（100644）；win Multiwin smoke 崩在 destroyView→Destroy 泵出排队 dispatch 回调→view.Eval UAF（0xc0000005, window_mgr.go:110）。
+- 教训：做红绿验证用临时改码+恢复时，禁用 git checkout 丢弃未提交文件（本轮 window_mgr.go 被误回滚一次，已重放）。

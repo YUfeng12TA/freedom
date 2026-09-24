@@ -1,7 +1,7 @@
 {
   "version": 4,
   "subKind": "bugs",
-  "lastUpdated": "2026-09-24T05:44:34.873+08:00",
+  "lastUpdated": "2026-09-24T06:32:23.055Z",
   "bugRegistry": [
     {
       "id": "B01",
@@ -385,6 +385,28 @@
       "fix": "从 npm registry 取回 @yufengtadian/freedom-cli@1.12.18 tarball 全量恢复（bin/lib/postinstall/tutorial/templates），删 gitlink 改常规目录；templates/go 以当前框架源码重生成（删 fork webview_go 与 gen_config）；Go 侧配套恢复 resources.go/security.go/anti_debug + cmd/shell 通用壳",
       "regressionTest": "TestDecryptNodeContainer（JS encryptApp→Go 解密黄金向量）+ TestRuntimeConfigOverlayPlain/TestRuntimeSecureMode/TestBackendExplicitGuardsOverlay/TestSecureIntegrityBackendFile + Windows E2E（npm pack→init→freedom build→壳运行）",
       "fixedAt": "2026-09-24T05:44:34.872+08:00"
+    },
+    {
+      "id": "B-20260924-028",
+      "sev": "major",
+      "file": "window_mgr.go",
+      "line": 106,
+      "summary": "B-023/024 残余竞态：Dispatch 只是入队，读锁/引用判空后即释放；webview2 的 Destroy 会在拆除线程上泵出排队回调，闭包无条件 view.Eval/SetTitle/Terminate 打中半销毁实例（CI multiwin smoke 实测 0xc0000005，v1.13.0 tag run 35963307853）",
+      "status": "fixed",
+      "fix": "Window.tearing / App.viewTearing 原子量于 Destroy 前置位，全部已入队 dispatch 闭包（evalJS/SetTitle/Close/Emit/Quit/pushResolve）执行前复判自我作废；闭包不得再取 w.mu/viewMu（回调就跑在持锁临界区内）；Run 主窗口拆除收敛为 teardownView 供测试同构调用",
+      "regressionTest": "TestPendingDispatchFiresDuringDestroy + TestMainPendingDispatchFiresDuringDestroy（fake.Destroy 泵队列、destroyed 后 Eval/SetTitle 即 panic；去守卫实测红）+ 既有 lifecycle 全套 -race count=2 绿 + 本地 multiwin.exe smoke 3/3 SMOKE_OK",
+      "fixedAt": "2026-09-24T06:32:23.054+08:00"
+    },
+    {
+      "id": "B-20260924-029",
+      "sev": "major",
+      "file": "build.sh",
+      "line": 1,
+      "summary": "build.sh 以 100644 入库（Windows 侧无 exec 位概念），CI linux/macos 直跑 ./build.sh 报 Permission denied exit 126/1，打包与后续 shell 步骤全被跳过",
+      "status": "fixed",
+      "fix": "git update-index --chmod=+x build.sh（mode 100755 入库）；复查 workflows 内直跑脚本仅此一处",
+      "regressionTest": "CI v1.13.0 重跑 linux/macos Package 步骤通过（推送后验证）",
+      "fixedAt": "2026-09-24T06:32:23+08:00"
     }
   ]
 }

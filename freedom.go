@@ -109,6 +109,10 @@ type App struct {
 	windows map[string]*Window
 	winSeq  int
 	running bool
+
+	// viewTearing 在 Run 的 Destroy 前置位（语义同 Window.tearing）：
+	// 主窗口已入队的 dispatch 回调会被销毁路径泵出执行，闭包凭此原子量自我作废。
+	viewTearing atomic.Bool
 }
 
 // appForEvents 指向当前运行的 App，供平台层回调（单实例/热键等）向 Emit 事件。
@@ -134,6 +138,17 @@ func (a *App) withView(f func(view webview.WebView)) {
 	if a.view != nil {
 		f(a.view)
 	}
+}
+
+// teardownView 是 Run 的回收 defer 与测试的同构入口：写锁内立拆除旗标、摘引用、
+// Destroy。Destroy 会泵出队列里的 dispatch 回调（闭包读 viewTearing 自我作废，
+// 不得再取 viewMu——回调就跑在本临界区内）。
+func (a *App) teardownView(view webview.WebView) {
+	a.viewMu.Lock()
+	defer a.viewMu.Unlock()
+	a.viewTearing.Store(true)
+	a.view = nil
+	view.Destroy()
 }
 
 // New 创建并初始化一个 Freedom 应用。调用 Run() 之前不会显示窗口。
@@ -251,10 +266,7 @@ func (a *App) Run() {
 		a.uninstallWindowEvents()
 		// 摘引用与 Destroy 必须同处一个写锁临界区：读锁侧（withView）判空后
 		// Dispatch 的窗口期内实例不会被销毁（否则 Emit/Quit/pushResolve UAF）。
-		a.viewMu.Lock()
-		a.view = nil
-		w.Destroy()
-		a.viewMu.Unlock()
+		a.teardownView(w)
 	}()
 
 	// 进程后端：启动后端进程并把其推送的事件转发到前端。
@@ -391,7 +403,9 @@ func (a *App) Emit(event string, data interface{}) {
 	js := "window.freedom && window.freedom.emit(" + string(eb) + "," + string(db) + ");"
 	a.withView(func(view webview.WebView) {
 		view.Dispatch(func() {
-			view.Eval(js)
+			if !a.viewTearing.Load() {
+				view.Eval(js)
+			}
 		})
 	})
 	a.emitSecondary(js) // M2：事件广播到全部次级窗口
@@ -400,7 +414,11 @@ func (a *App) Emit(event string, data interface{}) {
 // Quit 关闭窗口并退出应用。可从任意 goroutine 调用。
 func (a *App) Quit() {
 	a.withView(func(view webview.WebView) {
-		view.Dispatch(view.Terminate)
+		view.Dispatch(func() {
+			if !a.viewTearing.Load() {
+				view.Terminate()
+			}
+		})
 	})
 }
 

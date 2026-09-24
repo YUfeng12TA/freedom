@@ -32,7 +32,9 @@ func (a *App) dispatchBridge(id float64, method, paramsJSON string, onDone func(
 func (a *App) pushResolve(js string) {
 	a.withView(func(view webview.WebView) {
 		view.Dispatch(func() {
-			view.Eval(js)
+			if !a.viewTearing.Load() {
+				view.Eval(js)
+			}
 		})
 	})
 }

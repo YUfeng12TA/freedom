@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"sort"
 	"sync"
+	"sync/atomic"
 
 	webview "github.com/webview/webview_go"
 )
@@ -44,6 +45,10 @@ type Window struct {
 	mu      sync.Mutex
 	view    webview.WebView // 未创建/已销毁为 nil
 	closing bool            // Close 早于 view 就绪时置位，runWindow 见后即撤
+	// tearing 在 Destroy 前置位。Dispatch 只是入队：webview2 的销毁路径会在
+	// 拆除线程上把排队回调泵出来执行（此刻 w.mu 仍被 destroyView 持有，闭包
+	// 只能读原子量），无守卫即对半销毁实例 Eval → 0xc0000005（CI 实测崩溃）。
+	tearing atomic.Bool
 }
 
 // ID 返回窗口标识（"main" 或 "w1"…）。
@@ -73,7 +78,11 @@ func (w *Window) Close() {
 	defer w.mu.Unlock()
 	w.closing = true
 	if view := w.view; view != nil {
-		view.Dispatch(view.Terminate)
+		view.Dispatch(func() {
+			if !w.tearing.Load() {
+				view.Terminate()
+			}
+		})
 	}
 }
 
@@ -81,7 +90,11 @@ func (w *Window) Close() {
 func (w *Window) SetTitle(title string) {
 	if w.id == mainWindowID {
 		w.app.withView(func(view webview.WebView) {
-			view.Dispatch(func() { view.SetTitle(title) })
+			view.Dispatch(func() {
+				if !w.app.viewTearing.Load() {
+					view.SetTitle(title)
+				}
+			})
 		})
 		return
 	}
@@ -89,7 +102,11 @@ func (w *Window) SetTitle(title string) {
 	defer w.mu.Unlock()
 	if view := w.view; view != nil {
 		// 闭包捕获局部引用：延迟执行时不再读共享字段 w.view（可能已摘除）。
-		view.Dispatch(func() { view.SetTitle(title) })
+		view.Dispatch(func() {
+			if !w.tearing.Load() {
+				view.SetTitle(title)
+			}
+		})
 	}
 }
 
@@ -107,15 +124,22 @@ func (w *Window) evalJS(js string) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if view := w.view; view != nil {
-		view.Dispatch(func() { view.Eval(js) })
+		view.Dispatch(func() {
+			if !w.tearing.Load() {
+				view.Eval(js)
+			}
+		})
 	}
 }
 
 // destroyView 由窗口线程在消息循环退出后调用：摘引用与 Destroy 同处 w.mu
 // 临界区，之后一切读引用+Dispatch 的方法（Close/SetTitle/evalJS/handle）自动失活。
+// tearing 先于 Destroy 置位：Destroy 会把队列里已入队的 dispatch 回调泵出来执行，
+// 闭包凭该原子量自我作废（不能读 w.mu——回调就跑在本临界区内）。
 func (w *Window) destroyView(view webview.WebView) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	w.tearing.Store(true)
 	if w.view == view {
 		w.view = nil
 	}
