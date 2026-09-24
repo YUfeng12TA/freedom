@@ -18,4 +18,7 @@
 | R6a | CI 三平台失败根因修复（build.sh +x；tearing 守卫 destroy-pump UAF） | mode 100755 入库；B-20260924-028/029 登记；去守卫红（panic FAIL）+ 加守卫绿：Test{Main,}PendingDispatchFiresDuringDestroy、lifecycle -race count=2 ok、全量 go test ok、multiwin.exe 本地 smoke 3/3 SMOKE_OK、templates 快照同步编译过 done |
 
 | R6 | main+tag v1.13.0→7b79db1、CI run 35965094005 success、Release 395399461 资产三平台齐（darwin 资产 Mach-O arm64 文件头实验）、CLI 下载 URL 200、包内 win/linux/darwin 三壳重构建（含 UAF 修复，--version=1.13.0） | done |
+
+| R7 | npm publish 1.13.0 | 用户终端 2FA 发布；dist-tags latest=1.13.0、time 2026-09-24T07:13 done |
+| R8 | README 双端同步 + v1.13.1 文档发布 | freedom-cli/README（v1.13.x 块+CI 壳来源段）、security.js 注释勘误、根 README（目录结构/CI 资产流/踩坑+2/npm 行）、AGENTS 版本行、package.json→1.13.1 已改；待 tag v1.13.1 CI 绿 + Release 三壳 + npm view=1.13.1 | 进行中 |
 | R7 | npm whoami=yufengtadian 已过；publish 卡 E403 账号 2FA——需当次 OTP 或 bypass-2fa granular token（仅用户可提供） | 阻塞 |

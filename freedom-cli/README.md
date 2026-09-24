@@ -1,8 +1,16 @@
 # freedom-cli
 
-Freedom 桌面壳打包工具：把你的 Web 前端一键打包成跨平台桌面应用（v1.12.17）。
+Freedom 桌面壳打包工具：把你的 Web 前端一键打包成跨平台桌面应用（v1.13.1）。
 
 基于自研 Freedom WebView 壳层（对标 Wails / Tauri）：前端完全自由、后端可任意语言、渲染复用系统 WebView（Windows WebView2 / macOS WKWebView / Linux WebKitGTK），产物为单个可执行文件 + resources 目录，前端页面内存加载，不占本地端口。
+
+**v1.13.x 框架线回归 + 稳定性收口**（v1.13.0 功能，v1.13.1 为文档勘误发布）：
+- **freedom-cli 源码回归主仓库**：本 CLI 与框架源码同仓维护（`freedom-cli/` 目录，`templates/go` 为框架源码快照），npm 包与 GitHub Release 一一对应，历史"源码丢失停在 1.12.18"的断档已修复；
+- **三平台通用壳经 tag CI 自动发布**：推送 `vX.Y.Z` tag 即由 `build.yml` 在 win / mac（Apple Silicon）/ linux runner 上编译通用壳并自动创建 GitHub Release，资产命名 `freedom-shell-<plat>`；`freedom shell download <plat>` 直接拉取对应版本资产（默认定位 `v<包版本>`，可用 `FREEDOM_SHELL_TAG` 覆盖），包内另自带三平台壳兜底，均随包分发；
+- **运行时资源层回归**：壳从 exe 同目录 `resources/` 读取 `config.json`（窗口 / 后端配置覆盖）与前端页面，high 模式下为加密 `app.bin`（FRDM1 容器）+ `.integrity` 清单；JS 侧构建加密 → Go 壳内存解密已有跨语言黄金向量与端到端互验（改名 / 篡改即拒绝运行）；
+- **多窗口（M2）随 v1.13.0 壳可用**：前端 `window.freedom.window.create / close / list / focus` 开二级窗口，Go 侧 `App.NewWindow / Window.Close`；次级窗口独立消息泵、页面源支持内联 HTML / URL；
+- **销毁竞态收口**：修复 webview2 在 `Destroy` 中泵出滞留 dispatch 回调导致的随机崩溃（0xc0000005，多窗口 / 快速关闭场景），回收后所有排队回调按拆除旗标自我作废，并配套红绿回归测试；
+- **v1.13.1**：文档同步（本 README 更新至 v1.13.x 真实现状、壳 CI 章节勘误），无功能与壳二进制变更。
 
 **v1.12.17 安全模式全面落地**：三档安全模式 `freedom security <none|basic|high>` 正式随包分发——high 档把 resources 加密为 `app.bin`（AES-256-CTR + HMAC-SHA256 + PBKDF2 密钥派生），配合 `.integrity` 完整性校验、anti-debug 与进程隐藏，磁盘无明文、篡改即拒运行；三平台预编译壳经 CI 重建分发，补齐 v1.12.16 仅重编 win-x64 壳的缺口。
 
@@ -45,7 +53,7 @@ Freedom 桌面壳打包工具：把你的 Web 前端一键打包成跨平台桌�
 **v1.12.x 修复与加固**：
 - 修复 close 按钮缺陷：窗口关闭改走 `PostMessage(WM_CLOSE)`（原 `CloseWindow` 语义为最小化，导致点关闭只最小化）；
 - 壳二进制平台校验：构建前校验壳文件头（PE / Mach-O / ELF），杜绝"Windows 壳冒充 mac/linux 壳"的假壳被静默分发；
-- `freedom shell download` 默认版本改为动态跟随包版本（`releaseTag()` 不再硬编码 v1.1.10），并新增 `.github/workflows/build-shell.yml` 三平台 CI 构建与 Release 资产上传；
+- `freedom shell download` 默认版本改为动态跟随包版本（`releaseTag()` 不再硬编码 v1.1.10），并新增三平台 CI 构建与 Release 资产上传流水线（自 v1.13.0 起并入 `build.yml` 的 tag 触发，见「预编译壳的来源与 CI」）；
 - 壳进程启用 DPI 感知，高 DPI 屏幕下窗口坐标 / 渲染 / 鼠标自动化定位一致，内容更清晰；
 - `freedom config set` 兼容双引号配置写法；依赖变更检测改用 `package-lock.json` 作基准。
 
@@ -127,7 +135,7 @@ mac 用户解压 `.app.zip` 即得 `.app`，拖入 `/Applications` 即可直接�
 
 **壳二进制平台校验**：`freedom build` 在分发前会读取壳二进制文件头，校验其确为目标平台的真实格式（Windows PE / macOS Mach-O / Linux ELF）。若某平台壳缺失或格式不匹配（例如误用其它平台的二进制顶替），会**明确报错并给出修复指引**，绝不静默产出无法运行的假产物。
 
-**预编译壳的来源与 CI**：`webview_go` 依赖各系统自带 WebView 框架，**无法交叉编译**，三平台壳必须在对应平台本机编译。仓库已提供 `.github/workflows/build-shell.yml`：在 win / mac（Apple Silicon）/ linux runner 上分别编译真实壳并上传到 GitHub Release，供 `freedom shell download` 拉取（Intel Mac 已不支持，见 `nativePlatform()` 的明确报错）。发布新版本时：先 `npm publish`，再创建同名 GitHub Release，手动触发 `build-shell` workflow（或直接发 Release 自动触发）即自动补齐各平台壳资产。
+**预编译壳的来源与 CI**：`webview_go` 依赖各系统自带 WebView 框架，**无法交叉编译**，三平台壳必须在对应平台本机编译。自 v1.13.0 起由仓库 `.github/workflows/build.yml` 统一承担：推送 `vX.Y.Z` tag → 三平台 runner 编译通用壳 → `release` job 自动创建 GitHub Release 并上传资产 `freedom-shell-<plat>`，供 `freedom shell download` 按「`v<包版本>` tag + 同名资产」拉取（Intel Mac 已不支持，见 `nativePlatform()` 的明确报错）。发版顺序：先推 GitHub tag、等 Release 资产就绪，再 `npm publish` 同版本——保证 shell 下载默认源始终可用（紧急时可设 `FREEDOM_SHELL_TAG` 指向既有 tag）。
 
 产物目录可在 `freedom.config.js` 的 `outDir` 中调整：默认 `'dist'`，设为 `'.'` 则直接输出到项目根目录（dist 的上级），设为任意相对 / 绝对路径亦可。输出到项目根目录时会自动跳过 `index.html` 副本，避免覆盖项目源文件。
 

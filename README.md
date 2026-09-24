@@ -42,20 +42,33 @@
 
 ```
 freedom/
-├── freedom.go            # 框架核心：Config / App / New / Run（三平台 webview 内核）
+├── freedom.go            # 框架核心：Config / App / New / Run（三平台 webview 内核 + 主视图拆除互斥）
 ├── backend.go            # Backend 接口抽象（内嵌 / 进程双实现）
 ├── bridge.go             # 内嵌 Go 后端：反射分发
-├── backend_proc.go       # 进程后端：任意语言 IPC（启动/调用/事件/关闭）
-├── assets_embed.go       # go:embed 资源（freedom.js + default.html）
-├── center_windows.go     # Windows 窗口居中（user32 MoveWindow）
-├── center_other.go       # macOS/Linux 占位实现
-├── assets/               # 前端 SDK（window.freedom.call/on/emit）
+├── dispatch.go           # 异步桥：__freedom_bridge 投递 + worker goroutine + resolve 回写（M1）
+├── window_mgr.go         # 多窗口注册表：create/list/close/focus + 次级窗口独立消息泵（M2）
+├── capability.go         # 声明式能力门控 Config.Capabilities（M3）
+├── backend_proc.go       # 进程后端：任意语言 IPC（启动/调用/事件/关闭/崩溃重启）
+├── resources.go          # 运行时资源层：exe 同目录 resources/（config.json 覆盖 + app.bin 解密加载）
+├── security.go           # FRDM1 加密容器（PBKDF2 + AES-256-CTR + Encrypt-then-MAC + .integrity）
+├── anti_debug_*.go       # 调试器检测（Windows IsDebuggerPresent / 其他平台占位）
+├── updater.go            # 自动更新：ed25519 验签 manifest + sha256 强制校验 + 改名换装回滚
+├── assets_embed.go       # go:embed 内置资源（freedom.js SDK + default.html）
+├── sysint_common.go / tray_common.go  # 跨平台共享层（openExternal 白名单 / 菜单模型）
+├── store.go              # 平台无关数据层（path/store/os/window-state/process）
+├── *_windows.go / *_linux.go / *_other.go  # 平台能力面成对实现（窗口/托盘/热键/剪贴板/对话框…）
+├── assets/               # 前端 SDK（window.freedom.call/on/emit + window.* 控制）
+├── cmd/freedom/          # 项目脚手架 CLI（new/build，Go 源码路线，M7）
+├── cmd/shell/            # 预编译通用壳（零应用专属，内容全部来自 resources/；CI 按 tag 发 Release 资产）
+├── freedom-cli/          # npm 打包 CLI（@yufengtadian/freedom-cli，零工具链三平台出包）
 ├── examples/
 │   ├── hello/            # v1 示例：内嵌 Go 后端（单 exe）
-│   └── multiproc/        # v2 示例：多后端演示（Go/Node/Python/Rust 一键切换）
+│   ├── multiproc/        # v2 示例：多后端演示（Go/Node/Python/Rust 一键切换）
+│   └── multiwin/         # 多窗口示例
 ├── backend_proc_test.go  # IPC 协议测试（四语言后端同一套断言）
+├── lifecycle_test.go     # 壳销毁生命周期回归（dispatch-then-destroy UAF 竞态）
 ├── build.ps1 / build.sh  # 三平台打包脚本
-└── .github/workflows/    # 三平台 CI
+└── .github/workflows/    # 三平台 CI（tag 推送时另发 freedom-shell-<plat> 预编译壳资产）
 ```
 
 ## 快速开始
@@ -120,8 +133,10 @@ app.Run()
   （注意是 4.0：webview_go 的 pkg-config 包为 webkit2gtk-4.0；该包在 Ubuntu 24.04+ 已移除，请用 22.04 构建）` | `build.sh` |
 
 GitHub Actions：`.github/workflows/build.yml` 在三个 runner 上分别编译壳层 + 编译型后端、
-跑四语言 IPC 协议测试并上传产物。macOS/Linux 交叉编译不可行（依赖系统 WebKit），
-必须走目标平台 CI 或本机构建。
+跑四语言 IPC 协议测试并上传产物；推送 git tag 时同一 workflow 额外编译三平台**预编译通用壳**
+（`cmd/shell`）并发布为 GitHub Release 资产 `freedom-shell-<plat>`，供 freedom-cli 按需下载
+（发布顺序：先推 tag、等 Release 资产就绪，再 npm publish 同版本——CLI 的 `releaseTag()` 恒等于包版本）。
+macOS/Linux 交叉编译不可行（依赖系统 WebKit），必须走目标平台 CI 或本机构建。
 
 ### 平台能力矩阵（M4 后现状）
 
@@ -145,7 +160,7 @@ GitHub Actions：`.github/workflows/build.yml` 在三个 runner 上分别编译�
 - **自动更新**（`updater.go`，对标 Tauri updater）：`Config.Update{ManifestURL, PublicKey}` 启用；manifest 经 **ed25519 验签**（签名覆盖 version+url+sha256），下载产物 **强制 sha256 校验**，换装走"改名让位+回滚"，**下次启动生效**不做热替换。前端 `freedom.update.check/install` 只发起、结果经 `update.*` 事件回推；install 仅认 check 验签缓存，前端无法注入未验签 URL/哈希。URL 仅放行 https（http 限 loopback）。
 - **代码签名**（M6）：`build.ps1 -Sign` 对本机产出的全部 exe 做 Authenticode（signtool 探测 PATH/Windows Kits；证书经 `FREEDOM_SIGN_PFX[_PASSWORD]` 或 `FREEDOM_SIGN_THUMBPRINT` 环境变量注入，不落仓库；signtool 或证书缺席仅警告不失败）。updater 可选二级复核：`Update.RequireSignature` 开启后产物还须过 **WinVerifyTrust**（离线确定性，无网络吊销检查），非 Windows 平台开启该项直接拒绝安装。真证书签名验证 `阻塞:` 于代码签名证书（用户侧资产）。
 - **运行时引导探测**（M6）：Windows 侧 `os.info.webview2Runtime` 回显系统 WebView2 Runtime 版本（EdgeUpdate 注册表探测，HKCU 优先 HKLM 兜底，"N/A" 占位视为未检出），前端可据此预检环境并提示安装。
-- **零工具链打包（npm 线，freedom-cli v1.13.0）**：`npm i -g @yufengtadian/freedom-cli` → `freedom init` → `freedom build`。壳为预编译通用二进制（`cmd/shell`；包内自带 win/linux 壳，其余平台从 GitHub Release 资产 `freedom-shell-<plat>` 按需下载），应用内容来自 exe 同目录 `resources/`（config.json / index.html），最终用户无需 Go/CGO 工具链。`security: 'high'` 时前端与配置加密为单一 `app.bin`（FRDM1 容器：AES-256-CTR + HMAC-SHA256，PBKDF2 按 exe 名派生密钥），篡改/改名即拒绝运行（`resources.go` / `security.go`）。
+- **零工具链打包（npm 线，freedom-cli v1.13.1）**：`npm i -g @yufengtadian/freedom-cli` → `freedom init` → `freedom build`。壳为预编译通用二进制（`cmd/shell`；win/linux 壳随包分发，其余平台从 GitHub Release 资产 `freedom-shell-<plat>` 按需下载，可用 `FREEDOM_SHELL_TAG` 覆盖版本），应用内容来自 exe 同目录 `resources/`（config.json / index.html），最终用户无需 Go/CGO 工具链。`security: 'high'` 时前端与配置加密为单一 `app.bin`（FRDM1 容器：AES-256-CTR + HMAC-SHA256，PBKDF2 按 exe 名派生密钥），篡改/改名即拒绝运行（`resources.go` / `security.go`，参数与 freedom-cli `lib/security.js` 跨语言同步互验）。
 
 ## 测试
 
@@ -185,6 +200,8 @@ go test -v ./...   # 同一套断言跑 Go / Node / Python / Rust 四个后端�
 - **GUID 的 Data4 是 8 个独立字节**：不能把 hex 段整体转成 uint64（字节序错），COM 接口查询会静默失败。
 - **SHA256SUMS 行尾**：PowerShell `Set-Content` 写 CRLF 会让 GNU `sha256sum -c` 把 `\r` 算进文件名而全部报错——校验清单必须 LF。
 - **mingw 自动注入 manifest**：WinLibs 链接期带 `default-manifest.o`，`.syso` 内嵌自定义 manifest 会 `multiple non-default manifests` 链接失败——DPI 改运行时 API 声明。
+- **Windows 入库的 `.sh` 丢执行位**：git 在 Windows 上默认记录 100644，Linux CI runner 直接 `Permission denied`（exit 126）——`build.sh` 须 `git update-index --chmod=+x` 固化 100755。
+- **webview2 Destroy 会泵出滞留的 Dispatch 回调**：`Dispatch` 只是入队，销毁路径在拆除线程上仍会执行排队闭包，对半销毁实例 `Eval` 即 0xc0000005——拆除前置原子旗标（`Window.tearing` / `App.viewTearing`），每个排队闭包自我作废，且闭包内不得取锁（锁被 destroy 持有，取锁即自死锁）。
 
 ## 后续路线
 
@@ -194,4 +211,5 @@ go test -v ./...   # 同一套断言跑 Go / Node / Python / Rust 四个后端�
 - [x] Linux 系统能力与托盘实装（M4：剪贴板/通知/openExternal/自启/GTK3 托盘）
 - [x] 后端进程崩溃自动重启（RestartPolicy + backend.crashed/restarted 事件）
 - [x] 版本戳 / Windows 资源嵌入 / SHA256 / NSIS 安装器 / 自动更新（G1–G6 补齐）
+- [x] v1.13.0 发布波次：freedom-cli 源码回归主仓库 + `cmd/shell` 通用壳三平台 CI 发布 + npm 发布线打通（v1.13.1 为文档同步发布）
 
