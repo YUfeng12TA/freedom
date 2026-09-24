@@ -67,6 +67,14 @@
       "filesAffected": [
         "tests/desktop-agents.test.mjs"
       ]
+    },
+    {
+      "date": "2026-09-24",
+      "issue": "桌面壳 UI 截图验收时，DPI-unaware 的探针进程（PowerShell 默认）调 GetWindowRect 拿到的是 96dpi 虚拟化坐标（1194x818），而 PrintWindow/CopyFromScreen 按物理像素（125% 下 1493x1022）取图——只截到窗口左侧 80%，右侧卡片与按钮被误判为「布局溢出/被裁切」，据此写出的 CSS 修复是错的",
+      "solution": "截图前先 SetProcessDPIAware()（或改用 GetWindowRect 前声明 aware），比对图像尺寸与窗口逻辑尺寸×缩放；判 UI 缺陷须同时用 headless Chrome 在同等 CSS 视口下量 scrollWidth/clientWidth 交叉验证。本次误判产生的 min() 防御性 CSS 已回滚（桌面 minWidth=920，窄视口不可达）",
+      "filesAffected": [
+        "freedom-cli/templates/desktop/app.html"
+      ]
     }
   ]
 }
