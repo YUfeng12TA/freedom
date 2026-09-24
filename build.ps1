@@ -12,10 +12,13 @@
 #   .\build.ps1                  # 构建全部（不注版本，Version=dev）
 #   .\build.ps1 -Version 1.2.3   # 版本戳注入（-X freedom.Version）+ strip
 #   .\build.ps1 -SkipRust        # 跳过 Rust（本机无 rustc 时）
+#   .\build.ps1 -Sign            # Authenticode 签名（signtool+证书缺席时仅警告；
+#                                #   证书经 FREEDOM_SIGN_PFX/FREEDOM_SIGN_THUMBPRINT 提供）
 param(
     [switch]$SkipRust,
     [string]$Version = "",
-    [switch]$Installer
+    [switch]$Installer,
+    [switch]$Sign
 )
 $ErrorActionPreference = "Stop"
 
@@ -33,6 +36,52 @@ function Invoke-Native {
     param([string]$Description, [scriptblock]$Command)
     & $Command
     if ($LASTEXITCODE -ne 0) { throw "$Description 失败（退出码 $LASTEXITCODE）" }
+}
+
+# ---- 代码签名（M6，-Sign 显式开启）----
+# signtool 探测：PATH 优先，兜底 Windows Kits 10 最高版本目录。
+function Find-SignTool {
+    $c = Get-Command signtool.exe -ErrorAction SilentlyContinue
+    if ($c) { return $c.Source }
+    $pf86 = ${env:ProgramFiles(x86)}
+    foreach ($root in @($pf86, $env:ProgramFiles) | Where-Object { $_ }) {
+        $kitsBin = Join-Path $root "Windows Kits\10\bin"
+        if (Test-Path $kitsBin) {
+            $hit = Get-ChildItem $kitsBin -Directory -ErrorAction SilentlyContinue |
+                Sort-Object Name -Descending |
+                ForEach-Object { Join-Path $_.FullName "x64\signtool.exe" } |
+                Where-Object { Test-Path $_ } | Select-Object -First 1
+            if ($hit) { return $hit }
+        }
+    }
+    return $null
+}
+
+# 证书来源（不写入仓库）：FREEDOM_SIGN_PFX(+FREEDOM_SIGN_PFX_PASSWORD) 或
+# 系统商店证书 FREEDOM_SIGN_THUMBPRINT。探测缺席只警告不失败——签名属发布环节资产。
+function Invoke-SignOutputs {
+    if (-not $Sign) { return }
+    $signtool = Find-SignTool
+    if (-not $signtool) {
+        Write-Warning "-Sign：未找到 signtool.exe（Windows SDK 未安装？），跳过签名"
+        return
+    }
+    $certArgs = @()
+    if ($env:FREEDOM_SIGN_PFX -and (Test-Path $env:FREEDOM_SIGN_PFX)) {
+        $certArgs = @("/f", $env:FREEDOM_SIGN_PFX)
+        if ($env:FREEDOM_SIGN_PFX_PASSWORD) { $certArgs += @("/p", $env:FREEDOM_SIGN_PFX_PASSWORD) }
+    } elseif ($env:FREEDOM_SIGN_THUMBPRINT) {
+        if ($env:FREEDOM_SIGN_THUMBPRINT -notmatch '^[0-9A-Fa-f]{40}$') { throw "FREEDOM_SIGN_THUMBPRINT 需为 40 位十六进制指纹" }
+        $certArgs = @("/sha1", $env:FREEDOM_SIGN_THUMBPRINT)
+    } else {
+        Write-Warning "-Sign：未配置签名证书（设 FREEDOM_SIGN_PFX 或 FREEDOM_SIGN_THUMBPRINT），跳过签名"
+        return
+    }
+    Write-Host "==> Authenticode 签名 (signtool=$signtool)"
+    foreach ($t in (Get-ChildItem -Recurse $dist -Filter *.exe -File)) {
+        Invoke-Native "signtool $($t.Name)" { & $signtool sign /fd SHA256 /tr "http://timestamp.digicert.com" /td SHA256 @certArgs $t.FullName }
+        Invoke-Native "signtool verify $($t.Name)" { & $signtool verify /pa /all $t.FullName }
+    }
 }
 
 $root = $PSScriptRoot
@@ -118,11 +167,15 @@ if ($Installer) {
     } else {
         Write-Warning "未检测到 makensis：已产出 $nsi（在装有 NSIS 的机器上 makensis 即可编译安装器）"
     }
+    # 签名先于打包：便携 zip 内必须已是签名产物（setup.exe 被下方排除规则隔在外）
+    Invoke-SignOutputs
     # 便携 zip 只装应用产物，排除安装器中间物（.nsi/.zip/setup.exe/校验文件）
     $zipItems = Get-ChildItem $dist | Where-Object {
         $_.Extension -notin ".nsi", ".zip" -and $_.Name -notmatch "-setup-" -and $_.Name -ne "SHA256SUMS.txt"
     }
     Compress-Archive -Path $zipItems.FullName -DestinationPath (Join-Path $dist "Freedom-$pkg-portable.zip") -Force
+} else {
+    Invoke-SignOutputs
 }
 
 # 6) 校验清单（sha256sum -c 兼容格式：小写哈希 + 两空格 + dist 内相对路径）

@@ -239,6 +239,30 @@ func TestDownloadArtifactAndSwap(t *testing.T) {
 	})
 }
 
+// M6 RequireSignature：开启后即使 sha256 完全吻合，未签名产物（Windows）或
+// 无验签能力的平台也必须拒绝，且不留暂存文件。
+func TestRequireSignatureGate(t *testing.T) {
+	artifact := []byte("new-exe-bytes-not-signed")
+	sum := sha256.Sum256(artifact)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(artifact)
+	}))
+	defer srv.Close()
+	a := New(Config{Update: &UpdateConfig{Timeout: 5 * time.Second, RequireSignature: true}})
+	dir := t.TempDir()
+	before, _ := filepath.Glob(filepath.Join(dir, "*"))
+	_, err := a.downloadArtifact(context.Background(), &UpdateInfo{
+		URL: srv.URL, Sha256: hex.EncodeToString(sum[:]),
+	}, dir)
+	if err == nil {
+		t.Fatal("RequireSignature must reject unsigned/non-verifiable artifact even with matching sha256")
+	}
+	after, _ := filepath.Glob(filepath.Join(dir, "*"))
+	if len(after) != len(before) {
+		t.Fatalf("temp file leaked: %v", after)
+	}
+}
+
 func TestUpdateInstallAsyncGuardsPending(t *testing.T) {
 	a := New(Config{Update: &UpdateConfig{}})
 	// 未 check 直接 install：必须拒绝而不是拿空条目下载

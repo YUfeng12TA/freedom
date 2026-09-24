@@ -40,6 +40,9 @@ type UpdateConfig struct {
 	Timeout time.Duration
 	// MaxDownloadBytes 是更新产物大小上限（DoS 防线）；0 取默认 512MB。
 	MaxDownloadBytes int64
+	// RequireSignature 开启后，产物在 ed25519+sha256 之外还须通过平台代码签名
+	// 复核（Windows Authenticode/WinVerifyTrust；其他平台无此能力则直接拒绝安装）。
+	RequireSignature bool
 }
 
 // UpdateInfo 是一条已通过验签的更新描述。
@@ -241,6 +244,12 @@ func (a *App) downloadArtifact(ctx context.Context, info *UpdateInfo, dir string
 	got := hex.EncodeToString(h.Sum(nil))
 	if !strings.EqualFold(got, info.Sha256) {
 		return "", fmt.Errorf("freedom: artifact sha256 mismatch (want %s got %s)", info.Sha256, got)
+	}
+	if a.cfg.Update != nil && a.cfg.Update.RequireSignature {
+		// M6：二级发布者信号，失败即弃（staged 由 defer 清理）
+		if err := authenticodeCheck(tmpName); err != nil {
+			return "", err
+		}
 	}
 	if err := os.Chmod(tmpName, 0o755); err != nil {
 		return "", err

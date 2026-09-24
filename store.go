@@ -234,7 +234,7 @@ func saveWindowState(dir string, st WindowState) error {
 
 func osInfo() map[string]interface{} {
 	host, _ := os.Hostname()
-	return map[string]interface{}{
+	info := map[string]interface{}{
 		"platform":   runtime.GOOS,
 		"arch":       runtime.GOARCH,
 		"hostname":   host,
@@ -243,6 +243,11 @@ func osInfo() map[string]interface{} {
 		"appVersion": Version, // 构建期 ldflags 注入，见 freedom.go
 		"numCPU":     runtime.NumCPU(),
 	}
+	// M6：WebView2 Runtime 探测回显（仅 Windows 且检出时给键，其他平台省略）
+	if v := webview2RuntimeVersion(); v != "" {
+		info["webview2Runtime"] = v
+	}
+	return info
 }
 
 // ---- 平台无关 sys 方法统一分发（两平台 sysCapCall 都会先经过这里）----

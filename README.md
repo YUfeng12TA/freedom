@@ -142,6 +142,8 @@ GitHub Actions：`.github/workflows/build.yml` 在三个 runner 上分别编译�
 - **校验和**：产物落 `dist/SHA256SUMS.txt`（LF 行尾，`sha256sum -c` 兼容）。
 - **安装包**：`build.ps1 -Installer` 产便携 zip + NSIS `.nsi`（`installer/app.nsi` 模板填充）；装有 makensis 时直接编译 setup.exe。
 - **自动更新**（`updater.go`，对标 Tauri updater）：`Config.Update{ManifestURL, PublicKey}` 启用；manifest 经 **ed25519 验签**（签名覆盖 version+url+sha256），下载产物 **强制 sha256 校验**，换装走"改名让位+回滚"，**下次启动生效**不做热替换。前端 `freedom.update.check/install` 只发起、结果经 `update.*` 事件回推；install 仅认 check 验签缓存，前端无法注入未验签 URL/哈希。URL 仅放行 https（http 限 loopback）。
+- **代码签名**（M6）：`build.ps1 -Sign` 对本机产出的全部 exe 做 Authenticode（signtool 探测 PATH/Windows Kits；证书经 `FREEDOM_SIGN_PFX[_PASSWORD]` 或 `FREEDOM_SIGN_THUMBPRINT` 环境变量注入，不落仓库；signtool 或证书缺席仅警告不失败）。updater 可选二级复核：`Update.RequireSignature` 开启后产物还须过 **WinVerifyTrust**（离线确定性，无网络吊销检查），非 Windows 平台开启该项直接拒绝安装。真证书签名验证 `阻塞:` 于代码签名证书（用户侧资产）。
+- **运行时引导探测**（M6）：Windows 侧 `os.info.webview2Runtime` 回显系统 WebView2 Runtime 版本（EdgeUpdate 注册表探测，HKCU 优先 HKLM 兜底，"N/A" 占位视为未检出），前端可据此预检环境并提示安装。
 
 ## 测试
 

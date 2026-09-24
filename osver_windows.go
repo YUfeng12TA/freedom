@@ -3,6 +3,7 @@
 package freedom
 
 import (
+	"strings"
 	"syscall"
 	"unsafe"
 )
@@ -16,10 +17,10 @@ func osVersionString() string {
 		return ""
 	}
 	type osVersionInfoExW struct {
-	_len              uint32
-		major, minor     uint32
+		_len              uint32
+		major, minor      uint32
 		build, platformID uint32
-		csd              [128]uint16
+		csd               [128]uint16
 	}
 	var v osVersionInfoExW
 	v._len = uint32(unsafe.Sizeof(v))
@@ -27,6 +28,48 @@ func osVersionString() string {
 		return ""
 	}
 	return "Windows " + itoa(int(v.major)) + "." + itoa(int(v.minor)) + " build " + itoa(int(v.build))
+}
+
+// ---- WebView2 Runtime 探测（M6 运行时引导回显）----
+
+// Edge Evergreen 客户端注册表项 GUID；HKCU 用户级安装优先，HKLM 系统级兜底。
+const (
+	hkeyLocalMachine = uintptr(0x80000002)
+	webview2CUKey    = `Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}`
+	webview2LMKey    = `SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}`
+)
+
+// normalizeWebView2Version 过滤占位值："N/A"（Edge 随 OS 镜像的 MSIX 占位）与空白视为未检出。
+func normalizeWebView2Version(pv string) string {
+	pv = strings.TrimSpace(pv)
+	if pv == "" || pv == "N/A" {
+		return ""
+	}
+	return pv
+}
+
+// webview2RuntimeVersion 返回系统 WebView2 Runtime 版本号（"120.0.2210.91" 风格），
+// 未安装/不可探测返回 ""。前端经 os.info.webview2Runtime 预检运行环境（对标
+// Tauri webview_install 的引导前探测——本框架不自动下载 Runtime，只回显）。
+func webview2RuntimeVersion() string {
+	for _, q := range []struct {
+		base uintptr
+		path string
+	}{{hkeyCurrentUser, webview2CUKey}, {hkeyLocalMachine, webview2LMKey}} {
+		hk, err := regOpen(q.base, q.path, keyRead)
+		if err != nil {
+			continue
+		}
+		v, found, err := regQuerySz(hk, "pv")
+		procRegCloseKey.Call(hk)
+		if err != nil || !found {
+			continue
+		}
+		if s := normalizeWebView2Version(v); s != "" {
+			return s
+		}
+	}
+	return ""
 }
 
 func itoa(n int) string {

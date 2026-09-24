@@ -66,3 +66,11 @@
 - 待办：WSL 全量 `go test -race` 出现一次 600s 超时挂起（首次与 WSLg 冒烟并发跑，正在单独定位挂点）；挂点定性后补记。
 - E-M4-4（定性补记）：WSL 全量 race 首跑 600s 超时挂点=TestLinuxClipboardRoundTrip——wl-copy fork 常驻进程继承 stdout 管道，cmd.Output() 等 EOF 永久阻塞；修复为 exec.Run 不捕获输出。另修 TestNotifyArgs 断言写反（空 body 应 4 项写成 5 项，实现本就正确）。修复后 WSL 全量 race ok 5.783s、主机 ok 5.277s。M4 关闭。
 - E-M5-1：CI macos 编译门复核——python yaml.safe_load 解析 build.yml OK（YAML_OK jobs=[build] matrix=[windows-latest, macos-latest, ubuntu-22.04]），macos runner 步骤覆盖 vet(-unsafeptr=false)+go test+build.sh（shasum 回退已有）；README 新增「平台能力矩阵」明写 macOS 仅编译级验证、运行验证 `阻塞:` 无 Mac/Xcode SDK。M4 遗留边界（dialog/hotkey/single-instance/SNI）同步入表。
+
+## M6 完成证据（E-M6）与关键坑
+- 实现：authenticode_windows.go（wintrust!WinVerifyTrust，WINTRUST_DATA/FILE_INFO 布局对照 mingw wintrust.h 核实；WTD_UI_NONE+REVOKE_NONE 离线确定性，state 句柄 CLOSE 释放）/authenticode_other.go（诚实报错，禁静默跳过）；UpdateConfig.RequireSignature 门挂在 downloadArtifact sha256 通过后；osver_windows.go webview2RuntimeVersion（EdgeUpdate 注册表 HKCU→HKLM，normalizeWebView2Version 滤 "N/A"）+ osInfo 条件回显；build.ps1 -Sign（Find-SignTool PATH→Windows Kits 兜底；证书 env 注入；警告不失败；签名先于便携 zip）。
+- E-M6-1 探测分支单测：TestNormalizeWebView2Version 5 例、TestWebview2RuntimeProbeLive 本机实探得 153.0.4234.48、TestAuthenticodeCheckRejectsGarbage（wintrust=0x800B0001 拒绝）、TestRequireSignatureGate（双平台：sha256 吻合仍拒+无泄漏）。
+- E-M6-2 脚本实跑警告路径：①无 signtool：`build.ps1 -Sign -SkipRust` 全量 EXIT=0，输出「警告: -Sign：未找到 signtool.exe…跳过签名」；②有 signtool 无证书：抽函数 harness（fake signtool.exe shim）实跑「警告: -Sign：未配置签名证书…跳过签名」+HARNESS_DONE。
+- E-M6-3 race：主机 ok 7.377s、WSL ok 5.804s 全量绿。
+- **坑（harness BOM）**：node 生成的含中文 .ps1 无 BOM → PS5.1 按 ANSI 读坏引号报解析错——测试脚手架也得遵守「含中文必须带 BOM UTF-8」约定（build.ps1 本体 BOM 完好故无此患）。
+- 决策：Authenticode 为二级信号（主锚=ed25519 manifest），吊销检查关闭换离线确定性，README 已声明。`阻塞:` 真证书签名成功路径待用户侧证书。
