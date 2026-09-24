@@ -5,6 +5,7 @@ name: build
 on:
   push:
     branches: [main, master]
+    tags: ["v*"]
   pull_request:
   workflow_dispatch:
 
@@ -69,15 +70,35 @@ jobs:
           CGO_ENABLED: "1"
         run: go test -v ./...
 
-      # 打包壳层
-      - name: Build shells
+      # 版本戳：仅 tag 推送注入版本号（版本纪律：不凭空造版本）；其余构建为 dev
+      - name: Compute version
+        id: ver
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            echo "version=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=" >> "$GITHUB_OUTPUT"
+          fi
+
+      # 打包走构建脚本（版本戳 + .syso 资源 + SHA256SUMS + 安装器），不再裸 go build
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          if ($env:VERSION) { .\build.ps1 -Version $env:VERSION -Installer } else { .\build.ps1 -Installer }
+
+      - name: Package (macOS / Linux)
+        if: runner.os != 'Windows'
         env:
           CGO_ENABLED: "1"
-        run: |
-          go build -o dist/hello${{ matrix.exe }} ./examples/hello
-          go build -o dist/multiproc${{ matrix.exe }} ./examples/multiproc
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: ./build.sh
 
       - uses: actions/upload-artifact@v4
         with:
           name: freedom-${{ runner.os }}
           path: dist/
+          if-no-files-found: error

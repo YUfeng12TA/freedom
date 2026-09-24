@@ -14,7 +14,8 @@
 #   .\build.ps1 -SkipRust        # 跳过 Rust（本机无 rustc 时）
 param(
     [switch]$SkipRust,
-    [string]$Version = ""
+    [string]$Version = "",
+    [switch]$Installer
 )
 $ErrorActionPreference = "Stop"
 
@@ -102,7 +103,29 @@ if ($hasRust -and -not $SkipRust) {
     Write-Warning "跳过 Rust 后端（未安装 rustc 或 -SkipRust）"
 }
 
-# 5) 校验清单（sha256sum -c 兼容格式：小写哈希 + 两空格 + dist 内相对路径）
+# 5) 安装包（-Installer）：便携 zip 恒产出；NSIS 安装器仅在本机有 makensis 时编译。
+#    无 makensis 属环境能力缺失（非代码缺陷），产出已填充的 .nsi 供他处编译并告警。
+if ($Installer) {
+    $pkg = if ($Version) { $Version } else { "0.0.0" }
+    Write-Host "==> NSIS 安装器 + 便携 zip (v$pkg)"
+    $nsi = Join-Path $dist "Freedom-$pkg.nsi"
+    $tpl = Get-Content (Join-Path $root "installer\app.nsi") -Raw
+    $filled = $tpl.Replace("@NAME@", "Freedom").Replace("@VERSION@", $pkg).Replace("@SRC@", $dist).Replace("@OUT@", $dist).Replace("@EXE@", "hello.exe")
+    [IO.File]::WriteAllText($nsi, $filled, [Text.Encoding]::UTF8)
+    $makensis = Get-Command makensis -ErrorAction SilentlyContinue
+    if ($makensis) {
+        Invoke-Native "makensis" { makensis $nsi }
+    } else {
+        Write-Warning "未检测到 makensis：已产出 $nsi（在装有 NSIS 的机器上 makensis 即可编译安装器）"
+    }
+    # 便携 zip 只装应用产物，排除安装器中间物（.nsi/.zip/setup.exe/校验文件）
+    $zipItems = Get-ChildItem $dist | Where-Object {
+        $_.Extension -notin ".nsi", ".zip" -and $_.Name -notmatch "-setup-" -and $_.Name -ne "SHA256SUMS.txt"
+    }
+    Compress-Archive -Path $zipItems.FullName -DestinationPath (Join-Path $dist "Freedom-$pkg-portable.zip") -Force
+}
+
+# 6) 校验清单（sha256sum -c 兼容格式：小写哈希 + 两空格 + dist 内相对路径）
 Write-Host "==> 生成 SHA256SUMS.txt"
 $sums = Get-ChildItem -Recurse $dist -File |
     Where-Object { $_.Name -ne "SHA256SUMS.txt" } | Sort-Object FullName |

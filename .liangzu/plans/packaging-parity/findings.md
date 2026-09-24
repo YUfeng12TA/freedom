@@ -34,3 +34,8 @@
 - updater.go：Config.Update{ManifestURL,PublicKey,Timeout}；manifest 规范串 `freedom-update-v1\n<version>\n<url>\n<sha256>` 经 ed25519 验签，产物边下边 sha256 校验，换装走 swapExecutable（改名让位+回滚）。桥接 update.check/install/pending 经 sysGeneric，长任务 goroutine 化结果走事件（update.available/upToDate/installed/error）。
 - 坑：`updateURLAllowed` 须要求 u.Host != ""，否则 `https://`（空 host）被放行——TestUpdateURLAllowed 抓到。
 - 前端 install 只认 check 时验签缓存的 upPending，禁前端回传 URL/哈希（防注入）。
+
+## G5/G6 安装器与 CI（E5）
+- installer/app.nsi：MUI2 NSIS 模板，@NAME@/@VERSION@/@SRC@/@OUT@/@EXE@ 占位符由 build.ps1 填充落 dist/。
+- build.ps1 -Installer：先填 nsi→有 makensis 则编译 setup.exe（GitHub windows runner 自带），无则告警保留 .nsi；便携 zip 排除 .nsi/.zip/setup/SHA256SUMS 中间物。本机 makensis 缺席=环境限制非缺陷。
+- build.yml：tag 推送→VERSION（版本纪律不凭空造版本），Package 步骤改调 build 脚本（含 syso/校验和/安装器），upload-artifact if-no-files-found:error。python yaml.safe_load 通过；真实矩阵运行属 GitHub 侧回归。
