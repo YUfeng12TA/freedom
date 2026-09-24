@@ -55,3 +55,14 @@
 - E-M3-1 单测：capability_test.go 6 测试（默认全开/Deny/Allow 三组 + sys/tray/window 闸行为 + os.info 回显断言），主机 `go test -race` ok 7.897s、WSL 原生 ok 5.565s，逐条 PASS 输出留档本轮命令。
 - E-M3-2 既有回归：双平台全量 race 绿；node SDK 测试未涉改动。
 - 拒绝零副作用保证：闸在派发进平台层/sysGeneric 之前 return，测试以"deny 命中返回 capability denied 串"佐证（clipboard.write 被拒不触剪贴板、tray.create 被拒不触 Shell_NotifyIcon）。
+
+## M4 进行中证据与坑（E-M4 草稿）
+- 实现分层：共享白名单/校验抽到 sysint_common.go+tray_common.go（无 tag，Win/Linux 复用，Windows 侧删重复定义）；syscap_linux.go（clipboard wl→xclip 回退、xdg-open、notify-send、XDG autostart .desktop 属主校验、taskbar/dialog/shortcut/protocol/monitors 显式 not supported）；tray_linux.go（cgo GtkStatusIcon 托盘+菜单，gtk_init_check 无显示守卫）。
+- **坑1（wl-copy -p）**：`-p` 是 primary selection，WSLg 合成器不支持 → 写剪贴板 exit 1。修复：去掉 -p 用默认 clipboard selection，读/写失败一律回退 xclip；顺带删掉不再引用的 isToolMissing/execErr。
+- **坑2（GtkStatusIcon 弃用告警刷屏）**：legacy tray 仍全发行版可用，`#cgo CFLAGS: -Wno-deprecated-declarations` 压掉并注记；完整 SNI/StatusNotifierItem 留待后续。
+- E-M4-1（已得）：WSL `go vet -unsafeptr=false .` VET_OK；`go build ./...`（含 cgo webkit2gtk 4.0 + gtk3）exit 0；Linux 门控测试面（Linux*/Window*/Capab* 15 项）逐条 PASS，其中 TestLinuxTrayLifecycle 在 WSLg 实跑（create/tooltip/menu 含分隔符+子菜单+复选+禁用 → items 表断言 → destroy）非 skip。
+- E-M4-2（已得）：WSLg 拉起存活冒烟：`go build -o /tmp/hello-linux ./examples/hello` HB_OK；DISPLAY=:0 + WEBKIT_DISABLE_DMABUF_RENDERER=1 后台拉起，6s 后 `kill -0` 存活（SMOKE_ALIVE pid=1388），日志仅 WebKit JSC 信号提示无崩溃。
+- E-M4-3（已得）：宿主机（Windows）共享抽取后 `go build ./...` BUILD_OK + vet OK + `go test -count=1` ok 5.277s 全绿。
+- 待办：WSL 全量 `go test -race` 出现一次 600s 超时挂起（首次与 WSLg 冒烟并发跑，正在单独定位挂点）；挂点定性后补记。
+- E-M4-4（定性补记）：WSL 全量 race 首跑 600s 超时挂点=TestLinuxClipboardRoundTrip——wl-copy fork 常驻进程继承 stdout 管道，cmd.Output() 等 EOF 永久阻塞；修复为 exec.Run 不捕获输出。另修 TestNotifyArgs 断言写反（空 body 应 4 项写成 5 项，实现本就正确）。修复后 WSL 全量 race ok 5.783s、主机 ok 5.277s。M4 关闭。
+- E-M5-1：CI macos 编译门复核——python yaml.safe_load 解析 build.yml OK（YAML_OK jobs=[build] matrix=[windows-latest, macos-latest, ubuntu-22.04]），macos runner 步骤覆盖 vet(-unsafeptr=false)+go test+build.sh（shasum 回退已有）；README 新增「平台能力矩阵」明写 macOS 仅编译级验证、运行验证 `阻塞:` 无 Mac/Xcode SDK。M4 遗留边界（dialog/hotkey/single-instance/SNI）同步入表。

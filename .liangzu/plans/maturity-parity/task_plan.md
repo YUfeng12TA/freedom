@@ -4,8 +4,8 @@
 - [x] M1 异步 Bind（W7 裁定落地）：调用出 UI 消息泵，handler 并发执行，前端 promise 语义不变。验收：300ms 睡眠 handler 不阻塞并发调用的单测（含时序断言）+ `go test -race` 全绿 + SDK 契约测试回归。
 - [x] M2 多窗口：App 窗口注册表 + window.create/close/list/focus + 事件带 windowId + Emit 广播。验收：窗口管理单元测试 + Windows 实跑双窗口冒烟（拉起→断言存活→回收）。
 - [x] M3 权限/能力模型：Config.Capabilities 声明式白名单贯穿 sys/tray/window 分发，拒绝路径无副作用；os.info 回显生效能力。验收：拒绝/放行/默认全开三组单测 + 既有测试不回归。
-- [ ] M4 Linux 实装（WSL2 Ubuntu-22.04）：装 webkit2gtk-4.0-dev 等依赖，实装 notification/tray/openExternal/autostart/clipboard（一级），热键/单实例（二级，视预算）；WSLg 起窗冒烟。验收：WSL 内 CGO 构建成功 + WSLg 拉起存活断言 + 平台门控 go test。
-- [ ] M5 macOS 边界收口：不写无法编译验证的盲码；CI 增 macos compile job 作编译级门，README 声明实机验证缺口。验收：yaml 静态可解析；`阻塞:` 记无 Mac/SDK。
+- [x] M4 Linux 实装（WSL2 Ubuntu-22.04）：装 webkit2gtk-4.0-dev 等依赖，实装 notification/tray/openExternal/autostart/clipboard（一级），热键/单实例（二级，视预算）；WSLg 起窗冒烟。验收：WSL 内 CGO 构建成功 + WSLg 拉起存活断言 + 平台门控 go test。
+- [x] M5 macOS 边界收口：不写无法编译验证的盲码；CI 增 macos compile job 作编译级门，README 声明实机验证缺口。验收：yaml 静态可解析；`阻塞:` 记无 Mac/SDK。
 - [ ] M6 签名与运行时引导：build.ps1 -Sign（signtool 探测，缺席 warn 不 fail）；updater 对 Windows 产物可选 Authenticode 校验（WinVerifyTrust）；WebView2 runtime 探测回显。验收：探测分支单测 + 脚本实跑警告路径 + 校验代码 race 绿（真证书 `阻塞:`）。
 - [ ] M7 cmd/freedom CLI：`freedom new` 脚手架（内嵌 Go / 进程四语言模板）+ `freedom build` 包装。验收：实跑生成 scaffold 且 `go build` 通过。
 - [ ] M8 终检：CI 矩阵（linux build job + macos compile job）、bugs 闭环 0 open、README/AGENTS 更新、全 gates 绿、提交。验收：全 gates 绿 + 账本全勾。

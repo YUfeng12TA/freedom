@@ -123,6 +123,18 @@ GitHub Actions：`.github/workflows/build.yml` 在三个 runner 上分别编译�
 跑四语言 IPC 协议测试并上传产物。macOS/Linux 交叉编译不可行（依赖系统 WebKit），
 必须走目标平台 CI 或本机构建。
 
+### 平台能力矩阵（M4 后现状）
+
+| 能力 | Windows | Linux | macOS |
+| --- | --- | --- | --- |
+| 壳层/多窗口/异步桥/能力门控/数据层 | ✅ | ✅ | ✅（编译级：CI macos job 验证 vet+test+build；**无 Mac 实机运行验证**） |
+| 系统托盘 | 原生 Shell_NotifyIcon | GTK3 StatusIcon（legacy 协议，GNOME 需扩展） | ✖（占位拒绝） |
+| 剪贴板 / 通知 / openExternal / 自启 | ✅ | wl-clipboard→xclip 回退 / notify-send / xdg-open / XDG autostart | ✖ |
+| 全局热键 / 单实例 / deep-link / 对话框 / 任务栏进度 | ✅ | ✖（not supported 显式报错） | ✖ |
+
+- Linux 缺口按计划分级：热键/单实例为二级项未实装；dialog 可用 GTK chooser 补；托盘完整形态是 SNI/StatusNotifierItem（当前 legacy 已覆盖主流发行版）。
+- macOS 实装路线（NSStatusItem/UNUserNotificationCenter 等）因无 Mac 设备与 SDK 暂不盲写代码，验证缺口以 CI 编译门收敛，实机验证 `阻塞:` 于无 Mac/SDK。
+
 ## 打包与分发（对标 Tauri bundler，G1–G6 补齐）
 
 - **版本戳**：`build.ps1 -Version 1.2.3` / `VERSION=1.2.3 ./build.sh` 经 `-ldflags -X freedom.Version` 注入，前端 `os.info.appVersion` 读取；CI 仅在 git tag 推送时注版本（不凭空造版本）。
@@ -174,7 +186,8 @@ go test -v ./...   # 同一套断言跑 Go / Node / Python / Rust 四个后端�
 
 - [ ] `cmd/freedom` CLI：一条命令生成任意语言后端的新项目骨架
 - [ ] 前端产物自动单文件化（vite-plugin-singlefile）流水线
-- [ ] 多窗口 / 无边框 / 透明窗口支持
+- [x] 多窗口 / 无边框 / 透明窗口支持（M2 多窗口注册表 + window.create/close/list/focus）
+- [x] Linux 系统能力与托盘实装（M4：剪贴板/通知/openExternal/自启/GTK3 托盘）
 - [x] 后端进程崩溃自动重启（RestartPolicy + backend.crashed/restarted 事件）
 - [x] 版本戳 / Windows 资源嵌入 / SHA256 / NSIS 安装器 / 自动更新（G1–G6 补齐）
 
