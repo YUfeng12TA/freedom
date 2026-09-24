@@ -16,7 +16,8 @@
 - CLI 平台别名归一：`win` / `mac` / `mac-arm64` / `linux-x86_64` 等写法统一解析为 `win-x64` / `darwin-arm64` / `linux-x64`，
   无法支持的组合（如 `darwin-x64`）明确报错而不是猜。
 - CLI 壳下载回退路径：直连 Release 下载失败时自动改走 GitHub Release API 资产端点（可用 `FREEDOM_GITHUB_TOKEN` 提额）。
-- 治理基建：`CONTRIBUTING.md`、`SECURITY.md`、issue 模板与本文件。
+- 治理基建：`CONTRIBUTING.md`、`SECURITY.md`、issue 与 PR 模板、本文件。
+- CI 新增 `gofmt clean` 门（文件集取 `git ls-files '*.go'` 排除 `third_party/`），并一次性对齐 21 个存量文件的 gofmt 排版。
 
 ### 变更
 
