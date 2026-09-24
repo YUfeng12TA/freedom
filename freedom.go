@@ -75,6 +75,9 @@ type Config struct {
 	// RememberWindowState 为 true 时窗口位置/尺寸/最大化状态跨启动记忆
 	// （存于 <dataDir>/window-state.json；Windows 生效，其他平台暂不持久化）。
 	RememberWindowState bool
+	// Update 配置自动更新（ed25519 验签 manifest + sha256 校验产物）。
+	// 为 nil 时更新能力关闭。见 updater.go。
+	Update *UpdateConfig
 }
 
 // App 是 Freedom 应用实例。
@@ -85,6 +88,11 @@ type App struct {
 	wsMu    sync.Mutex   // 串行化 window-state 落盘（拖拽异步保存可与销毁保存交叠）
 	backend Backend
 	onReady func(a *App)
+
+	// upMu 保护 upPending：CheckUpdate 验签通过的更新条目，install 桥接只认它
+	//（前端无法注入未验签的 URL/哈希）。见 updater.go。
+	upMu      sync.Mutex
+	upPending *UpdateInfo
 }
 
 // appForEvents 指向当前运行的 App，供平台层回调（单实例/热键等）向 Emit 事件。

@@ -161,6 +161,20 @@
       exit: function (code) { return sysCall('process.exit', { code: code || 0 }); },
       restart: function () { return sysCall('process.restart', {}); }, // 拉起新实例后退出的安全重启
     },
+    // ---- G4 自动更新（对标 Tauri updater）----
+    // 检查/安装是异步长任务：调用只发起，结果经事件回推——
+    //   'update.available'({version,url,sha256,notes}) / 'update.upToDate'({current})
+    //   / 'update.installed'({version,restartRequired}) / 'update.error'({message})
+    // install 只接受 check 时已通过 ed25519 验签的缓存条目；换装后需 process.restart 生效。
+    update: {
+      check: function () { return sysCall('update.check', {}); },
+      install: function () { return sysCall('update.install', {}); },
+      pending: function () { return sysCall('update.pending', {}); },
+      onAvailable: function (cb) { return on('update.available', cb); },
+      onUpToDate: function (cb) { return on('update.upToDate', cb); },
+      onInstalled: function (cb) { return on('update.installed', cb); },
+      onError: function (cb) { return on('update.error', cb); },
+    },
     taskbar: {
       setProgress: function (value) { return sysCall('taskbar.progress', { value: value }); },
       setState: function (state) { return sysCall('taskbar.state', { state: state }); }, // normal|paused|error|indeterminate

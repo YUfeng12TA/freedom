@@ -316,6 +316,13 @@ func (a *App) sysGeneric(method string, args map[string]json.RawMessage) (result
 	case "process.restart":
 		go a.restartProcess()
 		return nil, true, nil
+	case "update.check": // G4：异步检查，结果走 update.available/upToDate/error 事件
+		return a.updateCheckAsync(), true, nil
+	case "update.install": // 用 check 验签缓存的条目，成功后 update.installed
+		res, e := a.updateInstallAsync()
+		return res, true, e
+	case "update.pending":
+		return a.pendingUpdate(), true, nil
 	}
 	return nil, false, nil
 }

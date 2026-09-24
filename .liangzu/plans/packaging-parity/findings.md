@@ -29,3 +29,8 @@
 - 坑（关键）：cgo 外部链接时 WinLibs mingw 自动注入 `default-manifest.o`（%:if-exists 在 endfile spec），与 .syso 内嵌 RT_MANIFEST 冲突 → `ld: multiple non-default manifests`。裁定：freedomres 不写 manifest；DPI Per-Monitor V2 改由 window_windows.go init() 运行时 SetProcessDpiAwarenessContext(-4) 声明（Find() 守卫老系统），asInvoker 由 mingw 默认 manifest 提供。
 - 验证链：syso(含图标) 75KB → build.ps1 -Version 0.2.0-test exit=0 → VersionInfo 读出 ProductName/FileVersion → ExtractAssociatedIcon 返回 32x32 → go test -race ok 7.035s。
 - 图标资产 assets/app.png（1024px，ImageGen 生成）入仓；.gitignore 排除构建期生成的 examples/*/freedomapp_windows_*.syso（版本随 -Version 变化）。
+
+## G4 自动更新（E4）
+- updater.go：Config.Update{ManifestURL,PublicKey,Timeout}；manifest 规范串 `freedom-update-v1\n<version>\n<url>\n<sha256>` 经 ed25519 验签，产物边下边 sha256 校验，换装走 swapExecutable（改名让位+回滚）。桥接 update.check/install/pending 经 sysGeneric，长任务 goroutine 化结果走事件（update.available/upToDate/installed/error）。
+- 坑：`updateURLAllowed` 须要求 u.Host != ""，否则 `https://`（空 host）被放行——TestUpdateURLAllowed 抓到。
+- 前端 install 只认 check 时验签缓存的 upPending，禁前端回传 URL/哈希（防注入）。
