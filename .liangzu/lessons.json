@@ -1,6 +1,6 @@
 {
   "version": 4,
-  "lastUpdated": "2026-08-29T19:45:00+08:00",
+  "lastUpdated": "2026-09-24",
   "lessonsLearned": [
     {
       "date": "2026-08-19",
@@ -41,6 +41,31 @@
       "filesAffected": [
         "window_windows.go",
         ".liangzu/bugs.json"
+      ]
+    },
+    {
+      "date": "2026-09-24",
+      "issue": "stdio 服务（mcp serve / desktop 后端）在 stdin 收到 EOF 时立即 process.exit(0)，把仍在途的子进程请求杀掉，表现为最后一帧响应凭空丢失（握手 tools/call 少一个 id）",
+      "solution": "统一改为 inflight 计数 + ended 标志：rl close 只置 ended，inflight 归零才 exit；已在 tests/desktop-agents.test.mjs 用「EOF 前的在途 tools/call 必须回帧」锁定",
+      "filesAffected": [
+        "freedom-cli/lib/mcp.js",
+        "freedom-cli/templates/desktop/backend/desktop.mjs"
+      ]
+    },
+    {
+      "date": "2026-09-24",
+      "issue": "Desktop 自动重打包时若旧实例仍在运行，Windows 锁定 exe 导致 copyfile EBUSY，错误信息是一串裸 fs 报错，用户不知道要关窗口",
+      "solution": "重打包前先 unlinkSync 探测锁：失败即抛「正在运行的 Freedom Desktop 锁定了自身可执行文件…请先关闭窗口再执行 freedom desktop --rebuild」；测试期清理用 powershell Stop-Process（taskkill /IM 会被 Git Bash 改写成路径）",
+      "filesAffected": [
+        "freedom-cli/lib/desktop.js"
+      ]
+    },
+    {
+      "date": "2026-09-24",
+      "issue": "npm 打包 CLI 的中文路径下 node -e 里 require(相对路径) 与 /tmp 在 Git Bash 与 node 间不互通，导致探针脚本随机 ENOENT",
+      "solution": "沙箱验证统一用仓库内临时目录（freedom-cli/.tmptest，用完删除）与绝对路径 require",
+      "filesAffected": [
+        "tests/desktop-agents.test.mjs"
       ]
     }
   ]

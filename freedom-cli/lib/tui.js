@@ -372,4 +372,40 @@ async function tui(cwd) {
   return 0;
 }
 
-module.exports = { tui, TUI };
+// 裸 `freedom` 的显示方式选择器：终端 TUI 或 Freedom Desktop（图形窗口）。
+// 先退出 raw mode 再拉起窗口 / 再进主菜单，避免两个界面抢同一个终端。
+async function pickDisplay(cwd) {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    console.error('[freedom] 当前非交互式终端，请改用具体子命令（freedom help 查看全部命令）。');
+    return 1;
+  }
+  const app = new TUI();
+  app.enter();
+  let idx;
+  try {
+    idx = await app.menu('选择显示方式', ['终端 TUI（纯文本菜单）', 'Freedom Desktop（图形窗口，由 freedom 自身打包）'], {
+      footer: '↑ ↓ 选择 · Enter 确认 · q 退出',
+    });
+  } finally {
+    app.exit();
+  }
+  if (idx === null) return 0;
+  if (idx === 1) return desktopFlow(cwd);
+  return await tui(cwd);
+}
+
+async function desktopFlow(cwd) {
+  const { desktop } = require('./desktop');
+  const theme = require('./theme');
+  try {
+    const r = await desktop({});
+    process.stdout.write(`${theme.ok('Freedom Desktop 已拉起：')}${r.exe}\n`);
+    if (r.rebuilt) process.stdout.write(`${theme.dim(`（本次已重新打包，CLI v${r.version}）`)}\n`);
+    return 0;
+  } catch (e) {
+    process.stdout.write(`\n${theme.err(e.message)}\n`);
+    return 1;
+  }
+}
+
+module.exports = { tui, pickDisplay, TUI };

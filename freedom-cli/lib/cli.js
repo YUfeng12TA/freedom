@@ -19,8 +19,11 @@ function help() {
   L.push(`  ${paint('用法：', C.bold, C.fg.white)} ${paint('freedom <command> [options]', C.fg.cyan, C.bold)}`);
   L.push('');
   L.push(section('交互式界面'));
-  L.push(`  ${paint('freedom', C.fg.cyan, C.bold)}                  ${dim('进入完整 CLI 模式（交互式菜单，新建 / 打包 / 配置 / 壳管理）')}`);
-  L.push(`  ${paint('freedom tui', C.fg.cyan, C.bold)}              ${dim('同上（兼容写法，显式进入交互式模式）')}`);
+  L.push(`  ${paint('freedom', C.fg.cyan, C.bold)}                  ${dim('选择显示方式：终端 TUI / Freedom Desktop（图形界面）')}`);
+  L.push(`  ${paint('freedom tui', C.fg.cyan, C.bold)}              ${dim('直达终端 TUI（交互式菜单，新建 / 打包 / 配置 / 壳管理）')}`);
+  L.push(`  ${paint('freedom desktop', C.fg.cyan, C.bold)}          ${dim('直达 Freedom Desktop：图形界面由 freedom 自己打包产出，模板或版本变更时自动重打包')}`);
+  L.push(`      ${dim('--rebuild')}                       ${dim('强制重新打包 Desktop 并拉起（需先关闭已开窗口）')}`);
+  L.push(`      ${dim('--no-launch')}                     ${dim('只准备 / 重打包产物，不拉起窗口')}`);
   L.push(section('项目'));
   L.push(`  ${paint('freedom init [目录] [--force] [--template full|minimal]', C.fg.cyan)}  ${dim('新建项目模板（默认 full：含自绘标题栏示例；minimal：极简无自绘标题栏）')}`);
   L.push(`  ${paint('freedom tutorial', C.fg.cyan)}                 ${dim('再次打开安装教程')}`);
@@ -47,6 +50,12 @@ function help() {
   L.push(`  ${paint('freedom config', C.fg.cyan)}              ${dim('查看当前配置')}`);
   L.push(`  ${paint('freedom config get <key>', C.fg.cyan)}    ${dim('读取单个配置项')}`);
   L.push(`  ${paint('freedom config set <key> <value>', C.fg.cyan)} ${dim('修改单个配置项')}`);
+  L.push(section('Agent 集成'));
+  L.push(`  ${paint('freedom agents [--home <dir>]', C.fg.cyan)}          ${dim('打印 Agent 支持矩阵（按本机磁盘证据判定 ready / convention / unknown）')}`);
+  L.push(`  ${paint('freedom agents install --what <mcp|skill> --agent <key|all>', C.fg.cyan)} ${dim('等价于下面两条的合并入口')}`);
+  L.push(`  ${paint('freedom skill install --agent <key|all> [--dry-run] [--skills-dir <path>]', C.fg.cyan)} ${dim('把 Freedom 使用技能装入 agent 的 skills 目录')}`);
+  L.push(`  ${paint('freedom mcp install --agent <key|all> [--dry-run] [--config <path> --format json|toml|yaml]', C.fg.cyan)} ${dim('把 Freedom MCP 服务写入 agent 的 MCP 配置（幂等合并、写前 .bak 备份）')}`);
+  L.push(`  ${paint('freedom mcp serve', C.fg.cyan)}        ${dim('stdio MCP 服务本体（一般由 agent 自动拉起，无需手敲）')}`);
   L.push(section('版本'));
   L.push(`  ${paint('freedom version', C.fg.cyan)}             ${dim('显示版本并检测最新版本')}`);
   L.push(`  ${paint('freedom update', C.fg.cyan)}              ${dim('检查新版本并立即自动更新')}`);
@@ -72,9 +81,10 @@ async function run(argv) {
 
   switch (cmd) {
     case undefined: {
-      // 无参数：交互式终端进入完整 CLI 模式（TUI）；管道 / 脚本环境打印帮助，避免卡死
+      // 无参数：交互式终端先选择显示方式（终端 TUI / Freedom Desktop）；
+      // 管道 / 脚本环境打印帮助，避免卡死
       if (process.stdin.isTTY && process.stdout.isTTY) {
-        return await require('./tui').tui(process.cwd());
+        return await require('./tui').pickDisplay(process.cwd());
       }
       console.log(help());
       return 0;
@@ -117,6 +127,48 @@ async function run(argv) {
 
     case 'tui':
       return await require('./tui').tui(process.cwd());
+
+    case 'desktop': {
+      const { desktop } = require('./desktop');
+      try {
+        const r = await desktop({
+          rebuild: rest.includes('--rebuild'),
+          noLaunch: rest.includes('--no-launch'),
+        });
+        console.log(`${ok(r.rebuilt ? '已重新打包 Freedom Desktop：' : '复用已有产物：')}${paint(r.exe, C.fg.cyan, C.bold)}`);
+        console.log(`  ${dim(`项目目录：${r.dir} · CLI v${r.version}`)}`);
+        if (r.launched) console.log(`  ${ok(`窗口已拉起（pid ${r.pid}）`)}`);
+        else console.log(`  ${dim('未拉起窗口（--no-launch）；执行 freedom desktop 即可打开。')}`);
+        return 0;
+      } catch (e) {
+        console.error(`${err(e.message)}`);
+        return 1;
+      }
+    }
+
+    case 'agents': {
+      const sub = rest[0] && !rest[0].startsWith('--') ? rest[0] : undefined;
+      const flags = sub ? rest.slice(1) : rest;
+      const hi = flags.indexOf('--home');
+      const home = flags.find((a) => a.startsWith('--home=')) || (hi >= 0 ? flags[hi + 1] : undefined);
+      if (home && !home.startsWith('--')) process.env.FREEDOM_AGENT_HOME = path.resolve(home.replace(/^--home=/, ''));
+      if (!sub || sub === 'list') return require('./agents').printMatrix();
+      if (sub !== 'install') {
+        console.error(`${err(`未知 agents 子命令：${sub}`)} ${dim('可用：list / install --what <mcp|skill> --agent <key|all> [--dry-run]')}`);
+        return 1;
+      }
+      const wi = flags.indexOf('--what');
+      const what = (flags.find((a) => a.startsWith('--what=')) || '').split('=')[1] || flags[wi + 1];
+      if (what && what !== 'mcp' && what !== 'skill') {
+        console.error(`${err(`不支持的 --what：${what}`)} ${dim('（可选 mcp|skill）')}`);
+        return 1;
+      }
+      return await runAgents(what === 'skill' ? 'skill' : 'mcp', ['install', ...flags]);
+    }
+
+    case 'skill':
+    case 'mcp':
+      return await runAgents(cmd, rest);
 
     case 'init': {
       const force = rest.includes('--force');
@@ -431,6 +483,44 @@ async function runShell(rest) {
     default:
       console.error(`${err('未知 shell 子命令：')}${paint(sub, C.fg.red, C.bold)}`);
       return 1;
+  }
+}
+
+// freedom skill / mcp —— Agent 集成安装与 MCP 服务
+async function runAgents(cmd, rest) {
+  const sub = rest[0];
+  const optVal = (name) => {
+    const a = rest.find((x) => x.startsWith(`--${name}=`));
+    if (a) return a.split('=')[1];
+    const i = rest.indexOf(`--${name}`);
+    return i >= 0 && rest[i + 1] && !rest[i + 1].startsWith('--') ? rest[i + 1] : undefined;
+  };
+  if (cmd === 'mcp' && sub === 'serve') {
+    return await require('./mcp').serve();
+  }
+  if (sub !== 'install') {
+    console.error(`${err('用法：')}${paint(`freedom ${cmd} install --agent <key|all> [--dry-run]`, C.fg.cyan)}`);
+    if (cmd === 'mcp') {
+      console.error(`     ${paint('freedom mcp serve', C.fg.cyan)} ${dim('（stdio MCP 服务，通常由 agent 配置自动拉起）')}`);
+    }
+    console.error(`  ${dim('可选 agent 与本机取证状态见：')}${paint('freedom agents', C.fg.white)}`);
+    return 1;
+  }
+  const { install } = require('./agents');
+  try {
+    const r = await install({
+      what: cmd === 'skill' ? 'skill' : 'mcp',
+      agent: optVal('agent') || 'all',
+      dryRun: rest.includes('--dry-run'),
+      config: optVal('config'),
+      format: optVal('format'),
+      skillsDir: optVal('skills-dir'),
+      home: optVal('home'),
+    });
+    return r.code;
+  } catch (e) {
+    console.error(`${err(e.message)}`);
+    return 1;
   }
 }
 

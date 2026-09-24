@@ -169,6 +169,7 @@ export default {
   icon: undefined,       // 应用图标：Windows 用 .ico（推荐多尺寸），macOS 用 .icns
   outDir: 'dist',        // 产物目录：'dist'（默认）| '.'（项目根目录）| 任意路径
   // backend: { command: 'node', args: ['backend/main.mjs'] },  // 任意语言后端进程
+  // staticHtml: 'app.html', // 跳过 npm/vite，直接内嵌该单文件 HTML（零网络；纯静态页与 freedom 自举界面用）
   // singleInstance: true,   // 二次启动转发参数给已运行实例后退出（前端收 app.secondInstance）
   // dev: { command: 'npm run dev' },  // freedom dev 拉起的前端 dev server 命令
   // updater: {                       // 应用自更新（freedom keygen 生成密钥，公钥填这里）
@@ -233,7 +234,9 @@ window.freedom.window.minimize();                       // 窗口控制
 ## 命令
 
 ```
-freedom tui                          # 交互式终端界面
+freedom                              # 选择显示方式：终端 TUI / Freedom Desktop（图形界面）
+freedom tui                          # 直达交互式终端界面
+freedom desktop [--rebuild] [--no-launch]   # 直达 Freedom Desktop（图形界面，由 freedom 自身打包）
 freedom init <目录> [--force]
 freedom dev [--port <n>|--url <u>] [--command <cmd>]   # 热更开发流：拉起 vite 并把壳窗口指到 dev server
 freedom build [--platform win-x64|darwin-arm64|linux-x64|all] [--no-cache] [--security none|basic|high] [--installer]
@@ -245,11 +248,49 @@ freedom shell list|download <platform>|build <platform>
 freedom dmg [--platform <plat>]      # 在 macOS 上把 .app 打包为 .dmg
 freedom keygen [--force]             # 生成应用自更新 ed25519 密钥对（私钥留 .freedom/keys/，公钥进配置）
 freedom manifest --artifact <产物> --url <下载地址> [--version x] [--notes txt]  # 产出签名更新清单 dist/latest.json
+freedom agents [--home <dir>]         # Agent 集成支持矩阵（本机磁盘证据判定 ready/convention/unknown）
+freedom agents install --what <mcp|skill> --agent <key|all>   # 等价于下面两条
+freedom skill install --agent <key|all> [--dry-run] [--skills-dir <path>]
+freedom mcp install --agent <key|all> [--dry-run] [--config <path> --format json|toml|yaml]
+freedom mcp serve                    # stdio MCP 服务本体（一般由 agent 自动拉起）
 freedom version                     # 显示版本并检测最新版本
 freedom update                      # 检查新版本并给出升级命令（同 check-update）
 freedom tutorial
 freedom help
 ```
+
+## 两种显示：终端 TUI 与 Freedom Desktop
+
+裸跑 `freedom` 会先让你选显示方式：
+
+- **终端 TUI** —— 零依赖 ANSI 界面（`freedom tui` 直达），新建 / 打包 / 配置 / 壳管理。
+- **Freedom Desktop** —— 图形窗口（`freedom desktop` 直达）。它是 **freedom 自己打包出来的产品**：
+  模板在包内 `templates/desktop/`，首次运行同步到 `~/.freedom/desktop/`，再走与用户项目**同一条
+  `freedom build` 代码路径**产出 `freedom-desktop.exe`（壳 + `resources/`），随后拉起它。
+  前端是零构建的单文件页面（配置项 `staticHtml` 直通，**不跑 npm / vite，零网络**），
+  后端是零依赖 Node 进程（`resources/backend/desktop.mjs`，NDJSON/stdio），它再以子进程调起 `freedom` CLI——
+  因此**界面能力恒等于 CLI 能力**，CLI 升级界面即升级。
+  CLI 版本或模板内容变化时（stamp = CLI 版本 + 模板哈希）自动重打包，未变化则复用产物；
+  `--rebuild` 强制重建（需先关闭已开窗口，Windows 会锁定运行中的 exe），`--no-launch` 只准备产物。
+
+界面分区：概览 / 项目 / 打包 / 配置 / 壳与后端 / 发布 / Agent 集成，底部输出区实时滚动 CLI 与 dev server 日志。
+
+## Agent 集成：把 Freedom 交给编码 Agent
+
+- `freedom skill install --agent <key|all>`：把 `skill/freedom/SKILL.md`（框架架构、配置键表、SDK 面、
+  NDJSON 协议、CLI 命令、坑清单）复制进各 agent 的 skills 目录。
+- `freedom mcp install --agent <key|all>`：把 `freedom mcp serve` 注册进各 agent 的 MCP 配置。
+  MCP 工具面：`freedom_build / init / verify / config / shell / release / agents / guide`。
+- `freedom agents [--home <dir>]`：打印支持矩阵。**是否可写一律按本机磁盘证据判定**——
+  `ready`（配置文件已在，合并写入）/ `convention`（仅主目录在，按同族约定新建并明确提示）/
+  `unknown`（本机无足迹，只输出可粘贴片段，绝不凭记忆造路径）。`--home` 换一棵家目录树预览取证结果。
+- `freedom agents install --what <mcp|skill> --agent <key|all>`：上面两条安装入口的合并写法，
+  不带 `--what` 时默认 `mcp`；`agents <其它子命令>` 直接报错退出，不会静默回落成矩阵。
+- 写入是**幂等合并**：保留既有其它 server 条目，二次安装原地替换不产生重复；改前留 `<file>.bak` 备份；
+  `--dry-run` 只预览不落盘。未取证的 agent 用 `--config <真实路径> --format <json|toml|yaml>` 覆写。
+- 已按本机取证登记的 agent：Claude Code / Claude Desktop / Codex CLI / Qoder / CodeBuddy / Zcode / Cursor /
+  Hermes（YAML）等；其余（Trae、OpenCode、Gemini CLI、Pi、Tianshu、WorkBuddy、DeepSeek harness、Oh My Pi）
+  在无足迹的机器上一律降级为片段 + 覆写通道。
 
 ## 开发热更（freedom dev）
 

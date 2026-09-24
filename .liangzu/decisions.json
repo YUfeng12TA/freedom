@@ -1,6 +1,6 @@
 {
   "version": 4,
-  "lastUpdated": "2026-08-31T14:20:00+08:00",
+  "lastUpdated": "2026-09-24",
   "decisions": [
     {
       "date": "2026-08-19",
@@ -53,6 +53,29 @@
         "保留源码留档（被否：用户要求全删）",
         "仅删 dist 产物留源码（被否：全删）"
       ]
+    },
+    {
+      "date": "2026-09-24",
+      "decision": "Freedom Desktop 形态定为「用 freedom 自己打包的一个 freedom 项目」：静态单文件前端（build.js staticHtml 直通，免 npm/vite）+ Node 进程后端复用 CLI lib，产物落用户目录 ~/.freedom/desktop，按内容指纹 stamp 幂等自动重打包",
+      "rationale": "满足用户「desktop 界面由 freedom 自己打包出来 + 状态自动打包」诉求（自举/吃自家狗粮），同时零网络、零新依赖、不破坏最终用户零工具链主轴",
+      "alternatives": [
+        "vite 项目模板（需网络与数十 MB 依赖，首次体验差）",
+        "Go 内嵌 HTML + EmbedBackend（要为 UI 单独编译 Go 壳，违背零工具链）"
+      ]
+    },
+    {
+      "date": "2026-09-24",
+      "decision": "Agent skill/MCP 安装器采用「注册表 + 格式适配器 + 证据三态（ready/convention/unknown）」：仅本机实测取证的路径直接写入，约定推断的新建并黄字提示，无足迹者只输出可粘贴片段绝不落盘；配 --dry-run/--config/--format/--home 覆写",
+      "rationale": "15+ 家 Agent 的配置文件路径与键名差异大且多数无法本机取证，凭记忆写路径会损坏他人配置（铁律 19 事实核实、铁律 8 高危闸门）",
+      "alternatives": [
+        "每 agent 硬编码路径（易凭记忆编造）",
+        "只支持取证到的三家（不满足用户列举面）"
+      ]
+    },
+    {
+      "date": "2026-09-24",
+      "decision": "freedom mcp serve 做成零依赖 Node stdio MCP server，8 个工具全部 spawn 本 CLI 子进程实现，不直接 require lib 内部函数",
+      "rationale": "CLI 是单一权威实现，MCP 面自动跟随 CLI 演进；同时避免在长驻 MCP 进程里持有构建状态导致与 CLI 行为漂移"
     }
   ]
 }

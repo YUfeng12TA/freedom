@@ -1,0 +1,559 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Freedom Desktop</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --bg-raised: #161a21;
+    --bg-sunken: #0b0d11;
+    --line: #232935;
+    --line-strong: #2f3746;
+    --text: #e6e9ef;
+    --text-dim: #96a0b0;
+    --text-faint: #6b7686;
+    --accent: #f2a541;
+    --accent-soft: rgba(242, 165, 65, 0.14);
+    --ok: #4ec9a5;
+    --warn: #e0b341;
+    --err: #ef6d6d;
+    --mono: ui-monospace, "Cascadia Mono", Consolas, "JetBrains Mono", monospace;
+    --sans: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    --r: 10px;
+    --sp: 16px;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.55 var(--sans); -webkit-font-smoothing: antialiased;
+    display: grid; grid-template-columns: 208px 1fr; grid-template-rows: 100%;
+    overflow: hidden; user-select: none;
+  }
+
+  /* ---------- 侧栏 ---------- */
+  .side {
+    background: var(--bg-sunken); border-right: 1px solid var(--line);
+    display: flex; flex-direction: column; padding: 18px 12px 12px;
+  }
+  .brand { display: flex; align-items: center; gap: 9px; padding: 0 8px 16px; }
+  .brand .mark {
+    width: 24px; height: 24px; border-radius: 7px;
+    background: linear-gradient(150deg, var(--accent), #b8620f);
+    box-shadow: 0 0 0 1px rgba(255,255,255,.08) inset;
+  }
+  .brand b { font-size: 14px; letter-spacing: .3px; }
+  .brand span { color: var(--text-faint); font: 11px var(--mono); }
+  nav { display: flex; flex-direction: column; gap: 2px; }
+  nav button {
+    all: unset; cursor: pointer; display: flex; align-items: center; gap: 10px;
+    padding: 9px 10px; border-radius: 8px; color: var(--text-dim); font-size: 13px;
+  }
+  nav button:hover { background: #141922; color: var(--text); }
+  nav button[aria-current="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  nav button i { width: 14px; text-align: center; font-style: normal; opacity: .85; }
+  .side-foot { margin-top: auto; padding: 10px 8px 0; border-top: 1px solid var(--line); color: var(--text-faint); font: 11px/1.7 var(--mono); }
+  .side-foot b { color: var(--text-dim); font-weight: 600; }
+
+  /* ---------- 主区 ---------- */
+  main { display: flex; flex-direction: column; min-width: 0; }
+  header {
+    height: 52px; flex: 0 0 52px; border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; gap: 12px; padding: 0 var(--sp);
+    background: var(--bg-raised);
+  }
+  header h1 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: .2px; }
+  header .crumb { color: var(--text-faint); font: 11px var(--mono); max-width: 46ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  header .spacer { flex: 1; }
+  .scroll { flex: 1; overflow: auto; padding: 18px var(--sp) 24px; user-select: text; }
+
+  /* ---------- 控件 ---------- */
+  .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .row + .row { margin-top: 10px; }
+  label.f { display: flex; flex-direction: column; gap: 5px; font-size: 11px; color: var(--text-faint); letter-spacing: .4px; text-transform: uppercase; }
+  input, select {
+    background: var(--bg-sunken); color: var(--text); border: 1px solid var(--line-strong);
+    border-radius: 7px; padding: 7px 10px; font: 13px var(--sans); min-width: 130px; outline: none;
+  }
+  input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  input.wide { min-width: 380px; flex: 1; }
+  button.act {
+    background: var(--accent); color: #241403; border: 0; border-radius: 7px;
+    padding: 8px 14px; font: 600 13px var(--sans); cursor: pointer;
+  }
+  button.act:hover { filter: brightness(1.07); }
+  button.act:active { transform: translateY(1px); }
+  button.act[disabled] { background: var(--line-strong); color: var(--text-faint); cursor: not-allowed; }
+  button.ghost {
+    background: transparent; color: var(--text-dim); border: 1px solid var(--line-strong);
+    border-radius: 7px; padding: 7px 12px; font: 13px var(--sans); cursor: pointer;
+  }
+  button.ghost:hover { color: var(--text); border-color: var(--text-faint); }
+  .chk { display: flex; align-items: center; gap: 6px; font: 12px var(--sans); color: var(--text-dim); cursor: pointer; }
+  .chk input { min-width: 0; width: 14px; height: 14px; accent-color: var(--accent); }
+
+  /* ---------- 卡片 / 表格 ---------- */
+  .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+  .card {
+    background: var(--bg-raised); border: 1px solid var(--line); border-radius: var(--r);
+    padding: 14px 16px;
+  }
+  .card h3 { margin: 0 0 10px; font-size: 12px; letter-spacing: .5px; text-transform: uppercase; color: var(--text-faint); font-weight: 600; }
+  .kv { display: grid; grid-template-columns: 92px 1fr; gap: 4px 10px; font: 12px/1.8 var(--mono); }
+  .kv dt { color: var(--text-faint); }
+  .kv dd { margin: 0; color: var(--text); word-break: break-all; }
+  section.block { margin-bottom: 22px; }
+  section.block > h2 { font-size: 13px; margin: 0 0 10px; color: var(--text-dim); font-weight: 600; letter-spacing: .3px; }
+  ul.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  ul.list li {
+    display: flex; align-items: center; gap: 10px; padding: 9px 12px;
+    background: var(--bg-raised); border: 1px solid var(--line); border-radius: 8px; font: 12px var(--mono);
+  }
+  ul.list li b { font-family: var(--sans); font-size: 13px; font-weight: 600; }
+  ul.list li .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-dim); }
+  ul.list li[data-current="1"] { border-color: var(--accent); background: var(--accent-soft); }
+  .pill { font: 11px var(--mono); padding: 2px 7px; border-radius: 20px; border: 1px solid var(--line-strong); color: var(--text-dim); }
+  .pill.ok { color: var(--ok); border-color: rgba(78,201,165,.4); }
+  .pill.no { color: var(--text-faint); }
+  .empty { color: var(--text-faint); font-size: 13px; padding: 10px 2px; }
+
+  /* ---------- 控制台 ---------- */
+  .console {
+    flex: 0 0 auto; border-top: 1px solid var(--line); background: var(--bg-sunken);
+    display: flex; flex-direction: column; transition: height .18s ease; height: 216px;
+  }
+  .console.min { height: 34px; }
+  .console .bar {
+    height: 34px; flex: 0 0 34px; display: flex; align-items: center; gap: 10px; padding: 0 12px;
+    border-bottom: 1px solid var(--line); font: 11px var(--mono); color: var(--text-faint); cursor: pointer;
+  }
+  .console .bar b { color: var(--text-dim); font: 600 11px var(--sans); letter-spacing: .6px; text-transform: uppercase; }
+  .console pre {
+    margin: 0; padding: 10px 12px; overflow: auto; flex: 1;
+    font: 12px/1.65 var(--mono); color: var(--text-dim); user-select: text; white-space: pre-wrap; word-break: break-all;
+  }
+  .console pre .t { color: var(--text-faint); }
+  .console pre .cmd { color: var(--accent); }
+  .console pre .bad { color: var(--err); }
+  .console pre .good { color: var(--ok); }
+  .toast {
+    position: fixed; right: 18px; bottom: 18px; max-width: 60vw; padding: 10px 14px; border-radius: 8px;
+    background: var(--bg-raised); border: 1px solid var(--line-strong); color: var(--text); font-size: 13px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.45); opacity: 0; transform: translateY(8px); transition: .18s; pointer-events: none;
+  }
+  .toast.show { opacity: 1; transform: none; }
+  .toast.err { border-color: rgba(239,109,109,.5); }
+</style>
+</head>
+<body>
+  <aside class="side">
+    <div class="brand"><span class="mark"></span><div><b>Freedom</b> <span id="ver">…</span></div></div>
+    <nav id="nav">
+      <button data-view="overview" aria-current="true"><i>◧</i>概览</button>
+      <button data-view="projects"><i>▤</i>项目</button>
+      <button data-view="build"><i>⛭</i>打包</button>
+      <button data-view="config"><i>⚙</i>配置</button>
+      <button data-view="shell"><i>▣</i>壳与后端</button>
+      <button data-view="release"><i>↥</i>发布</button>
+      <button data-view="agents"><i>◇</i>Agent 集成</button>
+    </nav>
+    <div class="side-foot" id="foot">加载中…</div>
+  </aside>
+
+  <main>
+    <header>
+      <h1 id="title">概览</h1>
+      <span class="crumb" id="crumb"></span>
+      <span class="spacer"></span>
+      <button class="ghost" id="btn-refresh">刷新</button>
+    </header>
+    <div class="scroll" id="scroll"></div>
+
+    <div class="console" id="console">
+      <div class="bar" id="console-bar">
+        <b>输出</b><span id="console-meta">等待任务…</span>
+        <span class="spacer" style="flex:1"></span>
+        <span id="console-toggle">收起</span>
+      </div>
+      <pre id="log"></pre>
+    </div>
+  </main>
+
+  <div class="toast" id="toast"></div>
+
+<script>
+(function () {
+  'use strict';
+  var f = window.freedom;
+  var state = { view: 'overview', info: null, projects: { recent: [], current: null } };
+  var $ = function (id) { return document.getElementById(id); };
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+  }
+
+  function toast(msg, isErr) {
+    var t = $('toast');
+    t.textContent = msg;
+    t.className = 'toast show' + (isErr ? ' err' : '');
+    clearTimeout(toast._t);
+    toast._t = setTimeout(function () { t.className = 'toast' + (isErr ? ' err' : ''); }, isErr ? 5200 : 2600);
+  }
+
+  // ---- 日志控制台：后端以 {event:'log', data:{id,line}} 逐行推送 ----
+  var lineCount = 0;
+  function appendLog(d) {
+    var line = String(d && d.line != null ? d.line : '');
+    if (!line) return;
+    var pre = $('log');
+    var cls = '';
+    if (/\[freedom\]|失败|error|Error/.test(line)) cls = /失败|error|Error/.test(line) ? 'bad' : 'cmd';
+    if (/✓|完成|通过/.test(line)) cls = 'good';
+    var ts = new Date().toTimeString().slice(0, 8);
+    pre.insertAdjacentHTML('beforeend',
+      '<span class="t">' + ts + '</span> <span class="' + cls + '">' + esc(line) + '</span>\n');
+    if (++lineCount > 4000) { pre.innerHTML = ''; lineCount = 1; }
+    pre.scrollTop = pre.scrollHeight;
+  }
+  function logCmd(label) {
+    var pre = $('log');
+    pre.insertAdjacentHTML('beforeend', '\n<span class="cmd">$ freedom ' + esc(label) + '</span>\n');
+    pre.scrollTop = pre.scrollHeight;
+    $('console-meta').textContent = label;
+  }
+
+  // ---- 调用后端 ----
+  function call(method) {
+    var params = Array.prototype.slice.call(arguments, 1);
+    if (!f || !f.invoke) return Promise.reject(new Error('未检测到 freedom 桥接（请在桌面壳内运行）'));
+    return f.invoke.apply(f, [method].concat(params)).catch(function (e) {
+      var msg = (e && (e.message || e.error)) || String(e);
+      toast(msg, true);
+      throw new Error(msg);
+    });
+  }
+
+  // ================= 视图 =================
+  var views = {};
+
+  views.overview = function () {
+    var i = state.info || {};
+    var p = state.projects;
+    return '' +
+      '<section class="block"><h2>运行时</h2><div class="grid">' +
+        card('Freedom CLI', kv({ 版本: i.cliVersion || '未知', 入口: i.cliEntry || '未定位', Node: i.nodeVersion || '-', 平台: i.platform || '-' })) +
+        card('当前项目', kv({ 路径: p.current || '未选择', 最近: p.recent.length + ' 个', 打包目录: p.current ? p.current + '\\dist' : '-' })) +
+        card('Desktop 自身', kv({ 目录: i.desktopDir || '-', 界面: '由 freedom build 自举打包', 后端: 'node backend/desktop.mjs（NDJSON/stdio）' })) +
+      '</div></section>' +
+      '<section class="block"><h2>快速上手</h2>' +
+        '<div class="row"><input class="wide" id="ov-dir" placeholder="项目目录，如 D:\\apps\\my-app" />' +
+        '<button class="act" data-run="ov-init">新建项目（init）</button>' +
+        '<button class="ghost" data-run="ov-open">打开已有项目</button>' +
+        '<button class="ghost" data-run="ov-build">打包当前项目</button>' +
+        '<button class="ghost" data-run="ov-docs">打开使用教程</button></div>' +
+        '<div class="row"><span class="empty">界面本身即 freedom 产物：静态单文件前端 + 任意语言进程后端，无第三方依赖。</span></div>' +
+      '</section>';
+  };
+
+  views.projects = function () {
+    var p = state.projects;
+    var rows = p.recent.length
+      ? p.recent.map(function (d) {
+          return '<li data-current="' + (d === p.current ? 1 : 0) + '">' +
+            '<b>' + esc(base(d)) + '</b><span class="grow">' + esc(d) + '</span>' +
+            (d === p.current ? '<span class="pill ok">当前</span>' : '<button class="ghost" data-run="pr-use" data-arg="' + esc(d) + '">设为当前</button>') +
+            '<button class="ghost" data-run="pr-forget" data-arg="' + esc(d) + '">移除</button></li>';
+        }).join('')
+      : '<div class="empty">还没有项目。用上方 init 新建，或把已有 freedom 项目路径添加进来。</div>';
+    return '' +
+      '<section class="block"><h2>选择当前项目</h2><ul class="list">' + rows + '</ul></section>' +
+      '<section class="block"><h2>新建 / 添加</h2>' +
+        '<div class="row"><input class="wide" id="pj-dir" placeholder="绝对路径" />' +
+        '<label class="f">模板<select id="pj-tpl"><option value="full">full（自绘标题栏示例）</option><option value="minimal">minimal（原生标题栏）</option></select></label>' +
+        '<button class="act" data-run="pj-init">init 新建</button>' +
+        '<button class="ghost" data-run="pj-add">添加已有</button></div>' +
+      '</section>';
+  };
+
+  views.build = function () {
+    var p = state.projects;
+    return '' +
+      '<section class="block"><h2>打包当前项目</h2>' +
+      '<div class="empty" style="padding-bottom:6px">目标：' + esc(p.current || '未选择项目') + '</div>' +
+      '<div class="row">' +
+        '<label class="f">平台<select id="bd-plat"><option value="">当前平台</option><option value="win">win</option><option value="mac">mac</option><option value="linux">linux</option><option value="all">all（三平台）</option></select></label>' +
+        '<label class="f">安全模式<select id="bd-sec"><option value="">配置默认</option><option value="none">none</option><option value="basic">basic</option><option value="high">high（app.bin 加密）</option></select></label>' +
+        '<label class="chk"><input type="checkbox" id="bd-inst" /> 安装包（便携 zip + NSIS）</label>' +
+        '<label class="chk"><input type="checkbox" id="bd-nc" /> 忽略前端缓存</label>' +
+      '</div>' +
+      '<div class="row"><button class="act" data-run="bd-run">freedom build</button>' +
+        '<button class="ghost" data-run="bd-verify">freedom verify（产物校验）</button>' +
+        '<button class="ghost" data-run="bd-dev">freedom dev（热更窗口）</button>' +
+        '<button class="ghost" data-run="bd-devstop">停止 dev</button></div>' +
+      '</section>' +
+      '<section class="block"><h2>dev 热更说明</h2><div class="empty">' +
+        'dev 会拉起项目自己的前端 dev server，把壳窗口指向其 localhost 地址（HMR 改码即见）；退出界面或点“停止 dev”会树杀子进程。' +
+      '</div></section>';
+  };
+
+  views.config = function () {
+    return '' +
+      '<section class="block"><h2>当前配置（freedom config）</h2>' +
+        '<div class="row"><button class="act" data-run="cf-load">读取配置</button></div>' +
+        '<pre class="card" id="cf-text" style="margin-top:10px;font:12px/1.7 var(--mono);white-space:pre-wrap">尚未读取。</pre>' +
+      '</section>' +
+      '<section class="block"><h2>修改单项（freedom config set）</h2>' +
+        '<div class="row"><label class="f">键<select id="cf-key">' +
+          ['name','width','height','minWidth','minHeight','center','debug','titlebar','security','outDir','url','singleInstance','icon']
+            .map(function (k) { return '<option>' + k + '</option>'; }).join('') +
+        '</select></label>' +
+        '<label class="f">值<input id="cf-val" placeholder="true / 1024 / native / high …" /></label>' +
+        '<button class="act" data-run="cf-set" style="align-self:flex-end">写入</button></div>' +
+        '<div class="row"><span class="empty">注释态的可选键（如 url、singleInstance）无需手动取消注释，写入时会自动补上。</span></div>' +
+      '</section>';
+  };
+
+  views.shell = function () {
+    return '' +
+      '<section class="block"><h2>预编译壳</h2>' +
+        '<div class="row"><button class="act" data-run="sh-list">列出本地已就绪</button>' +
+        '<label class="f">下载平台<select id="sh-plat"><option value="win-x64">win-x64</option><option value="darwin-arm64">darwin-arm64</option><option value="linux-x64">linux-x64</option><option value="linux-arm64">linux-arm64</option></select></label>' +
+        '<button class="ghost" data-run="sh-dl">下载壳</button></div>' +
+        '<pre class="card" id="sh-text" style="margin-top:10px;font:12px/1.7 var(--mono);white-space:pre-wrap">尚未读取。</pre>' +
+      '</section>' +
+      '<section class="block"><h2>任意语言后端</h2><div class="empty">' +
+        '在 freedom.config.js 里写 <code>backend: { command: \'node\', args: [\'backend/main.mjs\'] }</code>（Go / Rust / Python 同理），' +
+        '打包时项目 backend/ 目录会分发到 resources/backend/，壳以 NDJSON over stdio 与其通信。' +
+      '</div></section>';
+  };
+
+  views.release = function () {
+    return '' +
+      '<section class="block"><h2>自更新发布环</h2>' +
+        '<div class="row"><button class="act" data-run="rl-keygen">freedom keygen（生成 ed25519 密钥）</button></div>' +
+        '<div class="row"><span class="empty">公钥填入 freedom.config.js 的 updater.publicKey，并设置 updater.manifestURL。</span></div>' +
+        '<div class="row" style="margin-top:14px">' +
+          '<label class="f">产物<input class="wide" id="rl-art" placeholder="dist/freedom-desktop-win-x64-portable.zip" /></label>' +
+          '<label class="f">下载地址<input class="wide" id="rl-url" placeholder="https://your.host/freedom-desktop-win-x64-portable.zip" /></label>' +
+        '</div>' +
+        '<div class="row"><label class="f">版本<input id="rl-ver" placeholder="留空取配置/包版本" /></label>' +
+          '<label class="f">说明<input class="wide" id="rl-notes" placeholder="本次更新内容" /></label>' +
+          '<button class="act" data-run="rl-manifest" style="align-self:flex-end">freedom manifest（签名 latest.json）</button></div>' +
+      '</section>';
+  };
+
+  views.agents = function () {
+    var known = ['claude-code','codex','qoder','codebuddy','hermes','zcode','cursor','claude-desktop','gemini-cli','opencode','trae','pi','tianshu','workbuddy','deepseek'];
+    return '' +
+      '<section class="block"><h2>Agent 集成（skill / MCP）</h2>' +
+        '<div class="empty" style="padding-bottom:8px">把 Freedom 使用技能与 MCP 工具装进各 Agent。已在本机取证到配置格式的为 ready，其余会输出可粘贴片段并支持 --config/--format 覆写。</div>' +
+        '<div class="grid" id="ag-check" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">' +
+          known.map(function (a) {
+            return '<label class="chk" style="padding:6px 8px;border:1px solid var(--line);border-radius:8px"><input type="checkbox" value="' + a + '" checked /> ' + a + '</label>';
+          }).join('') +
+        '</div>' +
+        '<div class="row" style="margin-top:12px">' +
+          '<label class="chk"><input type="checkbox" id="ag-dry" checked /> 预览（dry-run，不落盘）</label>' +
+          '<button class="act" data-run="ag-skill">安装 Skill</button>' +
+          '<button class="act" data-run="ag-mcp">安装 MCP</button>' +
+          '<button class="ghost" data-run="ag-list">查看支持矩阵</button>' +
+        '</div>' +
+        '<pre class="card" id="ag-text" style="margin-top:12px;font:12px/1.7 var(--mono);white-space:pre-wrap">尚未读取。</pre>' +
+      '</section>';
+  };
+
+  function card(title, body) { return '<div class="card"><h3>' + esc(title) + '</h3>' + body + '</div>'; }
+  function kv(obj) {
+    return '<dl class="kv">' + Object.keys(obj).map(function (k) {
+      return '<dt>' + esc(k) + '</dt><dd>' + esc(obj[k]) + '</dd>';
+    }).join('') + '</dl>';
+  }
+  function base(d) { return String(d).split(/[\\/]/).filter(Boolean).pop() || d; }
+
+  // ================= 渲染与动作 =================
+  function render() {
+    $('scroll').innerHTML = (views[state.view] || views.overview)();
+    $('nav').querySelectorAll('button').forEach(function (b) {
+      b.setAttribute('aria-current', String(b.dataset.view === state.view));
+    });
+    $('title').textContent = {
+      overview: '概览', projects: '项目', build: '打包', config: '配置', shell: '壳与后端', release: '发布', agents: 'Agent 集成'
+    }[state.view];
+    $('crumb').textContent = state.projects.current || '';
+  }
+
+  var actions = {
+    'ov-init': function () { return actions['pj-init']($('ov-dir').value, 'full'); },
+    'ov-open': function () { return prAdd($('ov-dir').value); },
+    'ov-build': function () { return actions['bd-run'](); },
+    'ov-docs': function () { return call('docs.open'); },
+    'pj-init': function (dir, tpl) {
+      var d = dir || $('pj-dir').value.trim();
+      if (!d) { toast('请填写项目目录', true); return; }
+      var template = tpl || ($('pj-tpl') ? $('pj-tpl').value : 'full');
+      logCmd('init ' + d);
+      return call('project.init', d, template).then(refreshAll);
+    },
+    'pj-add': function () { return prAdd($('pj-dir').value); },
+    'pr-use': function (d) { logCmd('（切换项目）'); return call('project.open', d).then(refreshAll); },
+    'pr-forget': function (d) { return call('project.forget', d).then(refreshAll); },
+    'bd-run': function () {
+      if (!state.projects.current) { toast('请先选择项目', true); return; }
+      var o = {
+        dir: state.projects.current,
+        platform: $('bd-plat') ? $('bd-plat').value : '',
+        security: $('bd-sec') ? $('bd-sec').value : '',
+        installer: !!($('bd-inst') && $('bd-inst').checked),
+        noCache: !!($('bd-nc') && $('bd-nc').checked),
+      };
+      var label = 'build' + (o.platform ? ' --platform ' + o.platform : '') + (o.security ? ' --security ' + o.security : '') + (o.installer ? ' --installer' : '') + (o.noCache ? ' --no-cache' : '');
+      logCmd(label);
+      return call('project.build', o).then(function (r) {
+        toast(r.code === 0 ? '打包完成' : '打包失败（退出码 ' + r.code + '）', r.code !== 0);
+        return refreshAll();
+      });
+    },
+    'bd-verify': function () {
+      if (!state.projects.current) { toast('请先选择项目', true); return; }
+      logCmd('verify');
+      return call('project.verify', state.projects.current).then(function (r) {
+        toast(r.code === 0 ? '产物校验通过' : '产物校验有失败项', r.code !== 0);
+      });
+    },
+    'bd-dev': function () {
+      if (!state.projects.current) { toast('请先选择项目', true); return; }
+      logCmd('dev');
+      return call('project.dev', { dir: state.projects.current });
+    },
+    'bd-devstop': function () { logCmd('（停止 dev）'); return call('project.devStop'); },
+    'cf-load': function () {
+      if (!state.projects.current) { toast('请先选择项目', true); return; }
+      logCmd('config');
+      return call('project.config', state.projects.current).then(function (r) {
+        $('cf-text').textContent = r.text || '（无输出）';
+      });
+    },
+    'cf-set': function () {
+      if (!state.projects.current) { toast('请先选择项目', true); return; }
+      var k = $('cf-key').value, v = $('cf-val').value.trim();
+      logCmd('config set ' + k + ' ' + v);
+      return call('project.configSet', state.projects.current, k, v).then(function (r) {
+        toast(r.code === 0 ? '已写入 ' + k : '写入失败', r.code !== 0);
+        return actions['cf-load']();
+      });
+    },
+    'sh-list': function () {
+      logCmd('shell list');
+      return call('shell.list').then(function (r) { $('sh-text').textContent = r.text || '（无输出）'; });
+    },
+    'sh-dl': function () {
+      logCmd('shell download ' + $('sh-plat').value);
+      return call('shell.download', $('sh-plat').value).then(function (r) {
+        toast(r.code === 0 ? '壳已就绪' : '下载失败', r.code !== 0);
+        return actions['sh-list']();
+      });
+    },
+    'rl-keygen': function () {
+      if (!state.projects.current) { toast('请先选择项目', true); return; }
+      logCmd('keygen');
+      return call('release.keygen', state.projects.current).then(function (r) {
+        toast(r.code === 0 ? '密钥已生成（公钥见输出区）' : '生成失败', r.code !== 0);
+      });
+    },
+    'rl-manifest': function () {
+      if (!state.projects.current) { toast('请先选择项目', true); return; }
+      var o = {
+        dir: state.projects.current,
+        artifact: $('rl-art').value.trim(),
+        url: $('rl-url').value.trim(),
+        version: $('rl-ver').value.trim(),
+        notes: $('rl-notes').value.trim(),
+      };
+      if (!o.artifact || !o.url) { toast('产物路径与下载地址都要填', true); return; }
+      logCmd('manifest --artifact ' + o.artifact + ' --url ' + o.url);
+      return call('release.manifest', o).then(function (r) {
+        toast(r.code === 0 ? 'latest.json 已签名' : '签名失败', r.code !== 0);
+      });
+    },
+    'ag-list': function () {
+      logCmd('agents');
+      return call('agents.list').then(function (r) { $('ag-text').textContent = r.text || '（无输出）'; });
+    },
+    'ag-skill': function () { return agInstall('skill'); },
+    'ag-mcp': function () { return agInstall('mcp'); },
+    'rp-rebuild': function () { logCmd('desktop --rebuild'); return call('desktop.rebuild'); },
+  };
+
+  function prAdd(v) {
+    var d = (v || '').trim();
+    if (!d) { toast('请填写目录', true); return; }
+    logCmd('（添加项目）');
+    return call('project.open', d).then(function () { return refreshAll(); }).catch(function () {});
+  }
+
+  function agInstall(what) {
+    var boxes = Array.prototype.slice.call($('ag-check').querySelectorAll('input:checked')).map(function (b) { return b.value; });
+    var dry = !!($('ag-dry') && $('ag-dry').checked);
+    if (!boxes.length) { toast('至少选择一个 Agent', true); return; }
+    logCmd(what + ' install --agent ' + boxes.join(',') + (dry ? ' --dry-run' : ''));
+    return call('agents.install', { what: what, agents: boxes, dryRun: dry }).then(function (r) {
+      toast(r.code === 0 ? (dry ? '预览完成（见输出区）' : '已安装（见输出区）') : '执行失败（退出码 ' + r.code + '）', r.code !== 0);
+    });
+  }
+
+  function refreshAll() {
+    return Promise.all([
+      call('app.info').then(function (i) { state.info = i; $('ver').textContent = 'v' + (i.cliVersion || '?'); }).catch(function () {}),
+      call('project.list').then(function (p) { state.projects = p; }).catch(function () {}),
+    ]).then(function () {
+      var i = state.info || {};
+      $('foot').innerHTML = '<b>CLI</b> v' + esc(i.cliVersion || '?') + '<br><b>平台</b> ' + esc(i.platform || '-') +
+        '<br><b>Desktop</b> ' + esc(i.desktopDir ? base(i.desktopDir) : '-');
+      render();
+    });
+  }
+
+  // ---- 事件绑定 ----
+  $('nav').addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-view]');
+    if (!b) return;
+    state.view = b.dataset.view;
+    render();
+  });
+  $('scroll').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-run]');
+    if (!b) return;
+    var fn = actions[b.dataset.run];
+    if (!fn) return;
+    b.disabled = true;
+    Promise.resolve(fn(b.dataset.arg)).catch(function () {}).then(function () { b.disabled = false; });
+  });
+  $('btn-refresh').addEventListener('click', refreshAll);
+  $('console-bar').addEventListener('click', function () {
+    var c = $('console');
+    c.classList.toggle('min');
+    $('console-toggle').textContent = c.classList.contains('min') ? '展开' : '收起';
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key >= '1' && e.key <= '7' && !/input|select|textarea/i.test((e.target.tagName || ''))) {
+      var btns = $('nav').querySelectorAll('button');
+      var t = btns[Number(e.key) - 1];
+      if (t) { state.view = t.dataset.view; render(); }
+    }
+  });
+
+  if (f && f.on) {
+    f.on('log', appendLog);
+    f.on('dev.exit', function (d) { toast('dev 已结束（code=' + (d && d.code) + '）'); });
+  }
+
+  render();
+  refreshAll();
+})();
+</script>
+</body>
+</html>

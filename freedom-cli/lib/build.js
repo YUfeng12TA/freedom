@@ -107,27 +107,39 @@ async function build(projectDir, opts = {}) {
   const autoDownload = opts.autoDownload !== false;
 
   // 1) 前端打包（带缓存：源码未变更时复用上次 vite 产物，跳过 npm run build）
-  ensureNodeModules(dir);
-  const useCache = opts.noCache !== true;
-  if (useCache && !viteNeedsRebuild(dir)) {
-    process.stdout.write('[freedom] 前端源码无改动，复用构建缓存...\n');
-  } else {
-    process.stdout.write('[freedom] 前端打包中（npm run build）...\n');
-    // 全量构建时 npm/vite 输出必须实时透传（stdio: inherit），
-    // 此前 pipe 缓冲会吞掉构建全程输出，Node 主线程被 spawnSync 同步阻塞，
-    // 大前端全量构建时终端长时间零输出，表现如"未响应/卡死"。
-    const vite = run('npm', ['run', 'build'], { cwd: dir, stdio: 'inherit' });
-    if (vite.status !== 0) {
-      throw new Error(`前端打包失败（退出码 ${vite.status}），详见上方构建输出。`);
+  // cfg.staticHtml：静态单文件页面直通——不跑 npm install / vite，用于 freedom 自己的
+  // Desktop 界面自举打包（以及纯静态页项目），零网络、零依赖。
+  let html;
+  if (cfg.staticHtml) {
+    const staticPath = path.resolve(dir, String(cfg.staticHtml));
+    if (!fs.existsSync(staticPath)) {
+      throw new Error(`staticHtml 指向的文件不存在：${staticPath}（freedom.config.js 配置项）`);
     }
-    writeViteCacheMarker(dir);
+    html = fs.readFileSync(staticPath, 'utf8');
+    warnIfNotSingleFile(html, staticPath);
+  } else {
+    ensureNodeModules(dir);
+    const useCache = opts.noCache !== true;
+    if (useCache && !viteNeedsRebuild(dir)) {
+      process.stdout.write('[freedom] 前端源码无改动，复用构建缓存...\n');
+    } else {
+      process.stdout.write('[freedom] 前端打包中（npm run build）...\n');
+      // 全量构建时 npm/vite 输出必须实时透传（stdio: inherit），
+      // 此前 pipe 缓冲会吞掉构建全程输出，Node 主线程被 spawnSync 同步阻塞，
+      // 大前端全量构建时终端长时间零输出，表现如"未响应/卡死"。
+      const vite = run('npm', ['run', 'build'], { cwd: dir, stdio: 'inherit' });
+      if (vite.status !== 0) {
+        throw new Error(`前端打包失败（退出码 ${vite.status}），详见上方构建输出。`);
+      }
+      writeViteCacheMarker(dir);
+    }
+    const distHtml = path.join(dir, '.freedom', 'vite-dist', 'index.html');
+    if (!fs.existsSync(distHtml)) {
+      throw new Error(`前端打包完成但未找到 ${distHtml}，请检查 vite 配置（vite-plugin-singlefile）。`);
+    }
+    html = fs.readFileSync(distHtml, 'utf8');
+    warnIfNotSingleFile(html, distHtml);
   }
-  const distHtml = path.join(dir, '.freedom', 'vite-dist', 'index.html');
-  if (!fs.existsSync(distHtml)) {
-    throw new Error(`前端打包完成但未找到 ${distHtml}，请检查 vite 配置（vite-plugin-singlefile）。`);
-  }
-  const html = fs.readFileSync(distHtml, 'utf8');
-  warnIfNotSingleFile(html, distHtml);
   const configJSON = renderConfigJSON(cfg, name);
   // 安全模式：--security 优先于 freedom.config.js 的 security 字段，默认 none。
   //   none  = 明文资源（默认，兼容历史产物）

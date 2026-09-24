@@ -1,6 +1,6 @@
 {
   "version": 4,
-  "lastUpdated": "2026-08-31T14:20:00+08:00",
+  "lastUpdated": "2026-09-24",
   "directories": [
     ".github/workflows",
     "assets",
@@ -569,6 +569,55 @@
       "type": "source",
       "language": "js",
       "purpose": "TUI 主题与着色（Claude Code 风格界面）",
+      "exports": []
+    },
+    {
+      "path": "freedom-cli/lib/desktop.js",
+      "type": "source",
+      "language": "js",
+      "purpose": "Freedom Desktop 自举：模板同步、内容指纹 stamp、幂等重打包与锁探测、拉起产物",
+      "exports": []
+    },
+    {
+      "path": "freedom-cli/lib/agents.js",
+      "type": "source",
+      "language": "js",
+      "purpose": "Agent 注册表（16 家）与 skill/MCP 安装器：JSON/TOML/YAML upsert、证据三态、备份与 dry-run",
+      "exports": []
+    },
+    {
+      "path": "freedom-cli/lib/mcp.js",
+      "type": "source",
+      "language": "js",
+      "purpose": "零依赖 stdio MCP server：8 工具映射 CLI，initialize/tools/list/tools/call，在途请求排空退出",
+      "exports": []
+    },
+    {
+      "path": "freedom-cli/skill/freedom/SKILL.md",
+      "type": "source",
+      "language": "markdown",
+      "purpose": "Freedom 使用技能：项目形态、SDK 面、NDJSON 后端协议、CLI 全表、发布与坑清单",
+      "exports": []
+    },
+    {
+      "path": "freedom-cli/templates/desktop/app.html",
+      "type": "source",
+      "language": "html",
+      "purpose": "Desktop 单文件前端（staticHtml 直通，直接调 freedom.invoke）",
+      "exports": []
+    },
+    {
+      "path": "freedom-cli/templates/desktop/backend/desktop.mjs",
+      "type": "source",
+      "language": "js",
+      "purpose": "Desktop 进程后端：19 个方法代理 CLI，NDJSON/stdio，在途排空",
+      "exports": []
+    },
+    {
+      "path": "tests/desktop-agents.test.mjs",
+      "type": "source",
+      "language": "js",
+      "purpose": "Agent 写入器/MCP 握手/Desktop 后端协议回归（10 项）",
       "exports": []
     }
   ],

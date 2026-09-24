@@ -61,6 +61,10 @@ freedom/
 ├── cmd/freedom/          # 项目脚手架 CLI（new/build，Go 源码路线，M7）
 ├── cmd/shell/            # 预编译通用壳（零应用专属，内容全部来自 resources/；CI 按 tag 发 Release 资产）
 ├── freedom-cli/          # npm 打包 CLI（@yufengtadian/freedom-cli，零工具链三平台出包）
+│   ├── lib/              # 命令实现：build/dev/desktop/agents/mcp/release/security…
+│   ├── templates/desktop # Freedom Desktop：由 freedom 自己打包出的图形界面（staticHtml + Node 后端）
+│   ├── skill/freedom/    # 供编码 Agent 使用的 Freedom 使用技能（freedom skill install 分发）
+│   └── templates/go/     # 框架源码快照（freedom shell build 用）
 ├── examples/
 │   ├── hello/            # v1 示例：内嵌 Go 后端（单 exe）
 │   ├── multiproc/        # v2 示例：多后端演示（Go/Node/Python/Rust 一键切换）
@@ -83,6 +87,13 @@ freedom/
 .\dist\multiproc.exe node   # Node 后端
 .\dist\multiproc.exe python # Python 后端
 .\dist\multiproc.exe rust   # Rust 后端
+
+# 3) 用 npm CLI 出包（零 Go / 零工具链，推荐路径）
+npm i -g @yufengtadian/freedom-cli
+freedom                     # 选显示方式：终端 TUI / Freedom Desktop（图形界面，由 freedom 自身打包）
+freedom init ./my-app && cd my-app && freedom build --installer
+freedom agents              # 看哪些编码 Agent 可装入 Freedom 技能与 MCP 服务
+freedom skill install --agent all && freedom mcp install --agent all
 ```
 
 ## 挂接任意语言后端（核心）
