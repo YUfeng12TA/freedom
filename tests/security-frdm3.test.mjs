@@ -202,6 +202,28 @@ test('FRDM3: 跨语言夹具（Go security_test.go 读同一份）', () => {
   assert.strictEqual(k.mac.toString('hex'), golden.deriveGolden.macHex, 'macKey 与夹具不一致');
 });
 
+test('FRDM3: Go 侧加密并签名的产物，JS 能解能验（反向锁字段序）', () => {
+  // 下列值由 Go 实算产出（FRDM3_GO_VECTOR=1 go test -run TestFRDM3EmitGoSignedVector .）。
+  // 锁的是两侧序列化一致性：Go 用结构体字段序 marshal，JS 用对象字面量键序，
+  // 只要有一侧改字段顺序或改 JSON 写法，验签立刻红——这是最难查的一类跨语言漂移。
+  const master = 'ab'.repeat(32);
+  const identity = 'go3';
+  const bin = Buffer.from('RlJETTORMm5UwfP2AtLIsxFE5P/+TvvAp+ZfoRs6lELla6bkfBmQMkFj76nS1G3XL28fU/F6vlMI43D6of0DOXKR5AFvShROhTO4YKqOG4oeCoElw1jNXAe/JOT86aO5jG7fLXYKufisBAjKLufIWzMpX56aeQxX4yj8eU7471IThg+NPRX0hmObrgG53KfqI5JrM+qd6X5BgLOD+utjEV+UJdmpkeA2kXOMvqr/oRAcAI7LGrFgcNx+zi7c635XV/QqeFaZXvzmNPh7JgSYd/pKanjhfi0z+GZ7oFSHjxoE3gaZN3YNOCpCL7G6d6DxaqdonbjqckGqAubhPPGc', 'base64');
+  const manifest = JSON.parse('{"v":3,"alg":"ed25519","pub":"b771110fb232338b5e25855abec0321ecd4c23decf887dc1e5b494d6663d9829","payload":"eyJhcHBCaW4iOiJjZTc0ZjNlNTY2NmZjZTg4NDU5ZGViOTU2NmI3ODA5NDNmZDI3MzljNzE1ODFkZGYxMjIyNGQzY2Q5YWIzOTAzIiwiaWRlbnRpdHkiOiJnbzMiLCJzYWx0IjoiOTEzMjZlNTRjMWYzZjYwMmQyYzhiMzExNDRlNGZmZmUiLCJzZWxmIjoiIiwiYnVpbHQiOiIyMDI2LTA5LTI1VDAwOjAwOjAwLjAwMFoifQ==","sig":"291864730f64eda3e1a13cd75bc9c580fcc4e0ab5d0a05accdd858aa2e8ff6556b9f820a3804f22b65559cef04e46583f77b4140a1c6d84c391a02f5b02a1f01"}');
+  const pub = 'b771110fb232338b5e25855abec0321ecd4c23decf887dc1e5b494d6663d9829';
+  assert.strictEqual(bin.subarray(0, 5).toString('ascii'), 'FRDM3');
+  const p = sec.decryptAppV3(master, identity, bin);
+  assert.strictEqual(p.html, '<html><body>go-frdm3-vector-演示</body></html>');
+  assert.strictEqual(p.config, '{"title":"Go FRDM3"}');
+  assert.strictEqual(Buffer.from(p.backend['backend/main.go'].d, 'base64').toString('utf8'), 'package main\n');
+  assert.strictEqual(p.backend['backend/main.go'].m, 0o755);
+  const claims = sec.verifyIntegrityV3({ manifest, anchorPubHex: pub, name: identity, appBin: bin });
+  assert.strictEqual(claims.appBin, sec.sha256hex(bin));
+  assert.strictEqual(claims.salt, bin.subarray(5, 21).toString('hex'), 'Go 侧 salt 取位与 JS 一致');
+  assert.deepStrictEqual(Object.keys(JSON.parse(Buffer.from(manifest.payload, 'base64').toString('utf8'))),
+    ['appBin', 'identity', 'salt', 'self', 'built']);
+});
+
 // ---- 夹具再生成（FRDM3_REGEN=1 node tests/security-frdm3.test.mjs）----
 if (process.env.FRDM3_REGEN) {
   const kp = crypto.generateKeyPairSync('ed25519');

@@ -40,8 +40,10 @@ package freedom
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/ed25519"
 	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -222,26 +224,10 @@ var (
 	secureKeyCache = make(map[string]secureKey)
 )
 
-// splitAppBin 校验并拆分容器头。magic 不符（含旧版 FRDM1）时给出可操作错误，
+// splitAppBin 校验并拆分容器头（FRDM2 代际）。magic 不符（含旧版 FRDM1）时给出可操作错误，
 // 绝不回退明文路径。
 func splitAppBin(data []byte) (salt, iv, tag, ct []byte, err error) {
-	if len(data) < appBinHeaderLen {
-		return nil, nil, nil, nil, errors.New("app.bin 长度不足容器头")
-	}
-	if string(data[:len(securityMagic)]) != securityMagic {
-		return nil, nil, nil, nil, fmt.Errorf(
-			"app.bin 容器版本不受支持（头为 %q，本壳要求 %q）：请用与壳同版的 freedom-cli 重新 build",
-			string(data[:len(securityMagic)]), securityMagic)
-	}
-	off := len(securityMagic)
-	salt = data[off : off+securitySaltLen]
-	off += securitySaltLen
-	iv = data[off : off+securityIVLen]
-	off += securityIVLen
-	tag = data[off : off+securityTagLen]
-	off += securityTagLen
-	ct = data[off:]
-	return salt, iv, tag, ct, nil
+	return splitAppBinAt(securityMagic, data)
 }
 
 // appBinAuthLen 是参与认证的头部长度：magic + salt + iv（不含 tag 自身）。
@@ -279,15 +265,9 @@ func decryptAppBin(appName string, data []byte) (*securePayload, error) {
 	if err := json.Unmarshal(plain, &p); err != nil {
 		return nil, fmt.Errorf("app.bin 载荷无效：%w", err)
 	}
-	// 与打包端 lib/security.js 同一道门：认证通过不等于结构可用。少了 html/config 的容器
-	// 会让上层回落到内置占位页——那是「加密产物跑起来了但内容是空的」级别的静默降级。
-	if p.HTML == "" || p.Config == "" {
-		return nil, errors.New("app.bin 载荷结构无效：缺少 html/config 字段")
-	}
-	for rel := range p.Backend {
-		if !isSafeRelPath(rel) {
-			return nil, fmt.Errorf("app.bin 后端路径非法：%q", rel)
-		}
+	// 与打包端 lib/security.js 同一道门：认证通过不等于结构可用（见 validateSecurePayload）。
+	if err := validateSecurePayload(&p); err != nil {
+		return nil, err
 	}
 	return &p, nil
 }
@@ -468,4 +448,211 @@ func materializeSecureBackend(files map[string]secureFile) (string, error) {
 		}
 	}
 	return dir, nil
+}
+
+// ==================== FRDM3：每产物主密钥 + ed25519 签名清单 ====================
+//
+// 契约权威：.liangzu/plans/r6-defense-max/frdm3-contract.md；与 freedom-cli lib/security.js
+// 的 v3 段跨语言同步（改任一侧必须同步另一侧并重生成 tests/fixtures/frdm3-golden.json）：
+//   securityDeriveSalt3 / securityMacLabel3 / securityMagic3
+//   KEK = PBKDF2(password=每产物 32B 主密钥, salt=v3 前缀+":"+应用标识+容器盐, 600000, 32)
+//   macKey = HMAC-SHA256(KEK, securityMacLabel3)；容器布局与 FRDM2 相同（仅 magic 换代）
+//   清单签名对象是 payload 字段 base64 解码后的**那串字节**（不做 JSON 重规范化，
+//   两侧序列化差异是这一类同步里最难查的红→绿假失败源）
+//
+// 两代际的密钥来源不同，强度就不同：v2 的主密钥编译在通用壳与 npm 包里（人人可得），
+// v3 的每产物主密钥只在发布方仓库（.freedom/keys/<app>.key），完整性由发布方 ed25519
+// 私钥签名、公钥作信任锚。故本代际的验签必须先比锚、再验签——清单自带的 pub 不可自证。
+
+const (
+	securityDeriveSalt3 = "freedom:derive:v3"
+	securityMacLabel3   = "freedom:mac:v3"
+	securityMagic3      = "FRDM3"
+	// 每产物主密钥长度（发布方仓库里以 64 位十六进制文本存放）。
+	securityProductKeyLen = 32
+)
+
+// cacheSecureKey 写入派生密钥缓存（调用方持锁）。上限淘汰前先抹零：
+// 丢弃引用不等于销毁密钥，Go 的分配器会复用那片内存。
+func cacheSecureKey(id string, k secureKey) {
+	if len(secureKeyCache) >= secureKeyCacheMax {
+		for _, stale := range secureKeyCache {
+			clearBytes(stale.enc)
+			clearBytes(stale.mac)
+		}
+		secureKeyCache = make(map[string]secureKey)
+	}
+	secureKeyCache[id] = k
+}
+
+// deriveSecurityKeyV3 用每产物主密钥派生容器密钥。缓存键必须带上主密钥指纹：
+// 同一 (应用, 容器盐) 在不同主密钥下是两个不同的密钥，漏了指纹就会串号。
+func deriveSecurityKeyV3(appName string, salt, master []byte) (secureKey, error) {
+	if len(master) != securityProductKeyLen {
+		return secureKey{}, fmt.Errorf("每产物主密钥需 %d 字节，实际 %d", securityProductKeyLen, len(master))
+	}
+	sum := sha256.Sum256(master)
+	id := "v3:" + hex.EncodeToString(sum[:8]) + ":" + appIdentityName(appName) + "\x00" + string(salt)
+	secureKeyMu.Lock()
+	defer secureKeyMu.Unlock()
+	if k, ok := secureKeyCache[id]; ok {
+		return k, nil
+	}
+	base := append([]byte(securityDeriveSalt3+":"+appIdentityName(appName)), salt...)
+	kek := pbkdf2HMACSHA256(master, base, securityPbkdf2Iter, securityKeyLen)
+	m := hmac.New(sha256.New, kek)
+	m.Write([]byte(securityMacLabel3))
+	k := secureKey{enc: kek, mac: m.Sum(nil)}
+	cacheSecureKey(id, k)
+	return k, nil
+}
+
+// splitAppBinAt 校验指定代际的 magic 并拆分容器头。magic 不符（含旧代）时给出
+// 可操作错误，绝不回退明文路径。两代 magic 等长（5B），故 appBinTag 无需参数化。
+func splitAppBinAt(magic string, data []byte) (salt, iv, tag, ct []byte, err error) {
+	if len(data) < appBinHeaderLen {
+		return nil, nil, nil, nil, errors.New("app.bin 长度不足容器头")
+	}
+	if string(data[:len(magic)]) != magic {
+		return nil, nil, nil, nil, fmt.Errorf(
+			"app.bin 容器版本不受支持（头为 %q，本壳要求 %q）：请用与壳同版的 freedom-cli 重新 build",
+			string(data[:len(magic)]), magic)
+	}
+	off := len(magic)
+	salt = data[off : off+securitySaltLen]
+	off += securitySaltLen
+	iv = data[off : off+securityIVLen]
+	off += securityIVLen
+	tag = data[off : off+securityTagLen]
+	off += securityTagLen
+	ct = data[off:]
+	return salt, iv, tag, ct, nil
+}
+
+// validateSecurePayload 是解密后的结构门：认证通过不等于内容可用。
+// 少了 html/config 会让上层回落到内置占位页（静默降级），后端路径越界则危及落盘。
+func validateSecurePayload(p *securePayload) error {
+	if p.HTML == "" || p.Config == "" {
+		return errors.New("app.bin 载荷结构无效：缺少 html/config 字段")
+	}
+	for rel := range p.Backend {
+		if !isSafeRelPath(rel) {
+			return fmt.Errorf("app.bin 后端路径非法：%q", rel)
+		}
+	}
+	return nil
+}
+
+// decryptAppBinV3 解密 FRDM3 容器（每产物主密钥）。先恒定时间认证、再解密、再查结构。
+func decryptAppBinV3(master []byte, appName string, data []byte) (*securePayload, error) {
+	salt, iv, tag, ct, err := splitAppBinAt(securityMagic3, data)
+	if err != nil {
+		return nil, err
+	}
+	k, err := deriveSecurityKeyV3(appName, salt, master)
+	if err != nil {
+		return nil, err
+	}
+	if !hmac.Equal(tag, appBinTag(k, data, ct)) {
+		return nil, errors.New("app.bin 认证失败（exe 被重命名、资源被篡改，或缺每产物主密钥）")
+	}
+	block, err := aes.NewCipher(k.enc)
+	if err != nil {
+		return nil, err
+	}
+	plain := make([]byte, len(ct))
+	cipher.NewCTR(block, iv).XORKeyStream(plain, ct)
+	var p securePayload
+	if err := json.Unmarshal(plain, &p); err != nil {
+		return nil, fmt.Errorf("app.bin 载荷无效：%w", err)
+	}
+	if err := validateSecurePayload(&p); err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
+// integrityManifestV3 是 resources/.integrity 的 v3 磁盘结构（CLI build 签名产出）。
+type integrityManifestV3 struct {
+	V       int    `json:"v"`
+	Alg     string `json:"alg"`
+	Pub     string `json:"pub"`     // hex(32B 原始 ed25519 公钥)
+	Payload string `json:"payload"` // base64(被签名的确切字节)
+	Sig     string `json:"sig"`     // hex(64B)
+}
+
+// integrityClaimsV3 是 payload 解码后的声明；字段顺序即签名字节顺序（与 JS 侧一致）。
+type integrityClaimsV3 struct {
+	AppBin   string `json:"appBin"`
+	Identity string `json:"identity"`
+	Salt     string `json:"salt"`
+	Self     string `json:"self"`
+	Built    string `json:"built"`
+}
+
+// verifyIntegrityManifest 校验签名清单，返回声明；任何一步失败都抛（调用方据此拒绝运行）。
+//
+// anchorPubHex 是**产物之外**的信任锚：Tier B（自编译壳）来自编译期内嵌的
+// Config.Security.PublicKey，Tier A（通用预编译壳）只能来自产物内的 resources/.trust，
+// 后者是循环信任、强度按 SECURITY.md 的口径如实降级。
+// 顺序刻意是「先比锚、再验签」：清单自带的 pub 不可自证，先信它就等于允许攻击者
+// 换一对钥匙自造合法产物。
+func verifyIntegrityManifest(anchorPubHex string, raw []byte, appName string, appBin []byte) (*integrityClaimsV3, error) {
+	var m integrityManifestV3
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return nil, fmt.Errorf(".integrity 无效：%w", err)
+	}
+	if m.V != 3 || m.Alg != "ed25519" {
+		return nil, fmt.Errorf(".integrity 版本不受支持（v=%d alg=%q，本壳要求 v=3 / ed25519）：请用同版 freedom-cli 重新 build", m.V, m.Alg)
+	}
+	anchor, err := parsePubKeyHex(anchorPubHex)
+	if err != nil {
+		return nil, err
+	}
+	declared, err := parsePubKeyHex(m.Pub)
+	if err != nil {
+		return nil, fmt.Errorf(".integrity pub 非法：%w", err)
+	}
+	if !hmac.Equal(anchor, declared) {
+		return nil, errors.New(".integrity 公钥与信任锚不一致：产物可能被换钥匙重签")
+	}
+	bytes, err := base64.StdEncoding.DecodeString(m.Payload)
+	if err != nil {
+		return nil, fmt.Errorf(".integrity payload 非法 base64：%w", err)
+	}
+	sig, err := hex.DecodeString(m.Sig)
+	if err != nil || len(sig) != ed25519.SignatureSize {
+		return nil, fmt.Errorf(".integrity 签名长度非法（ed25519 需 %d 字节十六进制）", ed25519.SignatureSize)
+	}
+	if !ed25519.Verify(anchor, bytes, sig) {
+		return nil, errors.New(".integrity 签名校验失败：清单或 app.bin 被篡改")
+	}
+	var c integrityClaimsV3
+	if err := json.Unmarshal(bytes, &c); err != nil {
+		return nil, fmt.Errorf(".integrity 签名载荷不是合法 JSON：%w", err)
+	}
+	sum := sha256.Sum256(appBin)
+	if !hmac.Equal([]byte(c.AppBin), []byte(hex.EncodeToString(sum[:]))) {
+		return nil, errors.New(".integrity 校验失败：app.bin 与签名清单不符")
+	}
+	if c.Identity != appIdentityName(appName) {
+		return nil, fmt.Errorf(".integrity 校验失败：清单绑定身份 %q，当前 exe 是 %q（被重命名或跨应用复用）", c.Identity, appIdentityName(appName))
+	}
+	salt, _, _, _, err := splitAppBinAt(securityMagic3, appBin)
+	if err != nil {
+		return nil, err
+	}
+	if !hmac.Equal([]byte(c.Salt), []byte(hex.EncodeToString(salt))) {
+		return nil, errors.New(".integrity 校验失败：清单容器盐与 app.bin 头部不符（清单与容器非同一产物）")
+	}
+	return &c, nil
+}
+
+// parsePubKeyHex 解析 hex(32B) 原始 ed25519 公钥为 ed25519.PublicKey。
+func parsePubKeyHex(s string) (ed25519.PublicKey, error) {
+	b, err := hex.DecodeString(strings.ToLower(strings.TrimSpace(s)))
+	if err != nil || len(b) != ed25519.PublicKeySize {
+		return nil, fmt.Errorf("ed25519 公钥需为 64 位十六进制（32 字节），实际 %d 字节", len(b))
+	}
+	return ed25519.PublicKey(b), nil
 }
