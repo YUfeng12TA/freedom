@@ -15,6 +15,7 @@ const fsp = fs.promises;
 const path = require('path');
 
 const { loadConfig } = require('./utils');
+const { ensureKeysIgnored } = require('./security');
 
 function manifestPayload(version, url, sha256hex) {
   return Buffer.from(`freedom-update-v1\n${version}\n${url}\n${String(sha256hex).toLowerCase()}`, 'utf8');
@@ -32,6 +33,7 @@ async function keygen(opts = {}) {
   }
   const { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519');
   await fsp.mkdir(path.dirname(privPath), { recursive: true });
+  ensureKeysIgnored(dir); // 只写提示语不算保护：一次 git add -A 就能把私钥推上远端
   await fsp.writeFile(privPath, privateKey.export({ type: 'pkcs8', format: 'pem' }), { mode: 0o600 });
   const rawPub = publicKey.export({ type: 'spki', format: 'der' }).subarray(-32); // SPKI 尾部 32 字节即原始公钥
   const pubB64 = rawPub.toString('base64');

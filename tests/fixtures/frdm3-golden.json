@@ -1,0 +1,22 @@
+{
+  "magic": "FRDM3",
+  "identity": "demo3",
+  "productMasterHex": "ac371adbfdea75fab00d0d59a778206fb45cd115bb7007a33e2e048b9b8c3703",
+  "html": "<html><body>frdm3-vector-演示</body></html>",
+  "config": "{\"title\":\"FRDM3向量\",\"width\":800}",
+  "backendContent": "package main // 跨语言夹具\n",
+  "appBin": "RlJETTNruX5n+6JkLFv2892j/puVKSnKkn0NsmqSiZ5+HeEjkRFYpYKYphk7+WE+63rJRkNy3QEVv0wDzM4I6Rc7YPK526nteTE6JKJ/JtUrx87vFVywgi61JCIfzwiKJIgxajHiYn34w9ZuFmXMmSUos6TXx7w26vFcuYwKYl/p2nXfO0JnEmas81qYf6eTwtAl0yi0+Y1gA4YGFr2od+yu1hjkIN50ebFRyTDopBtMe2eVGn936abQDn7jVv5CFyy54BmDjOZOr/AkyD1FP88Szm1X/lI9OwxmAi/dMQwd+u+H2ixUWgq+O6mFErLMVv6X9BSzh8+xrYe6bg==",
+  "integrity": {
+    "v": 3,
+    "alg": "ed25519",
+    "pub": "16db4569ff0d106b6659540253db5256147a3fca28cd34af35d536cbf0a59a04",
+    "payload": "eyJhcHBCaW4iOiI0YTJkZDZlYjNmNjQxZmVmMzQ0OTBjNWM1MDQ0ZjA4MWI3YTY5ZWNmODY4NjljNWFmZjAxNjE2ZDU5YWFiN2IxIiwiaWRlbnRpdHkiOiJkZW1vMyIsInNhbHQiOiI2YmI5N2U2N2ZiYTI2NDJjNWJmNmYzZGRhM2ZlOWI5NSIsInNlbGYiOiIiLCJidWlsdCI6IjIwMjYtMDktMjVUMDA6MDA6MDAuMDAwWiJ9",
+    "sig": "6c7e8a8e159573b47a8c2af25fa56309b57f64101190007724e4121828458910834c7e459cc60d1dadc0e07c4a6c3d5e52896631344358d9af4930883aae840d"
+  },
+  "pubHex": "16db4569ff0d106b6659540253db5256147a3fca28cd34af35d536cbf0a59a04",
+  "deriveGolden": {
+    "saltHex": "000102030405060708090a0b0c0d0e0f",
+    "encHex": "d971577389aef66d4d27df9cde551e08ddab98d7c273c56f7fe9767587d48541",
+    "macHex": "429ad365f02a1ab57168eb5dd31034deed4ea04012cb29f5d30267c6f6ec724c"
+  }
+}

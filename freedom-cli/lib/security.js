@@ -29,6 +29,8 @@
 //    回归锁：tests/security-frdm2.test.mjs 与 Go security_test.go 互为对方产物的夹具。
 
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 
 const SECURITY_MODES = ['none', 'basic', 'high'];
 
@@ -108,64 +110,46 @@ function deriveKeys(appName, salt) {
   return { enc, mac };
 }
 
-// ---- 加密 / 解密（high 模式）----
+// ---- 容器密封/开启（两代际共用，差别只在 magic 与派生函数）----
 
-// 载荷结构：{ html, config, backend: { <rel>: { d: base64, m: mode } } }
-// backend 为可选的后端源码表（键 = 相对 resources 的斜杠路径），high 模式下
-// 后端源码进容器，磁盘不再留 resources/backend 明文目录。
-// 返回 app.bin 完整字节。
-function encryptApp(name, html, configJSON, backend) {
+// sealAppBin 组装 magic + salt(16) + iv(16) + tag(16) + 密文。
+// tag = HMAC-SHA256(macKey, magic+salt+iv+密文) 截 16B：头部一并认证，
+// 否则换 salt/iv 就是可控的解密 oracle（Encrypt-then-MAC 纪律）。
+// derive(salt) -> { enc, mac }：代际差异全部收在这个回调里。
+function sealAppBin(magic, derive, payloadObj) {
   const salt = crypto.randomBytes(CTR_SALT_LEN);
   const iv = crypto.randomBytes(CTR_IV_LEN);
-  const k = deriveKeys(name, salt);
-  const payloadObj = { html, config: configJSON };
-  if (backend && Object.keys(backend).length > 0) {
-    payloadObj.backend = {};
-    for (const [rel, entry] of Object.entries(backend)) {
-      if (!isSafeRelPath(rel)) throw new Error(`后端路径非法，拒绝入容器：${rel}`);
-      const buf = Buffer.isBuffer(entry) ? entry : entry.data;
-      const mode = Buffer.isBuffer(entry) ? 0o644 : (((entry.mode ?? 0o644)) & 0o7777);
-      payloadObj.backend[rel] = { d: buf.toString('base64'), m: mode };
-    }
-  }
+  const k = derive(salt);
   const payload = Buffer.from(JSON.stringify(payloadObj), 'utf8');
   const cipher = crypto.createCipheriv('aes-256-ctr', k.enc, iv);
   const ct = Buffer.concat([cipher.update(payload), cipher.final()]);
-  const header = Buffer.concat([Buffer.from(APP_BIN_MAGIC, 'ascii'), salt, iv]);
+  const header = Buffer.concat([Buffer.from(magic, 'ascii'), salt, iv]);
   const tag = crypto.createHmac('sha256', k.mac)
     .update(header).update(ct).digest().subarray(0, CTR_TAG_LEN);
   return Buffer.concat([header, tag, ct]);
 }
 
-// 拆分并校验容器头；旧版 FRDM1 等不兼容版本明确拒绝（不静默降级）。
-function splitAppBin(buf) {
-  const magic = Buffer.from(APP_BIN_MAGIC, 'ascii');
-  if (buf.length < APP_BIN_HEADER_LEN) {
+// unpackAppBin 校验 magic 并拆出头/密文；返回 { salt, iv, tag, ct, headerLen }。
+function unpackAppBin(magic, buf) {
+  const m = Buffer.from(magic, 'ascii');
+  if (buf.length < m.length + CTR_SALT_LEN + CTR_IV_LEN + CTR_TAG_LEN) {
     throw new Error('app.bin 长度不足容器头');
   }
-  if (!buf.subarray(0, magic.length).equals(magic)) {
+  if (!buf.subarray(0, m.length).equals(m)) {
     throw new Error(
-      `app.bin 容器版本不受支持（头为 "${buf.subarray(0, magic.length).toString('ascii')}"，要求 ${APP_BIN_MAGIC}）`);
+      `app.bin 容器版本不受支持（头为 "${buf.subarray(0, m.length).toString('ascii')}"，要求 ${magic}）`);
   }
-  let off = magic.length;
+  let off = m.length;
   const salt = buf.subarray(off, off + CTR_SALT_LEN); off += CTR_SALT_LEN;
   const iv = buf.subarray(off, off + CTR_IV_LEN); off += CTR_IV_LEN;
   const tag = buf.subarray(off, off + CTR_TAG_LEN); off += CTR_TAG_LEN;
-  const ct = buf.subarray(off);
-  return { salt, iv, tag, ct, headerLen: APP_BIN_AUTH_LEN };
+  return { salt, iv, tag, ct: buf.subarray(off), headerLen: m.length + CTR_SALT_LEN + CTR_IV_LEN };
 }
 
-// 判定容器内相对路径可安全落盘（与 Go isSafeRelPath 同式）。
-function isSafeRelPath(rel) {
-  if (rel === '' || rel.includes('\\') || rel.startsWith('/')) return false;
-  if (rel.length >= 2 && rel[1] === ':') return false;
-  return rel.split('/').every((seg) => seg !== '' && seg !== '.' && seg !== '..');
-}
-
-// 解密 app.bin（供跨语言回归测试与 CLI 自检复用）。返回 { html, config, backend? }。
-function decryptApp(name, buf) {
-  const { salt, iv, tag, ct, headerLen } = splitAppBin(buf);
-  const k = deriveKeys(name, salt);
+// openAppBin 先恒定时间认证、再解密，并校验载荷结构；任何一步失败都抛（不降级）。
+function openAppBin(magic, derive, buf) {
+  const { salt, iv, tag, ct, headerLen } = unpackAppBin(magic, buf);
+  const k = derive(salt);
   const expect = crypto.createHmac('sha256', k.mac)
     .update(buf.subarray(0, headerLen)).update(ct).digest().subarray(0, CTR_TAG_LEN);
   if (!crypto.timingSafeEqual(tag, expect)) {
@@ -178,6 +162,52 @@ function decryptApp(name, buf) {
     throw new Error('app.bin 载荷结构无效：缺少 html/config 字段');
   }
   return obj;
+}
+
+// backendEntries 把 { rel: Buffer | {data,mode} } 归一成容器内的 { rel: {d,m} }。
+function backendEntries(backend) {
+  const out = {};
+  for (const [rel, entry] of Object.entries(backend)) {
+    if (!isSafeRelPath(rel)) throw new Error(`后端路径非法，拒绝入容器：${rel}`);
+    const buf = Buffer.isBuffer(entry) ? entry : entry.data;
+    const mode = Buffer.isBuffer(entry) ? 0o644 : (((entry.mode ?? 0o644)) & 0o7777);
+    out[rel] = { d: buf.toString('base64'), m: mode };
+  }
+  return out;
+}
+
+// appPayload 组装容器载荷对象（html/config + 可选 backend）。
+function appPayload(html, configJSON, backend) {
+  const obj = { html, config: configJSON };
+  if (backend && Object.keys(backend).length > 0) obj.backend = backendEntries(backend);
+  return obj;
+}
+
+// ---- 加密 / 解密（high 模式，FRDM2 现行写侧）----
+
+// 载荷结构：{ html, config, backend: { <rel>: { d: base64, m: mode } } }
+// backend 为可选的后端源码表（键 = 相对 resources 的斜杠路径），high 模式下
+// 后端源码进容器，磁盘不再留 resources/backend 明文目录。
+// 返回 app.bin 完整字节。
+function encryptApp(name, html, configJSON, backend) {
+  return sealAppBin(APP_BIN_MAGIC, (salt) => deriveKeys(name, salt), appPayload(html, configJSON, backend));
+}
+
+// 拆分并校验容器头；旧版 FRDM1 等不兼容版本明确拒绝（不静默降级）。
+function splitAppBin(buf) {
+  return unpackAppBin(APP_BIN_MAGIC, buf);
+}
+
+// 判定容器内相对路径可安全落盘（与 Go isSafeRelPath 同式）。
+function isSafeRelPath(rel) {
+  if (rel === '' || rel.includes('\\') || rel.startsWith('/')) return false;
+  if (rel.length >= 2 && rel[1] === ':') return false;
+  return rel.split('/').every((seg) => seg !== '' && seg !== '.' && seg !== '..');
+}
+
+// 解密 app.bin（供跨语言回归测试与 CLI 自检复用）。返回 { html, config, backend? }。
+function decryptApp(name, buf) {
+  return openAppBin(APP_BIN_MAGIC, (salt) => deriveKeys(name, salt), buf);
 }
 
 // ---- 完整性清单（high 模式）----
@@ -196,6 +226,215 @@ function renderIntegrity(integrity) {
   return JSON.stringify(integrity, null, 2);
 }
 
+// ==================== FRDM3（下一代际：每产物主密钥 + 签名清单）====================
+//
+// 与 FRDM2 的两点结构性差别（对应台账 B-20260925-054 的根因）：
+//   D2 主密钥不再编译进公开源：每产物一把 `.freedom/keys/<app>.key`（32B 随机，hex 落盘），
+//      不在 npm 包、不在产物里 ⇒ 持有 CLI 不再等于能解任意产物。
+//   D1 完整性清单不再是对称 HMAC：改 ed25519 签名（私钥只在发布方），公钥作信任锚。
+//      锚必须在被校验对象之外——Tier B（自编译壳）编译期内嵌；Tier A（通用预编译壳）只能读
+//      产物内的 resources/.trust，属循环信任，强度按 SECURITY.md 的口径如实降级。
+// 契约权威：.liangzu/plans/r6-defense-max/frdm3-contract.md
+
+const DERIVE_SALT3 = 'freedom:derive:v3';
+const MAC_LABEL3 = 'freedom:mac:v3';
+const APP_BIN_MAGIC3 = 'FRDM3';
+const PRODUCT_KEY_LEN = 32;
+
+// ed25519 SPKI 固定前缀（302a300506032b6570032100）+ 32B 原始公钥 = 完整 DER。
+// 清单与信任锚都只携带 32B 原始公钥（hex），验签时拼回 SPKI。
+const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
+
+function sha256hex(buf) {
+  return crypto.createHash('sha256').update(buf).digest('hex');
+}
+
+function normalizePubHex(hex) {
+  const s = String(hex).trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(s)) {
+    throw new Error(`ed25519 公钥需为 64 位十六进制（32 字节），实际：${String(hex).slice(0, 24)}…`);
+  }
+  return s;
+}
+
+function rawPubHexFromKey(key) {
+  const k = typeof key === 'string' || key instanceof Uint8Array ? crypto.createPublicKey(key) : key;
+  return k.export({ type: 'spki', format: 'der' }).subarray(-32).toString('hex');
+}
+
+function publicKeyFromRawHex(hex) {
+  const raw = Buffer.from(normalizePubHex(hex), 'hex');
+  return crypto.createPublicKey({
+    key: Buffer.concat([ED25519_SPKI_PREFIX, raw]), format: 'der', type: 'spki',
+  });
+}
+
+function asPrivateKey(key) {
+  return typeof key === 'string' || key instanceof Uint8Array ? crypto.createPrivateKey(key) : key;
+}
+
+// ---- 每产物主密钥（D2）----
+
+const KEYS_IGNORE_LINE = '.freedom/keys/';
+
+// ensureKeysIgnored 把密钥目录写进项目 .gitignore。
+// 「私钥勿入库」此前只是提示语——发布方一次 `git add -A` 就会把主密钥推上远端，
+// 那等于把 D2 的全部收益清零，所以生成密钥时顺手补这一行（幂等）。
+function ensureKeysIgnored(dir) {
+  const p = path.join(dir, '.gitignore');
+  let cur = '';
+  try {
+    cur = fs.readFileSync(p, 'utf8');
+  } catch (e) {
+    if (e.code !== 'ENOENT') throw e;
+  }
+  if (cur.split(/\r?\n/).some((l) => l.trim() === KEYS_IGNORE_LINE)) return false;
+  const head = cur === '' || cur.endsWith('\n') ? cur : cur + '\n';
+  fs.writeFileSync(p, head + '# Freedom 发布密钥（每产物主密钥 / ed25519 私钥），绝不入库\n' + KEYS_IGNORE_LINE + '\n', 'utf8');
+  return true;
+}
+
+function productKeyPath(dir, appName) {
+  return path.join(path.resolve(dir), '.freedom', 'keys', appIdentityFor(appName) + '.key');
+}
+
+// createProductKey 生成 32B 随机主密钥（hex 落盘）。已存在时除非 force 一律拒绝——
+// 覆盖即等于让旧产物永久无法解密（发布方资产，丢了要能自己看出来）。
+function createProductKey(dir, appName, opts = {}) {
+  const p = productKeyPath(dir, appName);
+  if (fs.existsSync(p) && !opts.force) {
+    throw new Error(`每产物主密钥已存在：${p}（覆盖会使既有产物全部失效，确需重生成请 --force）`);
+  }
+  const hex = crypto.randomBytes(PRODUCT_KEY_LEN).toString('hex');
+  fs.mkdirSync(path.dirname(p), { recursive: true, mode: 0o700 });
+  ensureKeysIgnored(path.resolve(dir));
+  fs.writeFileSync(p, hex + '\n', { encoding: 'utf8', mode: 0o600 });
+  return hex;
+}
+
+// loadProductKey 读取并校验主密钥；缺失时给出可操作的错误（不静默退回全域常量主密钥——
+// 那正是 FRDM2 的根因，退回即降级攻击面）。
+function loadProductKey(dir, appName) {
+  const p = productKeyPath(dir, appName);
+  let raw;
+  try {
+    raw = fs.readFileSync(p, 'utf8');
+  } catch (e) {
+    if (e.code === 'ENOENT') {
+      throw new Error(`缺每产物主密钥：${p}（先运行 freedom keygen 生成，切勿丢失或入库）`);
+    }
+    throw e;
+  }
+  const hex = raw.trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(hex)) {
+    throw new Error(`每产物主密钥格式非法：${p} 应为 64 位十六进制（32 字节）`);
+  }
+  return hex;
+}
+
+function productMasterBytes(master) {
+  if (Buffer.isBuffer(master)) return master;
+  return Buffer.from(String(master).trim(), 'hex'); // 长度由 deriveKeysV3 显式校验
+}
+
+// ---- 容器密钥派生（v3）----
+
+// deriveKeysV3 与 Go deriveSecurityKeyV3 同式：
+// KEK = PBKDF2(每产物主密钥, DERIVE_SALT3:app + 容器随机盐, 600000, 32)，macKey = HMAC(KEK, MAC_LABEL3)。
+function deriveKeysV3(appName, salt, master) {
+  const secret = productMasterBytes(master);
+  if (secret.length !== PRODUCT_KEY_LEN) throw new Error('每产物主密钥需 32 字节（64 位十六进制）');
+  const base = Buffer.concat([
+    Buffer.from(DERIVE_SALT3 + ':' + appIdentityFor(appName), 'utf8'),
+    salt,
+  ]);
+  const enc = crypto.pbkdf2Sync(secret, base, PBKDF2_ITER, KEY_LEN, 'sha256');
+  const mac = crypto.createHmac('sha256', enc).update(MAC_LABEL3).digest();
+  return { enc, mac };
+}
+
+function encryptAppV3(master, name, html, configJSON, backend) {
+  return sealAppBin(APP_BIN_MAGIC3,
+    (salt) => deriveKeysV3(name, salt, master), appPayload(html, configJSON, backend));
+}
+
+function decryptAppV3(master, name, buf) {
+  return openAppBin(APP_BIN_MAGIC3, (salt) => deriveKeysV3(name, salt, master), buf);
+}
+
+// ---- 签名完整性清单（D1）----
+
+// integrityClaims 是被签名的载荷字段；签名对象是这段字节的**确切序列化结果**
+// （base64 原样存进清单，验签后按字段回比对真实值），跨语言不做 JSON 规范化。
+function integrityV3Bytes(claims) {
+  return Buffer.from(JSON.stringify({
+    appBin: claims.appBin, identity: claims.identity,
+    salt: claims.salt, self: claims.self, built: claims.built,
+  }), 'utf8');
+}
+
+// signIntegrityV3 产出 .integrity v3：{ v, alg, pub, payload(base64), sig(hex) }。
+// signingKey = 发布方 ed25519 私钥（PEM 字符串或 KeyObject），公钥由其导出并写入清单。
+// selfHash 非空时壳启动即自校验 exe 摘要（Tier B）；Tier A 通用壳传空串跳过。
+function signIntegrityV3(opts) {
+  const { name, appBin, signingKey } = opts;
+  const { salt } = unpackAppBin(APP_BIN_MAGIC3, appBin);
+  const claims = {
+    appBin: sha256hex(appBin),
+    identity: appIdentityFor(name),
+    salt: salt.toString('hex'),
+    self: opts.selfHash || '',
+    built: opts.built || new Date().toISOString(),
+  };
+  const bytes = integrityV3Bytes(claims);
+  const priv = asPrivateKey(signingKey);
+  const sig = crypto.sign(null, bytes, priv).toString('hex');
+  return {
+    v: 3,
+    alg: 'ed25519',
+    pub: rawPubHexFromKey(crypto.createPublicKey(priv)),
+    payload: bytes.toString('base64'),
+    sig,
+  };
+}
+
+// verifyIntegrityV3 用**信任锚公钥**校验清单，并把声明值与真实输入逐项比对。
+// 先比锚再验签：否则攻击者换一对钥匙即可自证合法（清单里的 pub 不可自证）。
+// 通过返回声明对象，失败抛错（调用方据此拒绝运行）。
+function verifyIntegrityV3(opts) {
+  const { manifest, anchorPubHex, name, appBin } = opts;
+  if (!manifest || manifest.v !== 3 || manifest.alg !== 'ed25519') {
+    throw new Error('完整性清单版本不受支持（要求 v3 / ed25519）：请用与壳同版的 freedom-cli 重新 build');
+  }
+  const anchor = normalizePubHex(anchorPubHex);
+  if (normalizePubHex(manifest.pub) !== anchor) {
+    throw new Error('.integrity 公钥与信任锚不一致：产物可能被换钥匙重签');
+  }
+  const bytes = Buffer.from(String(manifest.payload), 'base64');
+  const sig = Buffer.from(String(manifest.sig), 'hex');
+  if (sig.length !== 64) throw new Error('.integrity 签名长度非法（ed25519 需 64 字节）');
+  if (!crypto.verify(null, bytes, publicKeyFromRawHex(anchor), sig)) {
+    throw new Error('.integrity 签名校验失败：清单或 app.bin 被篡改');
+  }
+  let claims;
+  try {
+    claims = JSON.parse(bytes.toString('utf8'));
+  } catch {
+    throw new Error('.integrity 签名载荷不是合法 JSON');
+  }
+  const { salt } = unpackAppBin(APP_BIN_MAGIC3, appBin);
+  if (claims.appBin !== sha256hex(appBin)) {
+    throw new Error('.integrity 校验失败：app.bin 与签名清单不符');
+  }
+  if (claims.identity !== appIdentityFor(name)) {
+    throw new Error(`.integrity 校验失败：清单绑定身份 ${claims.identity}，当前 exe 是 ${appIdentityFor(name)}（被重命名或跨应用复用）`);
+  }
+  if (claims.salt !== salt.toString('hex')) {
+    throw new Error('.integrity 校验失败：清单容器盐与 app.bin 头部不符（清单与容器非同一产物）');
+  }
+  return claims;
+}
+
 module.exports = {
   SECURITY_MODES,
   APP_BIN_MAGIC,
@@ -212,4 +451,17 @@ module.exports = {
   isSafeRelPath,
   buildIntegrity,
   renderIntegrity,
+  // FRDM3
+  APP_BIN_MAGIC3,
+  ensureKeysIgnored,
+  productKeyPath,
+  createProductKey,
+  loadProductKey,
+  deriveKeysV3,
+  encryptAppV3,
+  decryptAppV3,
+  signIntegrityV3,
+  verifyIntegrityV3,
+  rawPubHexFromKey,
+  sha256hex,
 };
