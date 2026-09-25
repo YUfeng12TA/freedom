@@ -141,3 +141,11 @@
 - 交付物: `.liangzu/plans/r7-source-protection/progress.md`
 - 验收：`checkBundledShells() → problems: []` + 无壳等价检出树 `node --test tests/*.test.mjs → 85/85` + 真实树同命令 `85/85`
 - 状态：done — E-R7-16
+
+### 14 全局安装更新到 preview + 预检容差收口
+- 判据：PATH 上的 `freedom` 报 1.14.0-preview；已安装目录跑 `checkBundledShells` 为空问题单（修前 3 条假红）；壳内容同代判据三只齐
+- 交付物: `freedom-cli/lib/shell.js`
+- 交付物: `tests/shell-generation-preflight.test.mjs`
+- 交付物: `.liangzu/bugs.json`
+- 验收：`node --test tests/shell-generation-preflight.test.mjs → 7/7` + 全量 `node --test tests/*.test.mjs → 87/87` + 对全局安装目录复跑预检 `problems: []`
+- 状态：done — E-R7-17

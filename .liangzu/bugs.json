@@ -759,6 +759,17 @@
       "fix": "改为分层断言：README/package.json/tutorial/templates 恒查；壳只在\"本机磁盘上有\"时要求进包（防 files 白名单漏收）；另锁 files 白名单含 shell 目录。「发布机三只壳必须齐全」移交 package.json 的 prepublishOnly 代际预检（checkBundledShells 对缺壳即报问题、拒发布）",
       "regressionTest": "node --test tests/*.test.mjs 在两种环境各跑一遍：真实树（三只壳在位，onDisk 非空 ⇒ 断言有效）85/85；无壳等价检出树（git clone file:// 到 build-tmp/ci-repro）85/85 —— 修前该树报「发布骨架缺项」",
       "fixedAt": "2026-09-25"
+    },
+    {
+      "id": "B-20260925-062",
+      "sev": "minor",
+      "file": "freedom-cli/lib/shell.js",
+      "line": 227,
+      "summary": "发布代际预检用零容差 mtime 比对，对\"npm 从 tarball 解出的安装目录\"集体假红：解包时三只壳与 go.sum 的 mtime 只差 <200ms（实测 11:39:38.159/.173/.190 vs .286），三只全被报\"早于框架源\"，把 checkBundledShells 变成一个只能对发布机跑的工具",
+      "status": "fixed",
+      "fix": "引入 STALE_TOLERANCE_MS = 5 分钟：t + tol < src.newest 才判落后。真实代际差是小时~天级（发版间隔多久壳就落后多久），分钟级差只可能是解压/复制噪声；不注入参数、不建配置项（铁律 17）",
+      "regressionTest": "node --test tests/shell-generation-preflight.test.mjs → 7/7；新增两条：容差内(30s/1min/4min)放行 + 壳早于源 10 分钟仍逐只点名（证明容差没掏空门）。另对本机全局安装目录复跑 checkBundledShells → problems: []（修前 3 条假红）",
+      "fixedAt": "2026-09-25"
     }
   ]
 }

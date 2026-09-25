@@ -208,6 +208,11 @@ function newestSourceMtime(dir) {
   return { newest, file };
 }
 
+// 落后判定的容差：npm 从 tarball 解出的目录里，所有文件 mtime 只差毫秒级（实测三只壳与
+// go.sum 相差 <200ms），零容差会让本函数对任何安装目录集体假红。真实代际差是小时～天级
+// （发版隔多久，壳就落后多久），5 分钟既能吞掉解压噪声又放不走旧壳。
+const STALE_TOLERANCE_MS = 5 * 60 * 1000;
+
 function checkBundledShells(opts = {}) {
   const plats = opts.platforms || PUBLISH_PLATFORMS;
   const tplDir = opts.goTemplateDir || goTemplateDir();
@@ -224,7 +229,7 @@ function checkBundledShells(opts = {}) {
       continue;
     }
     const t = fs.statSync(exe).mtimeMs;
-    if (src.newest && t < src.newest) {
+    if (src.newest && t + STALE_TOLERANCE_MS < src.newest) {
       problems.push(`${plat}: 壳生成于 ${iso(t)}，早于框架源最新改动 ${iso(src.newest)}（${rel(src.file, tplDir)}）`);
     }
   }

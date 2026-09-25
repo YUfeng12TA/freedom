@@ -88,3 +88,18 @@
   `security.go` 侧以 `var keySlotAssemble func() []byte`（默认 nil ⇒ Tier A 恒解不开）承接，
   `productMaster()` 的长度校验保留为响亮失败兜底；黄金夹具改锁"生成器 spec ↔ 装配结果"，
   并需在 `tests/security-frdm3.test.mjs` 同步 `lib/security.js:372-390` 那张被逐字锁死的注入符号表。
+
+## E-R7-17 全局安装更新 + 预检容差收口（发布后）
+- registry 实测：`npm view @yufengtadian/freedom-cli dist-tags` → `{latest: 1.13.3, preview: 1.14.0-preview}`，预览代未占 latest（符合裁定）。
+- PATH 上的 `freedom` 由**全局**安装提供（`where freedom` → `AppData\Roaming\npm\freedom`，`npm ls -g` → 1.13.3）；
+  用户在家目录跑的 `npm i @yufengtadian/freedom-cli@1.14.0-preview` 落的是**本地** `C:\Users\Administrator\node_modules`
+  （所以 npm 报 "up to date"、`freedom update` 仍报 1.13.3——两条指的不是同一份安装）。
+- `npm i -g @yufengtadian/freedom-cli@preview` 装成 1.14.0-preview；npm 的 allowScripts 策略拦掉 postinstall，
+  读源码确认它**只弹教程 HTML**（`FREEDOM_NO_TUTORIAL=1` 可跳），无功能影响，故不追加 `--allow-scripts`。
+- 已安装目录三只壳 size 与本地同代产物逐一相等（7,510,528 / 6,156,258 / 6,759,304 B），且都含
+  `@yufengtadian/freedom-cli@preview` 串 ⇒ 内容同代。
+- **暴露并修掉预检门缺陷 B-20260925-062**：对已安装目录跑 `checkBundledShells` 三只全假红——npm 解包把
+  所有文件 mtime 写成同一秒（壳 `.159/.173/.190` vs `go.sum .286`，差 <200ms）。修法取常量
+  `STALE_TOLERANCE_MS = 5*60*1000` 而非可注入参数（铁律 17：无第二个调用方不建配置项）。
+- 复验：`node --test tests/shell-generation-preflight.test.mjs → 7/7`；全量 `node --test tests/*.test.mjs → 87/87`；
+  全局安装目录复跑预检 → `problems: []`。

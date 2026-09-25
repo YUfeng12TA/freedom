@@ -107,6 +107,41 @@ test('判据只看编进壳的源：_test.go 与非 Go 文件更新不得惊动�
   }
 });
 
+test('解压噪声不惊动预检：壳与源 mtime 只差毫秒~分钟级视为同代', () => {
+  // 起因（实测）：npm 从 tarball 解出的安装目录里，三只壳与 go.sum 的 mtime 只差 <200ms，
+  // 零容差判据对任何已安装副本集体假红。真实代际差是小时~天级，分钟级差只能是解压/复制噪声。
+  const f = fixture({
+    shellAt: {
+      'win-x64': new Date(Date.now() - 30 * 1000),
+      'darwin-arm64': new Date(Date.now() - 60 * 1000),
+      'linux-x64': new Date(Date.now() - 4 * 60 * 1000),
+    },
+    srcFiles: [['pkg/freedom/security.go', new Date()]],
+  });
+  try {
+    assert.deepEqual(run(f), [], '容差内的 mtime 差不应报问题');
+  } finally {
+    fs.rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+test('容差不得吃掉真实代际差：壳早于源 10 分钟仍须逐只点名', () => {
+  const f = fixture({
+    shellAt: {
+      'win-x64': new Date(Date.now() - 5 * 60 * 1000),
+      'darwin-arm64': new Date(Date.now() - 10 * 60 * 1000),
+      'linux-x64': new Date(Date.now() - 4 * 60 * 1000),
+    },
+    srcFiles: [['pkg/freedom/security.go', new Date()]],
+  });
+  try {
+    const problems = run(f);
+    assert.deepEqual(problems.map((p) => p.split(':')[0]), ['darwin-arm64'], `只应报超容差的那只：${JSON.stringify(problems)}`);
+  } finally {
+    fs.rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
 test('发布钩子已接线：prepublishOnly 会跑本预检（漏接线=门形同不存在）', () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(cliRoot, 'package.json'), 'utf8'));
   assert.match(pkg.scripts.prepublishOnly || '', /preflightBundledShells/, 'prepublishOnly 未挂钩预检');
