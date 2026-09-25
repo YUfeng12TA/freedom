@@ -26,6 +26,12 @@
   `TestLoadSecureResourcesV3AcceptsInjectedProduct` 的换锚与 self 不符两用例当场假通过（`应被拒绝，实际：<nil>`）。
   改判为"验签每次照跑、缓存只记忆化解密"后全绿——R2 曾记过同族教训（`r2-hardening/findings.md:22` 载荷不缓存）。
 - **E-R7-5 启动代价**：`freedom build` 产物自检通过，专属壳 7.16 MB；PBKDF2 由 2 次降为 1 次（甲的预期收益）。
+- **E-R7-13 发布代际同步（预览裁定之后）**：三平台随包壳逐一比对 mtime，发现**三只都早于** `security.go` 的
+  `2026-09-25T09:13:08Z`（win-x64 `07:34Z`、darwin-arm64 昨日 `11:40Z`、linux-x64 `04:14Z`）⇒ 若当时就 `npm publish`
+  会发出混合代 tarball。当场能做的：`node freedom-cli/bin/freedom.js shell build win-x64` 用改后源重编
+  （`09:20Z`，7.16MB），二进制内 `1.14.0-preview 及以上` 命中 1 次、旧串 0 次，`r6-tiera-refusal.cjs` 复跑
+  → `exit=70` + `TIER_A_REFUSE_OK`。darwin/linux 本机无交叉编译能力（webview_go 依赖目标系统 WebView）
+  且 `git ls-remote` 在本机报 `schannel: CRYPT_E_REVOCATION_OFFLINE` ⇒ 只能等用户推标签后由 CI 产出回填。
 - **E-R7-8 乙-红**：新增断言先红在缺实现上（`TypeError: sec.keySlotForBuild is not a function` ×2、
   `shellInject` 仍旧签名报 `ed25519 公钥需为 64 位十六进制…实际：undefined`）。
 - **E-R7-9 乙-全闸门**：`go test ./... → ok freedom 19.325s`；`node --test tests/*.test.mjs → tests 80 / pass 80 / fail 0`；
