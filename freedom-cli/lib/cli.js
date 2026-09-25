@@ -56,6 +56,11 @@ function help() {
   L.push(`  ${paint('freedom skill install --agent <key|all> [--dry-run] [--skills-dir <path>]', C.fg.cyan)} ${dim('把 Freedom 使用技能装入 agent 的 skills 目录')}`);
   L.push(`  ${paint('freedom mcp install --agent <key|all> [--dry-run] [--config <path> --format json|toml|yaml]', C.fg.cyan)} ${dim('把 Freedom MCP 服务写入 agent 的 MCP 配置（幂等合并、写前 .bak 备份）')}`);
   L.push(`  ${paint('freedom mcp serve', C.fg.cyan)}        ${dim('stdio MCP 服务本体（一般由 agent 自动拉起，无需手敲）')}`);
+  L.push(section('工具链'));
+  L.push(`  ${paint('freedom toolchain', C.fg.cyan)}                ${dim('探测 Go / Rust / C++ 工具链是否就位（已配置好则走缓存、不重复探测）')}`);
+  L.push(`  ${paint('freedom toolchain install [go,rust,cpp|missing] [--apply]', C.fg.cyan)} ${dim('缺失时自动安装；缺省只打印命令，--apply 才真跑（联网 + 提权）')}`);
+  L.push(`  ${paint('freedom toolchain optimize [--apply]', C.fg.cyan)} ${dim('自动优化配置：Go GOPROXY 镜像、cargo 源换 rsproxy（幂等 + .bak）')}`);
+  L.push(`  ${paint('freedom toolchain status --refresh', C.fg.cyan)}  ${dim('强制重新探测并刷新缓存（默认缓存 7 天，PATH 变更即失效）')}`);
   L.push(section('版本'));
   L.push(`  ${paint('freedom version', C.fg.cyan)}             ${dim('显示版本并检测最新版本')}`);
   L.push(`  ${paint('freedom update', C.fg.cyan)}              ${dim('检查新版本并立即自动更新')}`);
@@ -165,6 +170,10 @@ async function run(argv) {
       }
       return await runAgents(what === 'skill' ? 'skill' : 'mcp', ['install', ...flags]);
     }
+
+    case 'toolchain':
+    case 'tc':
+      return toolchainCommand(rest);
 
     case 'skill':
     case 'mcp':
@@ -561,6 +570,89 @@ async function runDmg(rest) {
   } catch (e) {
     console.error(`${err(e.message)}`);
     return 1;
+  }
+}
+
+// freedom toolchain —— 工具链自动装配：探测（带缓存）/ 安装（默认只打印）/ 配置优化。
+function toolchainCommand(rest) {
+  const tc = require('./toolchain');
+  const flags = new Set();
+  const pos = [];
+  let homeArg;
+  for (let i = 0; i < rest.length; i++) {
+    const a = rest[i];
+    if (a === '--home') { homeArg = rest[++i]; continue; }
+    if (a.startsWith('--home=')) { homeArg = a.slice('--home='.length); continue; }
+    if (a.startsWith('--')) { flags.add(a); continue; }
+    pos.push(a);
+  }
+  const sub = pos[0];
+  const opts = {
+    refresh: flags.has('--refresh'),
+    apply: flags.has('--apply'),
+    home: homeArg ? path.resolve(homeArg) : undefined,
+  };
+  const out = [];
+  switch (sub) {
+    case undefined:
+    case 'status': {
+      const { rows, skipped } = tc.status(opts);
+      for (const r of rows) {
+        if (r.ok) out.push(`  ${ok('已就位')} ${paint(r.key, C.fg.cyan, C.bold)} ${dim(r.version + '  ' + r.exe)} ${r.cached ? dim('[缓存]') : dim('[探测]')}`);
+        else out.push(`  ${err('缺失')}   ${paint(r.key, C.fg.cyan, C.bold)} ${dim(r.reason || '未检测到')} ${dim('· ' + r.why)}`);
+      }
+      out.push('');
+      const cacheNote = skipped ? `本轮跳过 ${skipped} 次探测（缓存命中，PATH 变更或 --refresh 即失效）` : '本轮全部实探';
+      out.push(['  ', dim(cacheNote) + '；', dim('安装：'), paint('freedom toolchain install missing', C.fg.cyan),
+        dim('（默认只打印命令，加 --apply 才执行）')].join(' '));
+      console.log(out.join('\n'));
+      return 0;
+    }
+    case 'install': {
+      const res = tc.install(pos[1] || 'missing', opts);
+      for (const r of res.rows) {
+        if (r.action === 'skip') console.log(`  ${ok(`[${r.key}] 已就位`)} ${dim(r.version || '')}`);
+        else if (r.action === 'manual') console.log(`  ${warn(`[${r.key}] 本平台无自动安装方式`)} ${dim(r.note)}`);
+        else if (r.action === 'plan') {
+          console.log(`  ${warn(`[${r.key}] 待安装`)} ${dim('以下为将执行的命令：')}`);
+          for (const c of r.commands) console.log(`    ${paint(c, C.fg.white)}`);
+        } else if (r.action === 'applied') {
+          for (const s of r.ran) {
+            console.log(`  ${s.status === 0 ? ok('[完成]') : err('[失败]')} ${dim(s.command)} ${s.status === 0 ? '' : err(`退出码 ${s.status}`)}`);
+          }
+        }
+      }
+      if (res.dryRun) {
+        console.log('');
+        console.log(`  ${tip('确认无误后加 --apply 真正执行安装（联网、可能需要管理员权限）。')}`);
+      } else {
+        console.log(`  ${dim('安装后若 PATH 未刷新，重新打开终端或执行 freedom toolchain status --refresh。')}`);
+      }
+      return res.rows.some((r) => r.action === 'applied' && r.ran.some((s) => s.status !== 0)) ? 1 : 0;
+    }
+    case 'optimize': {
+      const res = tc.optimize(opts);
+      for (const r of res.rows) {
+        if (r.action === 'skip') console.log(`  ${ok(`[${r.key}] 无需优化`)} ${dim(r.note)}`);
+        else if (r.action === 'blocked') console.log(`  ${warn(`[${r.key}] 跳过`)} ${dim(r.note)}`);
+        else if (r.action === 'report') console.log(`  ${r.ok ? ok(`[${r.key}] 已就位`) : warn(`[${r.key}] 未就位`)} ${dim(r.note)}`);
+        else if (r.action === 'plan') {
+          console.log(`  ${warn(`[${r.key}] 将优化`)} ${dim(r.from ? `当前：${r.from}` : '')}`);
+          for (const c of (r.commands || [])) console.log(`    ${paint(c, C.fg.white)}`);
+          if (r.file) console.log(`    ${dim(r.file)} ${dim('（幂等合并，写前 .bak）')}`);
+        } else if (r.action === 'applied') {
+          console.log(`  ${ok(`[${r.key}] 已优化`)} ${dim(r.to || r.file || '')}${r.backup ? dim('  备份 ' + r.backup) : ''}${r.status ? err(`  退出码 ${r.status}`) : ''}`);
+        }
+      }
+      if (res.dryRun) console.log(`\n  ${tip('以上为拟写入内容，未改动任何文件；加 --apply 生效（写入前自动 .bak 备份）。')}`);
+      return 0;
+    }
+    case 'clear':
+      console.log(tc.clearCache(opts) ? `${ok('缓存已清除，下一次 status 将重新探测。')}` : `${dim('无缓存可清除。')}`);
+      return 0;
+    default:
+      console.error(`${err(`未知 toolchain 子命令：${sub}`)} ${dim('可用：status / install [go,rust,cpp|missing] / optimize / clear')}`);
+      return 1;
   }
 }
 
