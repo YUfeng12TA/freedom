@@ -46,6 +46,10 @@
 - E-M4 全闸门（文档与版本戳改完后定版复跑，真命令）：`node --test tests/*.test.mjs` → tests 77 / pass 77 / fail 0；
   `go test -count=1 ./...` → `ok freedom 11.820s`；本轮早前 `-count=2` 复跑亦 `ok freedom 26.918s`；
   `gofmt -l .` 只报 `.rivet\backups\` 下的外部备份副本（非本仓工作树）；`node build-tmp/release-gates.cjs` → `gofmt_unclean=[] mirror fail=0`。
+- E-M6 Tier A 通用壳遇 high 产物（`node build-tmp/hi2/r6-tiera-refusal.cjs`，win-x64）：把随包分发的
+  通用壳（本地 `freedom shell build win-x64` 重编，7,507,456B，无注入）改名成 `his2.exe` 放到 Tier B 产物旁 ⇒
+  `exit=70` + `FRDM3 产物需本应用专属壳（每产物主密钥未注入本 exe）… 或改用 --security basic`，判定 `TIER_A_REFUSE_OK`。
+  这条把 README/SECURITY 里"Tier A 结构上解不开 high 产物"从论证变成实测，也证明通用壳的重编路径本身没漏投 v3 代码。
 - E-M5 定版收口：`npm version 1.14.0 --no-git-tag-version`（package.json + lock 两处）；
   版本戳同步到根 README、freedom-cli README（含 v1.14.0 要点）、AGENTS.md、issue 模板；
   CHANGELOG `[未发布]` 两节归档为 `[1.14.0] - 2026-09-25`（破坏性变更 / 安全 / 新增 / 修复四节）；
