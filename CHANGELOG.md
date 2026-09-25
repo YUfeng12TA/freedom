@@ -3,6 +3,19 @@
 本项目的所有显著变更都记录在此文件。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [未发布]
+
+### 安全
+
+- **如实修正 high 模式的强度表述**（`README.md` / `freedom-cli/README.md` / `SECURITY.md` /
+  `security.go` / `freedom-cli/lib/security.js` 注释）：取证（台账 B-20260925-054）证明此前"必须逆向壳才能
+  提取主密钥"的表述不成立——`freedom-cli` 包自带全域主密钥常量、解密器与清单生成器，而派生钥的另外两个输入
+  （应用标识 = exe 文件名、派生盐 = `app.bin` 头 16 字节）都在产物自身，故持有 CLI 者无需逆向即可离线解密任意
+  high 产物，并能为改造后的内容签出合法 `.integrity`（实测：换掉容器内后端源码后壳照跑，攻击代码在其私有临时目录落盘）。
+  文档改为按"通用预编译壳 = 混淆级"分层描述，并明确 high 不是 DRM / 不是访问控制。
+- 结构性修复方向已立方案闸门（`.liangzu/plans/2026-09-25-r6-defense-max.md`）：FRDM3 = `.integrity` 改发布方
+  ed25519 私钥签名（公钥进壳、私钥永不进产物）+ 主密钥移出公开源；因涉及容器与清单格式断代，待发布方裁定后实施。
+
 ## [1.13.3] - 2026-09-25
 
 ### 新增

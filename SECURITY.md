@@ -43,6 +43,13 @@
   KEK 由「exe 名 + 构建期随机盐」经 60 万次 PBKDF2 派生，AES-256-CTR + Encrypt-then-MAC，`.integrity` 清单绑盐。
   它是**提高逆向成本的尽力而为**，不是可信执行环境。密钥必然存在于可执行文件可推导的范围内，
   面对能读进程内存的对手不成立。
+- **FRDM2 的当前实际边界比上一条更弱，请按此评估你的用途**：主密钥常量、解密函数与清单生成器都随
+  `freedom-cli` 包分发（`lib/security.js` 的 `MASTER_KEY_CIPHER` / `decryptApp` / `buildIntegrity`），
+  而派生钥的其余输入——应用标识（exe 文件名）与派生盐（`app.bin` 头 16 字节）——都在产物自己身上。
+  因此**持有本 CLI 的人无需逆向、无需调试即可离线解密任意 high 产物，并能为篡改后的内容生成合法
+  `.integrity` 让壳照跑**（2026-09-25 实测，登记于 `.liangzu/bugs.json` B-20260925-054）。
+  根因是对称密钥模型：通用预编译壳没有构建期注入点，每产物专属秘密无处安放。
+  修复方向（FRDM3）：`.integrity` 改由发布方持有的 ed25519 私钥签名、公钥进壳，并把主密钥移出公开源。
 - **反调试是可选信号**，不是防线。误报环境（自动化测试、CI、远程桌面、部分虚拟化）可用
   `Config.DisableAntiDebug` 或 `FREEDOM_DISABLE_ANTIDEBUG=1` 关闭；关闭不影响容器解密与完整性校验。
 - **前端与壳之间不是安全边界**。`window.__freedom_bridge` 对页面内任意脚本可见；

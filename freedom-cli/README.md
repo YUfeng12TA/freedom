@@ -7,7 +7,7 @@ Freedom 桌面壳打包工具：把你的 Web 前端一键打包成跨平台桌�
 **v1.13.x 框架线回归 + 稳定性收口**（v1.13.0 功能，v1.13.1 为文档勘误发布）：
 - **freedom-cli 源码回归主仓库**：本 CLI 与框架源码同仓维护（`freedom-cli/` 目录，`templates/go` 为框架源码快照），npm 包与 GitHub Release 一一对应，历史"源码丢失停在 1.12.18"的断档已修复；
 - **三平台通用壳经 tag CI 自动发布**：推送 `vX.Y.Z` tag 即由 `build.yml` 在 win / mac（Apple Silicon）/ linux runner 上编译通用壳并自动创建 GitHub Release，资产命名 `freedom-shell-<plat>`；`freedom shell download <plat>` 直接拉取对应版本资产（默认定位 `v<包版本>`，可用 `FREEDOM_SHELL_TAG` 覆盖），包内另自带三平台壳兜底，均随包分发；
-- **运行时资源层回归**：壳从 exe 同目录 `resources/` 读取 `config.json`（窗口 / 后端配置覆盖）与前端页面，high 模式下前端页面、配置与 **`backend/**` 后端源码**统一封进加密 `app.bin`（FRDM2 容器：构建期随机盐 + PBKDF2 60 万次派生 + Encrypt-then-MAC 覆盖头部）+ `.integrity` 清单，磁盘不留明文后端源码；JS 侧构建加密 → Go 壳内存解密已有跨语言黄金向量与端到端互验（改名 / 篡改 / 整体替换即拒绝运行）；
+- **运行时资源层回归**：壳从 exe 同目录 `resources/` 读取 `config.json`（窗口 / 后端配置覆盖）与前端页面，high 模式下前端页面、配置与 **`backend/**` 后端源码**统一封进加密 `app.bin`（FRDM2 容器：构建期随机盐 + PBKDF2 60 万次派生 + Encrypt-then-MAC 覆盖头部）+ `.integrity` 清单，磁盘不留明文后端源码；JS 侧构建加密 → Go 壳内存解密已有跨语言黄金向量与端到端互验（改名 / 篡改 / 整体替换即拒绝运行）。**边界如实说明**：high 是对称加密 + 混淆，强度目标是"不能直接读明文、不能随手篡改"，不是 DRM 也不是访问控制——本 CLI 自带派生参数与解密器，持有本包者理论上可离线解密任意产物（详见根仓库 [SECURITY.md](../SECURITY.md)，FRDM3 计划改为发布方私钥签名绑定）；
 - **多窗口（M2）随 v1.13.0 壳可用**：前端 `window.freedom.window.create / close / list / focus` 开二级窗口，Go 侧 `App.NewWindow / Window.Close`；次级窗口独立消息泵、页面源支持内联 HTML / URL；
 - **销毁竞态收口**：修复 webview2 在 `Destroy` 中泵出滞留 dispatch 回调导致的随机崩溃（0xc0000005，多窗口 / 快速关闭场景），回收后所有排队回调按拆除旗标自我作废，并配套红绿回归测试；
 - **v1.13.1**：文档同步（本 README 更新至 v1.13.x 真实现状、壳 CI 章节勘误），无功能与壳二进制变更。
