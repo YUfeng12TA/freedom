@@ -264,10 +264,10 @@ freedom shell list|download <platform>|build <platform>
 freedom dmg [--platform <plat>]      # 在 macOS 上把 .app 打包为 .dmg
 freedom keygen [--force]             # 生成应用自更新 ed25519 密钥对（私钥留 .freedom/keys/，公钥进配置）
 freedom manifest --artifact <产物> --url <下载地址> [--version x] [--notes txt]  # 产出签名更新清单 dist/latest.json
-freedom agents [--home <dir>]         # Agent 集成支持矩阵（本机磁盘证据判定 ready/convention/unknown）
+freedom agents [--home <dir>]         # Agent 集成支持矩阵（本机磁盘证据判定「是否安装 + 目标文件状态」）
 freedom agents install --what <mcp|skill> --agent <key|all>   # 等价于下面两条
-freedom skill install --agent <key|all> [--dry-run] [--skills-dir <path>]
-freedom mcp install --agent <key|all> [--dry-run] [--config <path> --format json|toml|yaml]
+freedom skill install --agent <key|all> [--dry-run] [--force] [--skills-dir <path>]
+freedom mcp install --agent <key|all> [--dry-run] [--force] [--config <path> --format json|toml|toml-aot|yaml]
 freedom mcp serve                    # stdio MCP 服务本体（一般由 agent 自动拉起）
 freedom version                     # 显示版本并检测最新版本
 freedom update                      # 检查新版本并给出升级命令（同 check-update）
@@ -297,16 +297,22 @@ freedom help
   NDJSON 协议、CLI 命令、坑清单）复制进各 agent 的 skills 目录。
 - `freedom mcp install --agent <key|all>`：把 `freedom mcp serve` 注册进各 agent 的 MCP 配置。
   MCP 工具面：`freedom_build / init / verify / config / shell / release / agents / guide`。
-- `freedom agents [--home <dir>]`：打印支持矩阵。**是否可写一律按本机磁盘证据判定**——
-  `ready`（配置文件已在，合并写入）/ `convention`（仅主目录在，按同族约定新建并明确提示）/
-  `unknown`（本机无足迹，只输出可粘贴片段，绝不凭记忆造路径）。`--home` 换一棵家目录树预览取证结果。
+- `freedom agents [--home <dir>]`：打印支持矩阵。**安装检测门（v1.13.2 起）**——只有本机检出该
+  agent 的**安装足迹**（配置文件在 / 注册表声明的专属目录在 / PATH 里有它的可执行）才允许写入；
+  未检出即 `not-installed`，只输出可粘贴片段，**绝不新建目录、绝不凭记忆造路径**。
+  「父目录存在」不算证据（HOME 与 `AppData/Roaming` 恒在，据此写入＝往没装的东西里写）。
+  `--home` 换一棵家目录树预览取证结果。
+- 逃生通道两条：`--force`（明知该 agent 装着但足迹未被覆盖，强行写入并显式告警）、
+  `--config <真实路径>` / `--skills-dir <真实目录>`（按你指定的路径写，绕开候选路径推断）。
 - `freedom agents install --what <mcp|skill> --agent <key|all>`：上面两条安装入口的合并写法，
   不带 `--what` 时默认 `mcp`；`agents <其它子命令>` 直接报错退出，不会静默回落成矩阵。
 - 写入是**幂等合并**：保留既有其它 server 条目，二次安装原地替换不产生重复；改前留 `<file>.bak` 备份；
-  `--dry-run` 只预览不落盘。未取证的 agent 用 `--config <真实路径> --format <json|toml|yaml>` 覆写。
-- 已按本机取证登记的 agent：Claude Code / Claude Desktop / Codex CLI / Qoder / CodeBuddy / Zcode / Cursor /
-  Hermes（YAML）等；其余（Trae、OpenCode、Gemini CLI、Pi、Tianshu、WorkBuddy、DeepSeek harness、Oh My Pi）
-  在无足迹的机器上一律降级为片段 + 覆写通道。
+  `--dry-run` 只预览不落盘。
+- 已登记的 agent（17 个）：Claude Code / Claude Desktop / Codex CLI / Qoder / CodeBuddy / Zcode / Cursor /
+  Hermes（YAML）/ Tianshu / Pi / WorkBuddy / OpenCode / Gemini CLI / DeepSeek Harness / Oh My Pi / Trae /
+  **Reasonix**。其中 **Reasonix** 的 MCP 配置是 TOML **数组表** `[[plugins]]`（按 `name = "freedom"` 定位条目，
+  与既有 `computer-use` 等插件共存），格式取自本机 `%APPDATA%/reasonix/config.toml` 实况；
+  技能装在 `~/.reasonix/skills/freedom`。未被登记或无足迹的布局用 `--format <json|toml|toml-aot|yaml>` 覆写。
 
 ## 开发热更（freedom dev）
 
@@ -349,5 +355,11 @@ export default {
 
 ## License
 
-MIT
+本工具与其源码为**闭源专有软件**，完整条款见包内 `LICENSE`（不适用 MIT）。要点：
+
+- 你可以自由安装使用，并用它打包 / 销售你自己的应用——**你的前端、后端与产物归你所有**，无需开源或署名；
+- 未经许可方书面同意，不得再分发本包内容物、源码或衍生版本，也不得移除版权与许可声明；
+- 唯一沿用开源许可的部分是内嵌第三方 `webview_go`（MIT，见 `templates/go/third_party/webview_go/LICENSE`）。
+
+商用授权与定制需求请通过仓库 GitHub Issues 联系。
 

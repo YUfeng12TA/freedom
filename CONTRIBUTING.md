@@ -3,6 +3,15 @@
 Freedom 是 Go 编写的 WebView 桌面壳框架（Windows / macOS / Linux）+ `freedom-cli`（npm 打包器）。
 动手前请先读 [README.md](README.md) 的架构与能力矩阵，以及 [.liangzu/views/INDEX.md](.liangzu/views/INDEX.md)（项目知识图鉴：模块拆分、历史缺陷、技术决策）。
 
+## 许可边界（先看清再动手）
+
+本仓库是**闭源专有软件**（见 [LICENSE](LICENSE)），不是开源项目：
+
+- 欢迎提 issue、报漏洞、提改进建议，也欢迎就**自己本地副本**做适配；贡献回主干前请先开 issue 对齐方向，避免白做。
+- 提交/衍生不得移除版权与许可声明；不得把源码（含 `freedom-cli/templates/go/` 里的框架快照）再分发为开源许可下的作品。
+- 新增第三方依赖前先确认其许可证能与专有分发共存（允许 MIT/Apache-2.0/BSD/ISC 这类宽松许可；GPL/AGPL/LGPL 等 copyleft 一律不引入），并在 `LICENSE` 第 3 条的第三方清单里登记。
+- `third_party/webview_go` 是上游 MIT 组件的补丁副本，保持其 `LICENSE` 原文不动，改动记录写进 `FREEDOM-PATCH.md`。
+
 ## 环境
 
 | 用途 | 要求 | 备注 |
@@ -79,6 +88,7 @@ node freedom-cli/bin/freedom.js shell build   <plat>
 - [ ] 平台成对文件与模板镜像已同步
 - [ ] 公共 API 变更已在 issue/PR 里说明理由与调用方影响
 - [ ] 未新增/自增版本号
+- [ ] 新依赖的许可证已确认，并已登记进 `LICENSE` 第 3 条第三方清单
 - [ ] `CHANGELOG.md` 的 `[未发布]` 段已更新
 
 发现安全漏洞请走 [SECURITY.md](SECURITY.md) 的私密渠道，不要开公开 issue。

@@ -15,7 +15,7 @@
     "frontend",
     "cross-platform"
   ],
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSE",
   "publishConfig": {
     "access": "public"
   },

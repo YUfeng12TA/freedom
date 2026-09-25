@@ -52,7 +52,7 @@ freedom/
 ├── resources.go          # 运行时资源层：exe 同目录 resources/（config.json 覆盖 + app.bin 解密加载）
 ├── security.go           # FRDM2 加密容器（随机盐 + PBKDF2 派生 + Encrypt-then-MAC + .integrity + 后端源码临时物化）
 ├── securetemp*.go        # 物化目录命名与崩溃残留回收（按内嵌 PID 判活，跨平台进程存活探测）
-├── anti_debug_*.go       # 调试器检测（Windows 六道信号 / 其他平台占位）
+├── anti_debug_*.go       # 调试器检测（Windows 七道信号 / Linux ptrace 自检 / macOS 占位）
 ├── updater.go            # 自动更新：ed25519 验签 manifest + sha256 强制校验 + 改名换装回滚
 ├── assets_embed.go       # go:embed 内置资源（freedom.js SDK + default.html）
 ├── sysint_common.go / tray_common.go  # 跨平台共享层（openExternal 白名单 / 菜单模型）
@@ -93,7 +93,7 @@ freedom/
 npm i -g @yufengtadian/freedom-cli
 freedom                     # 选显示方式：终端 TUI / Freedom Desktop（图形界面，由 freedom 自身打包）
 freedom init ./my-app && cd my-app && freedom build --installer
-freedom agents              # 看哪些编码 Agent 可装入 Freedom 技能与 MCP 服务
+freedom agents              # Agent 矩阵：只有本机检出安装足迹的 agent 才会被写入（含 Reasonix）
 freedom skill install --agent all && freedom mcp install --agent all
 ```
 
@@ -179,8 +179,8 @@ macOS/Linux 交叉编译不可行（依赖系统 WebKit），必须走目标平�
 - **自动更新**（`updater.go`，对标 Tauri updater）：`Config.Update{ManifestURL, PublicKey}` 启用；manifest 经 **ed25519 验签**（签名覆盖 version+url+sha256），下载产物 **强制 sha256 校验**，换装走"改名让位+回滚"，**下次启动生效**不做热替换。前端 `freedom.update.check/install` 只发起、结果经 `update.*` 事件回推；install 仅认 check 验签缓存，前端无法注入未验签 URL/哈希。URL 仅放行 https（http 限 loopback）。
 - **代码签名**（M6）：`build.ps1 -Sign` 对本机产出的全部 exe 做 Authenticode（signtool 探测 PATH/Windows Kits；证书经 `FREEDOM_SIGN_PFX[_PASSWORD]` 或 `FREEDOM_SIGN_THUMBPRINT` 环境变量注入，不落仓库；signtool 或证书缺席仅警告不失败）。updater 可选二级复核：`Update.RequireSignature` 开启后产物还须过 **WinVerifyTrust**（离线确定性，无网络吊销检查），非 Windows 平台开启该项直接拒绝安装。真证书签名验证 `阻塞:` 于代码签名证书（用户侧资产）。
 - **运行时引导探测**（M6）：Windows 侧 `os.info.webview2Runtime` 回显系统 WebView2 Runtime 版本（EdgeUpdate 注册表探测，HKCU 优先 HKLM 兜底，"N/A" 占位视为未检出），前端可据此预检环境并提示安装。
-- **零工具链打包（npm 线，freedom-cli v1.13.2）**：`npm i -g @yufengtadian/freedom-cli` → `freedom init` → `freedom build`。壳为预编译通用二进制（`cmd/shell`；win/linux 壳随包分发，其余平台从 GitHub Release 资产 `freedom-shell-<plat>` 按需下载，可用 `FREEDOM_SHELL_TAG` 覆盖版本），应用内容来自 exe 同目录 `resources/`（config.json / index.html），最终用户无需 Go/CGO 工具链。`security: 'high'` 时前端页面、配置与 `backend/**` 后端源码加密为单一 `app.bin`（FRDM2 容器：构建期随机盐 + PBKDF2-HMAC-SHA256 60 万次派生密钥 + Encrypt-then-MAC 覆盖头部）+ `.integrity` 清单，磁盘无明文源码；后端源码运行期解密到仅属主可访问的一次性临时目录、退出即删（残留由下次启动按 PID 回收），篡改 / 改名 / 整体替换即拒绝运行，并配合六道信号 anti-debug 与壳符号剥离（`-trimpath -s -w`）提高逆向成本（`resources.go` / `security.go` / `securetemp.go` / `anti_debug_*.go`，参数与 freedom-cli `lib/security.js` 跨语言同步互验）。
-- **反调试可关**：六道信号在自动化测试 / CI / 远程桌面 / 部分虚拟化环境可能误报，命中即静默退出（码 77）。
+- **零工具链打包（npm 线，freedom-cli v1.13.2）**：`npm i -g @yufengtadian/freedom-cli` → `freedom init` → `freedom build`。壳为预编译通用二进制（`cmd/shell`；win/linux 壳随包分发，其余平台从 GitHub Release 资产 `freedom-shell-<plat>` 按需下载，可用 `FREEDOM_SHELL_TAG` 覆盖版本），应用内容来自 exe 同目录 `resources/`（config.json / index.html），最终用户无需 Go/CGO 工具链。`security: 'high'` 时前端页面、配置与 `backend/**` 后端源码加密为单一 `app.bin`（FRDM2 容器：构建期随机盐 + PBKDF2-HMAC-SHA256 60 万次派生密钥 + Encrypt-then-MAC 覆盖头部）+ `.integrity` 清单，磁盘无明文源码；后端源码运行期解密到仅属主可访问的一次性临时目录、退出即删（残留由下次启动按 PID 回收），篡改 / 改名 / 整体替换即拒绝运行，并配合七道信号 anti-debug 与壳符号剥离（`-trimpath -s -w`）提高逆向成本（`resources.go` / `security.go` / `securetemp.go` / `anti_debug_*.go`，参数与 freedom-cli `lib/security.js` 跨语言同步互验）。
+- **反调试可关**：Windows 七道信号（含硬件断点 DR0–DR3）与 Linux `PTRACE_TRACEME` 自检在自动化测试 / CI / 远程桌面 / 部分虚拟化环境可能误报，命中即静默退出（码 77）。
   `Config.DisableAntiDebug = true` 或环境变量 `FREEDOM_DISABLE_ANTIDEBUG=1` 关掉探测，
   容器解密与 `.integrity` 校验不受影响——那两道才是源码保护的本体（`anti_debug_test.go` 守着开关语义）。
   刻意不提供 `resources/config.json` 里的这个开关：运行期可被替换的配置给第三方递刀。
@@ -234,6 +234,15 @@ CI 门禁（`.github/workflows/build.yml`）：`build`（三平台编译 + vet +
 - **mingw 自动注入 manifest**：WinLibs 链接期带 `default-manifest.o`，`.syso` 内嵌自定义 manifest 会 `multiple non-default manifests` 链接失败——DPI 改运行时 API 声明。
 - **Windows 入库的 `.sh` 丢执行位**：git 在 Windows 上默认记录 100644，Linux CI runner 直接 `Permission denied`（exit 126）——`build.sh` 须 `git update-index --chmod=+x` 固化 100755。
 - **webview2 Destroy 会泵出滞留的 Dispatch 回调**：`Dispatch` 只是入队，销毁路径在拆除线程上仍会执行排队闭包，对半销毁实例 `Eval` 即 0xc0000005——拆除前置原子旗标（`Window.tearing` / `App.viewTearing`），每个排队闭包自我作废，且闭包内不得取锁（锁被 destroy 持有，取锁即自死锁）。
+
+## 许可（闭源专有）
+
+本项目**不适用 MIT 等开源许可**，源码与壳层为闭源专有软件，完整条款见 [LICENSE](LICENSE)：
+
+- 任何人都可自由安装使用，并用它打包 / 销售自己的应用；**你的前端、后端与打包产物归你所有**，无开源或署名义务。
+- 未经许可方书面同意，不得再分发源码 / 壳 / CLI 及其衍生版本，不得移除版权与许可声明，不得对外发布逆向成果（安全研究走 [SECURITY.md](SECURITY.md) 披露通道）。
+- 唯一保留开源许可的是内嵌第三方 `third_party/webview_go`（MIT，原文在其目录 `LICENSE`，改动见 `FREEDOM-PATCH.md`），本项目的许可不改写它。
+- 仓库对**阅读源码**开放（审计、学习、自行部署），分发与再许可才受限——这也是本 README、`CONTRIBUTING.md`、`SECURITY.md` 与全部注释保持可读的原因。
 
 ## 后续路线
 
