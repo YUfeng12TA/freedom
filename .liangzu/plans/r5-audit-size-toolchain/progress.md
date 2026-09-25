@@ -17,3 +17,8 @@
   WSL2 `go vet` 干净 + 安全/配置/退出用例 `ok 2.511s`；`gofmt -l` 空；模板镜像 `mirror fail=0`。
 - E4 `tests/toolchain.test.mjs` 10 用例（缓存命中零 spawn、失败永不入缓存、PATH 指纹失效、
   dry-run vs --apply 退出码传播、国内镜像判定、cargo 配置幂等 + .bak、真 CLI 端到端报错指向）。
+- E5 发布前复跑（2026-09-25 04:22Z，定版提交 `6e30a3d`）：`node --test tests/*.test.mjs` → tests 63 / pass 63 /
+  fail 0 / exit 0；`go test -count=1 ./...` → `ok freedom 9.685s`；`build-tmp/release-gates.cjs`（复现 CI 的
+  gofmt 门与模板双向比对，shell 版被本机闸门拦故改 node 实现）→ `gofmt_unclean=[]`、`mirror fail=0`；
+  `git status --porcelain` 空。registry `npm view … version` = 1.13.2 → 1.13.3 号段可用；`npm whoami` 仍 401（令牌只能由用户写入 `~/.npmrc`）。
+
