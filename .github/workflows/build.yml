@@ -210,7 +210,7 @@ jobs:
           ldd /tmp/freedom-shell | grep -q libwebkit2gtk-4.1.so || {
             echo "::error::产物未链接 4.1"; ldd /tmp/freedom-shell; exit 1; }
 
-  # CLI 契约测试（Node 侧，无需 cgo/GUI）：平台别名归一、壳下载回退、FRDM2 跨语言黄金向量、
+  # CLI 契约测试（Node 侧，无需 cgo/GUI）：平台别名归一、壳下载回退、FRDM2/FRDM3 跨语言黄金向量、
   # SDK 面与 desktop/agents 冒烟。历史上这 44 条只在本地跑，CI 不拦——本 job 补上这道门。
   # 与 linux-webkit241 分离：这里不装 GTK/WebKit，跑得快且失败原因不含糊。
   cli-contract-tests:

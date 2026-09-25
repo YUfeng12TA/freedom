@@ -69,8 +69,11 @@ node freedom-cli/bin/freedom.js shell build   <plat>
    页面内联脚本与桥注入存在竞态，示例见 `examples/multiwin/main.go` 的轮询就绪写法。
 8. **PowerShell 脚本**：含中文必须存带 BOM 的 UTF-8，`param()` 必须是首条可执行语句；
    原生命令失败时 `$ErrorActionPreference` 不生效，须显式查 `$LASTEXITCODE`（见 `build.ps1` 的 `Invoke-Native`）。
-9. **跨语言安全参数**：Go 侧 `security.go` 与 `freedom-cli/lib/security.js` 是同一套 FRDM2 参数的两份实现，
-   改任一侧必须同步另一侧，黄金向量在 `security_test.go` 与 `tests/security-frdm2.test.mjs`。
+9. **跨语言安全参数**：Go 侧 `security.go` 与 `freedom-cli/lib/security.js` 是同一套 FRDM3 参数（容器代际、
+   PBKDF2/域分离标签、清单 claims 字段顺序、ed25519 签名口径）的两份实现，改任一侧必须同步另一侧并重生成
+   共享夹具：`FRDM3_REGEN=1 node tests/security-frdm3.test.mjs` 写 `tests/fixtures/frdm3-golden.json`，
+   Go 侧用 `FRDM3_GO_VECTOR=1 go test -run TestFRDM3EmitGoSignedVector .` 出实算向量互验。
+   契约冻结稿在 `.liangzu/plans/r6-defense-max/frdm3-contract.md`。
 
 ## 测试与提交
 

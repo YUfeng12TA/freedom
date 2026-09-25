@@ -50,7 +50,7 @@ freedom/
 ├── capability.go         # 声明式能力门控 Config.Capabilities（M3）
 ├── backend_proc.go       # 进程后端：任意语言 IPC（启动/调用/事件/关闭/崩溃重启）
 ├── resources.go          # 运行时资源层：exe 同目录 resources/（config.json 覆盖 + app.bin 解密加载）
-├── security.go           # FRDM2 加密容器（随机盐 + PBKDF2 派生 + Encrypt-then-MAC + .integrity + 后端源码临时物化）
+├── security.go           # FRDM3 加密容器（随机盐 + PBKDF2 派生 + Encrypt-then-MAC + ed25519 签名 .integrity + 后端源码临时物化）
 ├── securetemp*.go        # 物化目录命名与崩溃残留回收（按内嵌 PID 判活，跨平台进程存活探测）
 ├── anti_debug_*.go       # 调试器检测（Windows 七道信号 / Linux ptrace 自检 / macOS 占位）
 ├── updater.go            # 自动更新：ed25519 验签 manifest + sha256 强制校验 + 改名换装回滚
@@ -179,7 +179,8 @@ macOS/Linux 交叉编译不可行（依赖系统 WebKit），必须走目标平�
 - **自动更新**（`updater.go`，对标 Tauri updater）：`Config.Update{ManifestURL, PublicKey}` 启用；manifest 经 **ed25519 验签**（签名覆盖 version+url+sha256），下载产物 **强制 sha256 校验**，换装走"改名让位+回滚"，**下次启动生效**不做热替换。前端 `freedom.update.check/install` 只发起、结果经 `update.*` 事件回推；install 仅认 check 验签缓存，前端无法注入未验签 URL/哈希。URL 仅放行 https（http 限 loopback）。
 - **代码签名**（M6）：`build.ps1 -Sign` 对本机产出的全部 exe 做 Authenticode（signtool 探测 PATH/Windows Kits；证书经 `FREEDOM_SIGN_PFX[_PASSWORD]` 或 `FREEDOM_SIGN_THUMBPRINT` 环境变量注入，不落仓库；signtool 或证书缺席仅警告不失败）。updater 可选二级复核：`Update.RequireSignature` 开启后产物还须过 **WinVerifyTrust**（离线确定性，无网络吊销检查），非 Windows 平台开启该项直接拒绝安装。真证书签名验证 `阻塞:` 于代码签名证书（用户侧资产）。
 - **运行时引导探测**（M6）：Windows 侧 `os.info.webview2Runtime` 回显系统 WebView2 Runtime 版本（EdgeUpdate 注册表探测，HKCU 优先 HKLM 兜底，"N/A" 占位视为未检出），前端可据此预检环境并提示安装。
-- **零工具链打包（npm 线，freedom-cli v1.13.3）**：`npm i -g @yufengtadian/freedom-cli` → `freedom init` → `freedom build`。壳为预编译通用二进制（`cmd/shell`；win/linux 壳随包分发，其余平台从 GitHub Release 资产 `freedom-shell-<plat>` 按需下载，可用 `FREEDOM_SHELL_TAG` 覆盖版本），应用内容来自 exe 同目录 `resources/`（config.json / index.html），最终用户无需 Go/CGO 工具链。`security: 'high'` 时前端页面、配置与 `backend/**` 后端源码加密为单一 `app.bin`（FRDM2 容器：构建期随机盐 + PBKDF2-HMAC-SHA256 60 万次派生密钥 + Encrypt-then-MAC 覆盖头部）+ `.integrity` 清单，磁盘无明文源码；后端源码运行期解密到仅属主可访问的一次性临时目录、退出即删（残留由下次启动按 PID 回收），改名 / 篡改 / 整体替换即拒绝运行，并配合七道信号 anti-debug 与壳符号剥离（`-trimpath -s -w`）提高逆向成本（`resources.go` / `security.go` / `securetemp.go` / `anti_debug_*.go`，参数与 freedom-cli `lib/security.js` 跨语言同步互验）。**强度边界如实声明**：这是对称加密 + 混淆，挡住"直接读明文"和"没有 CLI 的随手篡改"；由于 `freedom-cli` 包自带派生参数与解密器，持有该包者理论上可离线解密任意产物（见 [SECURITY.md](SECURITY.md) 的「FRDM2 的当前实际边界」与 FRDM3 计划），不要把 high 模式当作 DRM 或访问控制。
+- **零工具链打包（npm 线 Tier A，freedom-cli v1.14.0）**：`npm i -g @yufengtadian/freedom-cli` → `freedom init` → `freedom build`。壳为预编译通用二进制（`cmd/shell`；win/linux 壳随包分发，其余平台从 GitHub Release 资产 `freedom-shell-<plat>` 按需下载，可用 `FREEDOM_SHELL_TAG` 覆盖版本），应用内容来自 exe 同目录 `resources/`（config.json / index.html），最终用户无需 Go/CGO 工具链。**这一档跑不了 `security: 'high'` 产物**：通用壳没有构建期注入点，主密钥与验签公钥无处可放，放进产物本身等于让攻击者自签自验（循环信任），所以 FRDM3 容器对它无解——真拿到 high 产物它会以退出码 70 拒绝运行而不是降级明文跑。零工具链线请用 `basic`（明文 + 加固建议）。
+- **加密分发（npm 线 Tier B，需 Go 工具链）**：`freedom build --security high` 会**现编本应用专属壳**（内部即走 `freedom shell build`；`cmd/freedom build` / `freedom dev` 同档），`security: 'high'` 时前端页面、配置与 `backend/**` 后端源码加密为单一 `app.bin`（FRDM3 容器：构建期随机盐 + PBKDF2-HMAC-SHA256 60 万次派生密钥 + Encrypt-then-MAC 覆盖头部），`.integrity` 清单由 `.freedom/keys/` 下的 **ed25519 私钥签名**、公钥与每产物主密钥经 `-ldflags -X` 注入壳内，磁盘无明文源码；后端源码运行期解密到仅属主可访问的一次性临时目录、退出即删（残留由下次启动按 PID 回收），改名 / 改造 resources / 换后端 / 换公钥文件一律**拒绝运行（退出码 70）**，并配合七道信号 anti-debug 与壳符号剥离（`-trimpath -s -w`）提高逆向成本（`resources.go` / `security.go` / `securetemp.go` / `anti_debug_*.go`，参数与 freedom-cli `lib/security.js` 跨语言黄金向量互验）。**强度边界如实声明**：挡住"直接读明文"与"拿正版壳改造 resources 重打包"；不挡"攻击者自换密钥 + 自编壳"（那已是整个应用归攻击者），也不挡能读进程内存的对手——不要把 high 当 DRM 或访问控制，详见 [SECURITY.md](SECURITY.md) 的 Tier A / Tier B 表。
 - **反调试可关**：Windows 七道信号（含硬件断点 DR0–DR3）与 Linux `PTRACE_TRACEME` 自检在自动化测试 / CI / 远程桌面 / 部分虚拟化环境可能误报，命中即静默退出（码 77）。
   `Config.DisableAntiDebug = true` 或环境变量 `FREEDOM_DISABLE_ANTIDEBUG=1` 关掉探测，
   容器解密与 `.integrity` 校验不受影响——那两道才是源码保护的本体（`anti_debug_test.go` 守着开关语义）。
@@ -193,7 +194,7 @@ macOS/Linux 交叉编译不可行（依赖系统 WebKit），必须走目标平�
 # 先运行 build.ps1 / build.sh 产出编译型后端二进制（缺失时对应子测试自动跳过）
 go test -v ./...   # 同一套断言跑 Go / Node / Python / Rust 四个后端（调用/错误/事件）
 
-node --test tests/*.test.mjs   # CLI/SDK 契约测试（无需 cgo）：FRDM2 跨语言黄金向量、
+node --test tests/*.test.mjs   # CLI/SDK 契约测试（无需 cgo）：FRDM3 跨语言黄金向量（tests/fixtures/frdm3-golden.json）、
                                # 平台别名与壳下载回退、WebKitGTK 标签探测、desktop/agents 冒烟
 ```
 

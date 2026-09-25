@@ -12,7 +12,7 @@
 - 构建（Windows）：`.\build.ps1`（`-SkipRust` 可跳过 Rust；`-Sign` Authenticode 签名；`-Installer` 产 zip+nsi）；macOS/Linux：`./build.sh`。产物输出 `dist/`（hello.exe、multiproc.exe、multiwin.exe、dist/backends/*、SHA256SUMS.txt）。
 - 脚手架 CLI：`go run ./cmd/freedom new <dir> -backend embed|go|node|python|rust`、`go run ./cmd/freedom build <dir> [-gui] [-version x.y.z]`。
 - 测试：先跑 build 脚本产出编译型后端，再 `go test ./...`（`backend_proc_test.go` 用同一套断言跑四语言后端；对应二进制缺失时该子测试自动跳过，不是失败）。
-- CLI 契约测试（无需 cgo/GUI）：`node --test tests/*.test.mjs`（FRDM2 跨语言黄金向量、平台别名与壳下载回退、WebKitGTK 标签探测、desktop/agents 冒烟）；CI 的 `cli-contract-tests` job 三平台跑同一命令，并含 `Template mirror in sync` 步骤。
+- CLI 契约测试（无需 cgo/GUI）：`node --test tests/*.test.mjs`（FRDM3 跨语言黄金向量、平台别名与壳下载回退、WebKitGTK 标签探测、desktop/agents 冒烟）；CI 的 `cli-contract-tests` job 三平台跑同一命令，并含 `Template mirror in sync` 步骤。
 - Linux WebKitGTK 依赖名：`webkit2gtk-4.0` / `4.1` 二选一，构建标签 `webkit2_41` 切换（`third_party/webview_go/webkit2_40.go`、`webkit2_41.go`）。`build.sh` 与 `freedom shell build` 自动探测注入；裸 `go build` 用 `. ./tools/webkit-env.sh` 把标签追加进 `GOFLAGS`。`webkitgtk-6.0` API 不同，不可只换包名。
 - 运行示例：`.\dist\multiproc.exe [go|node|python|rust]`。
 - lint：项目未配置 linter（无 .golangci.yml 等配置文件）。
@@ -26,7 +26,7 @@
 - `window_mgr.go` — M2 多窗口：窗口注册表、次级窗口独立消息泵（LockOSThread）、create/list/closeWindow/focusWindow 管理动作、Emit 广播；页面来源优先序 URL > HTML 函数 > Page(json `html`) > 主页面。
 - `capability.go` — M3 声明式能力模型：`Config.Capabilities{Allow,Deny}`（path.Match），在 sys/tray/window 三桥派发前判定，拒绝零副作用；默认 nil 全开；os.info 回显。
 - `resources.go` — 运行时外部资源层：exe 同目录 `resources/`（config.json 覆盖窗口/后端配置，后端 CWD=resources/，`ProcBackend.SetDir`）；resolveHTML 优先序 resources（app.bin 或 index.html）> cfg.HTML > 内置页；high 校验失败经 `secureFatalError` 拒绝运行（Run 与 resolveHTML 双保险）。
-- `security.go` / `anti_debug_*.go` / `securetemp*.go` / `shutdown*.go` — FRDM2 加密容器（容器内嵌构建期随机 salt，PBKDF2-HMAC-SHA256 按「exe 名 + 盐」60 万次派生 KEK，HMAC 域分离出独立认证钥，AES-256-CTR + Encrypt-then-MAC 覆盖容器头部，`.integrity` 清单绑盐；主密钥经 `withMasterSecret` 限定作用域并抹零，密钥缓存淘汰前先清零字节）与调试器检测（Windows 七道信号含 `DR0–DR3` 硬件断点、Linux 一次性 `PTRACE_TRACEME` + `PR_SET_DUMPABLE=0`、macOS 未实现，探测失败一律记未命中）；后端源码也进容器，运行期解密到私有临时目录（`securetemp*.go` 负责按目录名内嵌 PID 回收崩溃/强杀残留），退出时 defer 删除，`shutdown*.go` 接管 SIGINT/SIGTERM 与 Windows `CTRL_CLOSE_EVENT`（先清扫再 exit 130；注意 `-H windowsgui` 产物无控制台，该通道只对控制台子系统构建生效，GUI 产品靠 defer + 下次启动 GC）；参数与 freedom-cli `lib/security.js` 跨语言同步，改任一侧必须同步另一侧（黄金向量在 `security_test.go` 与 `tests/security-frdm2.test.mjs`）。
+- `security.go` / `anti_debug_*.go` / `securetemp*.go` / `shutdown*.go` — FRDM3 加密容器（容器内嵌构建期随机 salt，PBKDF2-HMAC-SHA256 按「每产物主密钥 + 应用标识 + 盐」60 万次派生 KEK，HMAC 域分离出独立认证钥，AES-256-CTR + Encrypt-then-MAC 覆盖容器头部；`resources/.integrity` 是**发布方 ed25519 私钥签名的 v3 清单**，claims 绑 app.bin 摘要 / 应用标识 / 容器盐 / exe 自身摘要，验签顺序锁死为「锚比对 → 验签 → claims 复查 → exe 自摘要 → 解密」）与调试器检测（Windows 七道信号含 `DR0–DR3` 硬件断点、Linux 一次性 `PTRACE_TRACEME` + `PR_SET_DUMPABLE=0`、macOS 未实现，探测失败一律记未命中）；后端源码也进容器，运行期解密到私有临时目录（`securetemp*.go` 负责按目录名内嵌 PID 回收崩溃/强杀残留），退出时 defer 删除，`shutdown*.go` 接管 SIGINT/SIGTERM 与 Windows `CTRL_CLOSE_EVENT`（先清扫再 exit 130；注意 `-H windowsgui` 产物无控制台，该通道只对控制台子系统构建生效，GUI 产品靠 defer + 下次启动 GC）；**high 模式仅 Tier B（应用自编译壳）可用**：每产物主密钥与信任锚公钥经 `-X freedom-cli-shell/pkg/freedom.{securityMasterCipher,securityAnchorPubHex}` 编译期内嵌，通用预编译壳（Tier A）两值恒空 ⇒ 结构上解不开；主密钥以位置掩码（`out[i] ^= (i*7+0x5A)`）形式存放，`productMaster()` 还原后由调用方 `defer clearBytes(master)` 立即清零（FRDM2 遗留路径另有 `withMasterSecret` 作用域抹零与缓存淘汰前清零）；**安全校验失败一律 `os.Exit(70)`**（`exitSecureFatal`），不得返回 nil 让"拒跑"与"正常退出"同形；**旧代际容器（FRDM1/FRDM2）明确拒绝，禁静默降级**；参数与 freedom-cli `lib/security.js` 跨语言同步，改任一侧必须同步另一侧并重生成共享夹具（`security_frdm3_test.go` 与 `tests/security-frdm3.test.mjs` 读同一份 `tests/fixtures/frdm3-golden.json`；重生成 `FRDM3_REGEN=1 node tests/security-frdm3.test.mjs`，Go 侧出向量 `FRDM3_GO_VECTOR=1 go test -run TestFRDM3EmitGoSignedVector .`）。
 - `backend_proc.go` — 进程后端：stdio IPC（启动/调用/事件/关闭），注入 `FREEDOM_BACKEND=1`、`FREEDOM_IPC=stdio`。
 - `assets_embed.go` — 前端资源 `go:embed`（assets/freedom.js SDK + default.html）。
 - `window_windows.go` — Windows 原生窗口层（user32/dwmapi）：标题栏策略、居中、样式、共用 NewProc 声明处。
@@ -39,7 +39,7 @@
 - `authenticode_windows.go` / `authenticode_other.go` — M6 WinVerifyTrust 离线 Authenticode 复核（`Update.RequireSignature` 可选启用；非 Windows 诚实报错）。
 - `cmd/freedom/` — M7 项目 CLI：`new <dir> -backend embed|go|node|python|rust` 生成骨架（go.mod 以 replace 指向框架目录），`build [dir] -gui -version X.Y.Z` 包装壳层构建（存在 `backends/go` 时一并编译）。
 - `cmd/shell/` — 预编译通用壳入口（零应用专属资源，内容全部来自 resources/）：CI tag 构建为 Release 资产 `freedom-shell-<plat>`，freedom-cli 按需下载或走包内自带壳。
-- `freedom-cli/` — npm 打包 CLI（@yufengtadian/freedom-cli，v1.13.3）：`bin/lib/postinstall/tutorial` 源自 npm 1.12.18 tarball 恢复（源码曾丢失），`templates/go` 为框架源码快照（`freedom shell build` 用），`shell/<plat>` 为随包壳二进制（.gitignore 排除入库、npm files 白名单打包）。
+- `freedom-cli/` — npm 打包 CLI（@yufengtadian/freedom-cli，v1.14.0）：`bin/lib/postinstall/tutorial` 源自 npm 1.12.18 tarball 恢复（源码曾丢失），`templates/go` 为框架源码快照（`freedom shell build` 用），`shell/<plat>` 为随包壳二进制（.gitignore 排除入库、npm files 白名单打包）。
 - `sysint_common.go` / `tray_common.go` — 无 build tag 的跨平台共享层：openExternal/scheme 白名单、deep-link 参数、dataURL 解析、菜单条目模型（Windows/Linux 两侧复用）。
 - `msgwindow_windows.go` / `singleinstance_windows.go` — 独立消息窗口线程（WM_HOTKEY/WM_COPYDATA）与 CreateMutexW 权威单实例锁。
 - `store.go` / `osver_windows.go` — 平台无关数据层（path/store/window-state/os/process，经 sysGeneric 分发）与 Windows 侧几何/版本支撑。

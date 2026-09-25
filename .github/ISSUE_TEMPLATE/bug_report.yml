@@ -36,7 +36,7 @@ body:
       multiple: true
       options:
         - 框架壳层（Go / freedom.go、window_*、bridge、dispatch）
-        - 安全容器（FRDM2 / resources 加密 / 反调试）
+        - 安全容器（FRDM3 / resources 加密 / 反调试）
         - 系统集成（托盘 / 热键 / 剪贴板 / 通知 / 单实例 / store）
         - 后端进程 IPC（backend_proc / NDJSON 协议）
         - freedom-cli（npm：new / build / dev / shell / keygen / manifest / desktop）
@@ -74,7 +74,7 @@ body:
       label: 版本
       description: >-
         CLI 用 `freedom version`（同时检测最新）；框架用 `node -p "require('./freedom-cli/package.json').version"` + `git rev-parse --short HEAD`。
-      placeholder: freedom-cli 1.13.3 / 框架 main@8033da4
+      placeholder: freedom-cli 1.14.0 / 框架 main@8033da4
     validations:
       required: true
 

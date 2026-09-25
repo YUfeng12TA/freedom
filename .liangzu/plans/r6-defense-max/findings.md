@@ -38,3 +38,23 @@
 - 壳 `freedom-cli/shell/win-x64/freedom-shell.exe` 7,495,680B；`.integrity` 92B → 加 ed25519 签名字段约 +100B 量级；
 - 启动路径 PBKDF2 600k 次实测约 180ms（已按 (应用名,盐) 记忆化）；ed25519 verify ≈ 0.1ms 量级（Go 标准库），
   加自检哈希（读 7MB exe 求 SHA-256）在机械盘上约 20–60ms —— 若开壳自校验需实测确认启动预算。
+
+## 实施期新发现（改向依据，2026-09-25）
+
+- **CLI 编译 Tier B 壳走的是镜像副本**：`lib/shell.js` 的 `buildShell` 在 `goTemplateDir()`
+  （`freedom-cli/templates/go`）里 `go build`，不是仓库根目录。故运行期改动未镜像同步时，
+  真机构建的壳仍是旧代码——本轮第一次重编仍退出 0，同步 `freedom.go`/`resources.go` 后才 70。
+  **判据**：任何"真机验运行时行为"的步骤，前一步必须是镜像比对（`release-gates.cjs` 的 `mirror fail=0`）。
+- **`self` 与"构建后改写 exe"互斥**：取摘要的位置被锁在图标注入之后、安装包组装之前（`lib/build.js` 有注释），
+  补做 Authenticode 会让壳拒启动——取舍与后续路线已定稿在契约 §6.5，此处只记一次实测踩点：
+  真机 `-Sign` 流程与 Tier B high 目前不可并用（推断自 `self` 绑定的字节范围，未单独实测）。
+- **退出码是接口不是细节**：`Run` 打印告警后返回 nil 时，PowerShell/CI 只见 exit 0，"拒跑"被当成成功；
+  改 `os.Exit(70)` 后 ②③ 两类攻击用例才第一次可判定。凡"拒绝执行"的分支都该有非零码。
+- **单实例锁不可重入**（`CreateMutexW` 无释放 API）：同进程二次 `RequestSingleInstance` 必返回 false，
+  所以 `-count>1` 下原测试的"第一次必为主实例"断言必然假红——测试写的是"锁"，实际断的是"进程第一次"。
+- **`freedom keygen --dir` 曾完全失效**：help 宣传支持、实现恒传 `process.cwd()`，
+  在 `freedom-cli/` 目录内跑会把发布密钥写进 CLI 自己家并新建一个 `.gitignore`（已清理）。
+  教训：凡"选项存在但只被读不被用"的，测试必须断"落到指定位置"，不能只断"生成成功"。
+- **公钥可从私钥推导**：`rawPubHexFromKey` 原只吃公钥，而 keygen 体系里持久化的是 PKCS#8 私钥；
+  Tier B 需要 anchor 公钥时用 `crypto.createPublicKey(privateKey)` 现推，避免再存一份可漂移的副本。
+

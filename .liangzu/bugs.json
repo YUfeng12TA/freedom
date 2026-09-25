@@ -1,7 +1,7 @@
 {
   "version": 4,
   "subKind": "bugs",
-  "lastUpdated": "2026-09-25T03:55:06.389Z",
+  "lastUpdated": "2026-09-25T12:00:00.000Z",
   "bugRegistry": [
     {
       "id": "B01",
@@ -678,10 +678,43 @@
       "file": "freedom-cli/lib/security.js",
       "line": 32,
       "summary": "high 模式的密钥模型可被公开源击穿：npm 包自带全域 MASTER_KEY_CIPHER + decryptApp() + buildIntegrity()，而容器派生钥的另两个输入（应用名=exe 文件名、派生盐=app.bin 头 16B）都在产物自己身上 ⇒ 任何安装者无需调试/逆向即可离线解密任意 high 产物（本轮实测拿到后端源码全文），并能为篡改后的内容生成合法 .integrity 让壳照跑（实测攻击后端在壳的私有临时目录里落下 93B 标记）。次生缺口：.integrity 是对称 HMAC，能加密即能签；壳自身二进制不在任何校验覆盖内（换壳绕反调试无人知）",
-      "status": "open",
-      "fix": "方案闸门见 .liangzu/plans/2026-09-25-r6-defense-max.md：D1 清单改 ed25519 签名（私钥仅在发布方 .freedom/keys/，公钥进壳）+ 壳自检摘要；D2 per-product 对称钥移出公开源。推荐 D1+D2 同一波（FRDM2→FRDM3 一次断代）；断代与版本号待用户裁定后实施",
-      "regressionTest": "红台架已在盘上：build-tmp/hi2/r6-poc.cjs（离线解密）与 r6-swap-poc.cjs（forge/launch/verify/restore 端到端换包）。修完转正式回归：tests/security-frdm3.test.mjs + Go security_test.go 黄金向量，断言公开 CLI 无 per-product 钥即解不开、无发布方私钥即签不出",
-      "fixedAt": ""
+      "status": "fixed",
+      "fix": "FRDM3（1.14.0，D1+D2 同波断代）：① .integrity 改 ed25519 签名 v3 清单{v,alg,pub,payload(base64),sig}，claims 绑 app.bin 摘要 / 应用标识 / 容器盐 / exe 自身摘要，签名对象是 base64 内那串确切字节（跨语言不做 JSON 规范化）；验签顺序锁死为锚比对→验签→claims 复查→exe 自摘要→解密（security.go verifyIntegrityManifest / verifySelfHash）。② 主密钥改为每产物随机 32B（<app>/.freedom/keys/<app>.key），不进 npm 包、不以明文落进 resources/，只以掩码态编进本应用专属壳；high 构建缺主密钥或签名私钥即拒（lib/build.js prepareHighSecrets）。③ high 收为 Tier B 专属：主密钥与信任锚公钥经 -X 注入本应用专属壳（securityMasterCipher / securityAnchorPubHex），通用预编译壳两值恒空 ⇒ 结构上解不开。④ 旧代际 FRDM1/FRDM2 容器在新壳明确拒绝，不静默降级。",
+      "regressionTest": "跨语言夹具 tests/fixtures/frdm3-golden.json（JS/Go 读同一份；FRDM3_REGEN=1 重生成，FRDM3_GO_VECTOR=1 go test -run TestFRDM3EmitGoSignedVector . 出 Go 实算向量）；Go security_frdm3_test.go 的 tierBPublisher 端到端（注入→签名→验签→解密）+ 四类拒绝（锚不符 / 签名不符 / exe 改名 / 旧代际容器）；JS tests/security-frdm3.test.mjs（缺密钥即拒、私钥可推公钥、.gitignore 幂等）。红→绿由三处变异证明承重：改回 v2 派生盐即撞夹具、拆 FRDM2 守卫即红、去掉锚比对即红，改回各自转绿。真机三类用例见 E-M2（正常启动 / 改造 resources / 换公钥文件，后两者 exited code=70）。",
+      "fixedAt": "2026-09-25"
+    },
+    {
+      "id": "B-20260925-055",
+      "sev": "major",
+      "file": "freedom-cli/lib/cli.js",
+      "line": 0,
+      "summary": "freedom keygen 忽略 --dir：help 宣传支持，实现里恒传 process.cwd()。在 freedom-cli/ 目录内执行 \"freedom keygen --dir ../build-tmp/hi2\" 时，密钥落到 CLI 自己家（freedom-cli/.freedom/keys/）并顺手新建 freedom-cli/.gitignore，目标项目仍然无密钥——high 构建随后报\"缺每产物主密钥\"，用户无从下手",
+      "status": "fixed",
+      "fixedAt": "2026-09-25",
+      "fix": "cli.js 的 keygen 分支改走统一的 optVal(\"dir\") 解析并透传给 keygen({dir})；help 行同步为 freedom keygen [--dir <项目目录>]",
+      "regressionTest": "tests/security-frdm3.test.mjs「缺密钥即拒」用例（临时目录内验证 productKeyPath/signingKeyPath 随 dir 解析，缺失各自报错、齐备返回 {master,anchorPubHex,privateKey}）；本轮实证：修前跑 --dir 落错位置并生成 freedom-cli/.gitignore（已清理），修后密钥正确落到目标项目"
+    },
+    {
+      "id": "B-20260925-056",
+      "sev": "major",
+      "file": "freedom.go",
+      "line": 0,
+      "summary": "high 模式安全校验失败（资源解密 / 完整性 / 反篡改）只打印告警后从 Run 返回 nil，进程以退出码 0 结束 ⇒ 脚本、CI、安装包看门狗无法区分\"拒绝运行\"与\"用户正常关掉窗口\"，自动化流水线会把被篡改的产物判成一次成功的启动（Tier B 首装机测试实测 exited code=0）",
+      "status": "fixed",
+      "fixedAt": "2026-09-25",
+      "fix": "secureFatalError 分支改为 os.Exit(exitSecureFatal)（70，BSD sysexits EX_SOFTWARE 语义，新增于 resources.go）；退出码必须非零的理由写进注释，防止后人\"顺手\"改回 return",
+      "regressionTest": "真机用例 build-tmp/hi2/r6-tierb-cases.cjs：② 改造 resources、③ 换公钥文件两条攻击均须 exited code=70 才判 REALCASE_PASS（修前 code=0 红，修后绿）；Go 侧拒绝路径由 security_frdm3_test.go 四类断言覆盖"
+    },
+    {
+      "id": "B-20260925-057",
+      "sev": "minor",
+      "file": "sysint_windows_test.go",
+      "line": 0,
+      "summary": "TestRequestSingleInstanceLock 假设\"本进程第一次申请必是主实例\"，而单实例互斥体没有释放 API（进程活着锁就活着）⇒ go test -count=2 ./... 第二轮必然假红，看起来像单实例锁坏了，实际是测试不可重入",
+      "status": "fixed",
+      "fixedAt": "2026-09-25",
+      "fix": "改为申请失败即 t.Skip（附\"锁不可重入\"原因注释），使 -count>1 的重跑有意义",
+      "regressionTest": "go test -count=2 ./... → ok freedom 26.918s（修前该测试在第二轮 t.Fatal）；gofmt -l 无输出"
     }
   ]
 }

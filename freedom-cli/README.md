@@ -1,13 +1,15 @@
 # freedom-cli
 
-Freedom 桌面壳打包工具：把你的 Web 前端一键打包成跨平台桌面应用（v1.13.3）。
+Freedom 桌面壳打包工具：把你的 Web 前端一键打包成跨平台桌面应用（v1.14.0）。
 
 基于自研 Freedom WebView 壳层（对标 Wails / Tauri）：前端完全自由、后端可任意语言、渲染复用系统 WebView（Windows WebView2 / macOS WKWebView / Linux WebKitGTK），产物为单个可执行文件 + resources 目录，前端页面内存加载，不占本地端口。
+
+**v1.14.0 加密代际断代（FRDM2 → FRDM3）+ 发布密钥体系**：① `.integrity` 改为 **ed25519 签名的 v3 清单**，签名对象覆盖 `app.bin` 摘要、应用标识、容器盐与 exe 自身摘要，公钥构建期注入壳——没有发布方私钥就签不出合法清单；② 容器主密钥从"随 npm 包分发的全域常量"改为**每产物随机密钥**（`.freedom/keys/<app>.key`，`freedom keygen` 生成，永不进包），1.13.x 那条"持有 CLI 者可离线解密任意产物"的结构缺陷（台账 B-20260925-054）就此封堵；③ **high 收为 Tier B 专属**——加密产物必须由本机现编的应用专属壳承载（需 Go 工具链、不支持交叉编译），零工具链通用壳（Tier A）请用 `basic`；④ 安全校验失败从"打印告警后返回"改为**退出码 70**，脚本与 CI 从此能区分"拒跑"与"正常退出"；⑤ `freedom keygen` 支持 `--dir <项目目录>`（此前静默按 cwd 写，会把密钥落到错误位置）。**FRDM1/FRDM2 旧产物在新壳上明确拒绝运行（不静默降级），须用 1.14.0 重新 `freedom build`**；三平台壳随本版本经 CI 重编发布。
 
 **v1.13.x 框架线回归 + 稳定性收口**（v1.13.0 功能，v1.13.1 为文档勘误发布）：
 - **freedom-cli 源码回归主仓库**：本 CLI 与框架源码同仓维护（`freedom-cli/` 目录，`templates/go` 为框架源码快照），npm 包与 GitHub Release 一一对应，历史"源码丢失停在 1.12.18"的断档已修复；
 - **三平台通用壳经 tag CI 自动发布**：推送 `vX.Y.Z` tag 即由 `build.yml` 在 win / mac（Apple Silicon）/ linux runner 上编译通用壳并自动创建 GitHub Release，资产命名 `freedom-shell-<plat>`；`freedom shell download <plat>` 直接拉取对应版本资产（默认定位 `v<包版本>`，可用 `FREEDOM_SHELL_TAG` 覆盖），包内另自带三平台壳兜底，均随包分发；
-- **运行时资源层回归**：壳从 exe 同目录 `resources/` 读取 `config.json`（窗口 / 后端配置覆盖）与前端页面，high 模式下前端页面、配置与 **`backend/**` 后端源码**统一封进加密 `app.bin`（FRDM2 容器：构建期随机盐 + PBKDF2 60 万次派生 + Encrypt-then-MAC 覆盖头部）+ `.integrity` 清单，磁盘不留明文后端源码；JS 侧构建加密 → Go 壳内存解密已有跨语言黄金向量与端到端互验（改名 / 篡改 / 整体替换即拒绝运行）。**边界如实说明**：high 是对称加密 + 混淆，强度目标是"不能直接读明文、不能随手篡改"，不是 DRM 也不是访问控制——本 CLI 自带派生参数与解密器，持有本包者理论上可离线解密任意产物（详见根仓库 [SECURITY.md](../SECURITY.md)，FRDM3 计划改为发布方私钥签名绑定）；
+- **运行时资源层回归**：壳从 exe 同目录 `resources/` 读取 `config.json`（窗口 / 后端配置覆盖）与前端页面，high 模式下前端页面、配置与 **`backend/**` 后端源码**统一封进加密 `app.bin`（FRDM3 容器：构建期随机盐 + PBKDF2 60 万次派生 + Encrypt-then-MAC 覆盖头部）+ **ed25519 签名的 `.integrity` 清单**，磁盘不留明文后端源码；JS 侧构建加密 → Go 壳内存解密已有跨语言黄金向量与端到端互验（改名 / 篡改 / 整体替换 / 换公钥文件即拒绝运行，退出码 70）。**边界如实说明**：high 是"每产物专属密钥 + 发布方私钥签名"的加密加固，强度目标是"读不到明文、改不动内容、重打包跑不起来"，不是 DRM 也不是访问控制——运行期密钥仍在壳进程内存里，能读内存或愿意自编壳的对手不在防护范围内（详见根仓库 [SECURITY.md](../SECURITY.md) 的 Tier A / Tier B 表）；
 - **多窗口（M2）随 v1.13.0 壳可用**：前端 `window.freedom.window.create / close / list / focus` 开二级窗口，Go 侧 `App.NewWindow / Window.Close`；次级窗口独立消息泵、页面源支持内联 HTML / URL；
 - **销毁竞态收口**：修复 webview2 在 `Destroy` 中泵出滞留 dispatch 回调导致的随机崩溃（0xc0000005，多窗口 / 快速关闭场景），回收后所有排队回调按拆除旗标自我作废，并配套红绿回归测试；
 - **v1.13.1**：文档同步（本 README 更新至 v1.13.x 真实现状、壳 CI 章节勘误），无功能与壳二进制变更。
@@ -202,7 +204,18 @@ export default {
 | --- | --- | --- | --- |
 | `none` | 明文 `index.html` + `config.json`（默认，兼容历史产物） | 解包即读 | 公开页面 / 调试 / 快速分发 |
 | `basic` | 同上明文，构建时额外输出加固建议 | 低 | 需要提示、暂不加密 |
-| `high` | 前端 HTML + 配置 + **后端源码**整体加密为 `resources/app.bin` + `.integrity`，磁盘**无任何明文** | 高（需逆向壳 + 还原派生密钥） | 防源码提取、防资源篡改的正式分发 |
+| `high` | 前端 HTML + 配置 + **后端源码**整体加密为 `resources/app.bin` + **签名** `.integrity`，磁盘**无任何明文** | 高（需逆向壳 + 拿到发布方私钥与每产物主密钥） | 防源码提取、防重打包的正式分发；**仅 Tier B（自编译壳）** |
+
+**两档壳，强度不同（1.14.0 起的口径，务必对号入座）**：
+
+| 档 | 壳怎么来 | 能跑 `high` 产物吗 | 说明 |
+| --- | --- | --- | --- |
+| **Tier A** | 通用预编译壳（`freedom build` 零工具链，`none` / `basic` 用的就是它：随包分发或按需下载） | ❌ | 壳是公共二进制，没有构建期注入点 ⇒ 每产物主密钥与验签公钥无处安放，硬放进产物等于让攻击者自签自验 |
+| **Tier B** | 本应用自编译壳（`freedom build --security high` 自动走这条：内部调 `freedom shell build` 现编，需 Go 工具链） | ✅ | 主密钥与 ed25519 公钥编译期内嵌进**这个应用专属的壳**，签名清单与它一一绑定 |
+
+所以 `high` 一档自带三个门槛，缺一个即拒绝构建（不静默降级）：`.freedom/keys/<app>.key` 每产物主密钥、
+`.freedom/keys/update_ed25519` 签名私钥（两者由 `freedom keygen` 生成）、以及**在本机为目标平台编译**
+（webview_go 依赖目标平台系统 WebView，无法交叉编译，跨平台 high 会直接报明）。
 
 **切换方式**（二选一，`--security` 可临时覆盖配置文件）：
 
@@ -212,16 +225,18 @@ freedom build --security high        # 单次构建生效（不改配置）
 freedom build                        # 读取配置中的 security 值
 ```
 
-**high 模式原理（FRDM2 容器）**：
-- 容器布局：`FRDM2`(5B) + `salt`(16B，**每次构建随机**) + `iv`(16B) + `tag`(16B) + 密文；密钥 = **PBKDF2-HMAC-SHA256**（60 万次迭代，主密钥经字节表掩码内置于壳与 CLI）按「应用可执行文件名 + 容器随机盐」派生，再由固定标签做 **HMAC 域分离**得到独立的加密钥与认证钥；
-- 认证为 **Encrypt-then-MAC 且覆盖容器头部**（magic/salt/iv 参与计算），故改盐、改 IV、翻转任意一字节都会认证失败；`.integrity` 清单绑定同一盐值，**整体替换成另一个合法容器**同样拒绝运行；
+**high 模式原理（FRDM3 容器 + 签名清单）**：
+- 容器布局：`FRDM3`(5B) + `salt`(16B，**每次构建随机**) + `iv`(16B) + `tag`(16B) + 密文；密钥 = **PBKDF2-HMAC-SHA256**（60 万次迭代）以「**每产物主密钥**（`.freedom/keys/<app>.key`，32B 随机，`freedom keygen` 生成；不进 npm 包、不以明文落进 `resources/`，只以掩码态编进本应用专属壳）+ 应用标识 + 容器随机盐」派生，再由固定标签做 **HMAC 域分离**得到独立的加密钥与认证钥；
+- 完整性为 **Encrypt-then-MAC 且覆盖容器头部**（magic/salt/iv 参与计算），故改盐、改 IV、翻转任意一字节都会认证失败；`resources/.integrity` 是 **ed25519 签名的 v3 清单**（签名对象是清单里 base64 那段确切的字节，跨语言不做 JSON 规范化）， claims 绑定 `app.bin` 摘要、应用标识、容器盐与 **exe 自身摘要**——换内容、换身份、换盐、**给 exe 改名**全部当场拒；
+- **验签顺序不可换**：先比对清单公钥与壳内信任锚（锚必须在被校验对象之外，否则攻击者换对钥匙即自证合法）→ 验签 → 复查 claims 绑定 → exe 自摘要 → 才解密；
 - **后端源码不再明文落盘**：`backend/**`（含 POSIX 权限位）作为条目进入容器，磁盘上不再有 `resources/backend/`；壳启动解密到仅属主可访问的一次性临时目录（0700 / 文件 0600，执行位按容器记录还原）供子进程执行，进程退出即删除；若被强杀或崩溃来不及删，**下次启动会按目录名内嵌的 PID 自动回收残留**；
-- 构建期抹除前端产物中的 `sourceMappingURL` 引用（防 source map 还原源码），壳二进制一律 `-trimpath -ldflags "-s -w"`（Windows 另加 `-H windowsgui`）；
-- 解密 / 校验失败即拒绝运行（不静默回退明文，防降级攻击；旧版 `FRDM1` 容器明确报"版本不支持"）；
+- 构建期抹除前端产物中的 `sourceMappingURL` 引用（防 source map 还原源码），壳二进制一律 `-trimpath -ldflags "-s -w"`（Windows 另加 `-H windowsgui`），注入的主密钥以掩码表形式编译、运行时组装（`strings` 直取不到）；
+- 解密 / 校验失败即**拒绝运行并以退出码 70 结束**（不静默回退明文，防降级攻击；拒跑必须非零，否则脚本与 CI 眼里"拒跑"与"正常退出"同形）；旧代际 `FRDM1`/`FRDM2` 容器明确报"旧代际、请重新打包"；
 - 另内置 **anti-debug**：`IsDebuggerPresent`、`CheckRemoteDebuggerPresent`、直读 `PEB.BeingDebugged`、`NtQueryInformationProcess` 的 `ProcessDebugPort` / `ProcessDebugObjectHandle` / `ProcessDebugFlags` 共六道独立信号，任一确证即静默退出（退出码 77），在资源解密前后各检测一次；所有探测遵循"取不到即视为未命中"，杜绝误杀；
 - 进程隐藏加固（`-H windowsgui`，无控制台窗口）。
 
-**加固上限说明**：`high` 大幅提高破解门槛，但**任何客户端可执行程序都无法做到绝对不可破解**——密钥最终存在于壳二进制与运行时内存中，反调试只抬升动态分析成本、不是不可绕过的墙。真正敏感的密钥与业务逻辑仍应留在服务端。**误报可关**：反调试在 CI、自动化测试、远程桌面、部分虚拟化环境可能把正常运行判成被附加调试器
+**加固上限说明**：`high` 大幅提高破解门槛，但**任何客户端可执行程序都无法做到绝对不可破解**——密钥最终存在于壳二进制与运行时内存中，反调试只抬升动态分析成本、不是不可绕过的墙；Tier B 也挡不住"攻击者自换一对密钥再编一份自己的壳"（那已经是整个应用归攻击者，再上一层只有 OS 级出版商信任 / Authenticode）。真正敏感的密钥与业务逻辑仍应留在服务端。
+**密钥即发布权**：`.freedom/keys/`（每产物主密钥 + ed25519 私钥）丢失后**无法再为该应用产出可运行的 high 产物**（既有产物不受影响），请把它们当作发布证书备份；反之它们一旦外泄，拿到者就能为你的应用签出合法篡改清单——勿入库、勿分发（`freedom keygen` 会自动往 `.gitignore` 补行）。**误报可关**：反调试在 CI、自动化测试、远程桌面、部分虚拟化环境可能把正常运行判成被附加调试器
 （命中即静默退出，码 77）。这类场景设 `FREEDOM_DISABLE_ANTIDEBUG=1`，或在壳层源码里 `Config{DisableAntiDebug: true}`
 后 `freedom shell build`——只关探测，容器解密与 `.integrity` 完整性校验照旧生效（那两道才是源码保护的本体）。
 `resources/config.json` 里刻意不提供此开关：打包产物里的配置运行期可被第三方替换，给开关等于递刀。
