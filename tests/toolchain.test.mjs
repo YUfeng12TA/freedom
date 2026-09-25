@@ -112,11 +112,10 @@ test('toolchain: PATH 指纹变化或 --refresh 即失效', () => {
   assert.equal(moved.rows.find((r) => r.key === 'cpp').ok, false, '上一轮就位不代表这一轮就位');
   assert.equal(exec.calls.filter((c) => c.args[0] === 'version').length, 2, 'go 只在首轮与换 PATH 轮各实探一次，缓存轮不 spawn');
 
-  // 换回原 PATH 后命中缓存；--refresh 再强制重探。
-  const back = tc.status(opts);
-  assert.equal(back.skipped, 3);
-  const refreshed = tc.status(Object.assign({}, opts, { refresh: true }));
-  assert.equal(refreshed.skipped, 0, '--refresh 必须绕过缓存');
+  // 缓存只记一份 PATH 快照：换回原 PATH 后首轮全量重探，次轮才重新命中。
+  tc.status(opts);
+  assert.equal(tc.status(opts).skipped, 3, '回到同一路径应当重新建立缓存');
+  assert.equal(tc.status(Object.assign({}, opts, { refresh: true })).skipped, 0, '--refresh 必须绕过缓存');
   rmSync(sb.root, { recursive: true, force: true });
 });
 
