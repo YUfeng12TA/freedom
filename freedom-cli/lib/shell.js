@@ -402,7 +402,10 @@ function buildShell(plat) {
   }
   const res = spawnSync('go', ['version'], { encoding: 'utf8' });
   if (res.error || res.status !== 0) {
-    throw new Error('未检测到 Go 工具链。请先安装 Go（https://go.dev/dl/），或改用 freedom shell download。');
+    throw new Error(
+      '未检测到 Go 工具链。执行 freedom toolchain install go 自动安装（默认只打印命令，加 --apply 才执行），' +
+        '或手动获取 https://go.dev/dl/ ，或改用 freedom shell download 拉取预编译壳。'
+    );
   }
   const dest = localShellPath(plat);
   fs.mkdirSync(path.dirname(dest), { recursive: true });
