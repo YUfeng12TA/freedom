@@ -178,9 +178,9 @@ func (a *App) CheckUpdate(ctx context.Context) (*UpdateInfo, error) {
 	if !updateURLAllowed(m.URL) {
 		return nil, fmt.Errorf("freedom: artifact URL scheme rejected: %q", m.URL)
 	}
-	cmp, err := compareVersions(Version, m.Version)
+	cmp, err := compareVersions(a.appVersion(), m.Version)
 	if err != nil {
-		return nil, fmt.Errorf("freedom: current version %q uncomparable: %w", Version, err)
+		return nil, fmt.Errorf("freedom: current version %q uncomparable: %w", a.appVersion(), err)
 	}
 	a.upMu.Lock()
 	if cmp >= 0 {
@@ -333,7 +333,7 @@ func (a *App) updateCheckAsync() interface{} {
 			return
 		}
 		if info == nil {
-			a.Emit("update.upToDate", map[string]string{"current": Version})
+			a.Emit("update.upToDate", map[string]string{"current": a.appVersion()})
 			return
 		}
 		a.Emit("update.available", info)

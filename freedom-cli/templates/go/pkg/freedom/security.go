@@ -271,6 +271,11 @@ func decryptAppBin(appName string, data []byte) (*securePayload, error) {
 	if err := json.Unmarshal(plain, &p); err != nil {
 		return nil, fmt.Errorf("app.bin 载荷无效：%w", err)
 	}
+	// 与打包端 lib/security.js 同一道门：认证通过不等于结构可用。少了 html/config 的容器
+	// 会让上层回落到内置占位页——那是「加密产物跑起来了但内容是空的」级别的静默降级。
+	if p.HTML == "" || p.Config == "" {
+		return nil, errors.New("app.bin 载荷结构无效：缺少 html/config 字段")
+	}
 	for rel := range p.Backend {
 		if !isSafeRelPath(rel) {
 			return nil, fmt.Errorf("app.bin 后端路径非法：%q", rel)
@@ -296,15 +301,18 @@ func isSafeRelPath(rel string) bool {
 	return true
 }
 
-// verifyIntegrity 校验 resources/.integrity 清单（存在时）。
+// verifyIntegrity 校验 resources/.integrity 清单。
 // 比对 app.bin 的 HMAC-SHA256，防容器被整体替换；backend 已进容器，其完整性由
 // 容器认证标签一并保证，清单里的 backend 段仅作向后兼容。
-// 无 .integrity 文件（旧产物）时跳过，保持向后兼容。
+// 清单缺失是致命错误而非"旧产物豁免"：app.bin 的认证钥由「exe 名 + 容器自带盐」派生，
+// 两者都在产物里，攻击者能为任意内容自造合法容器；.integrity 正是那道产物外的重放绑定，
+// 而「删掉 .integrity」就是绕过它最省事的手法——跳过校验等于把这道门留给攻击者关。
+// 自 FRDM2 起 CLI 恒写清单（lib/build.js），拒绝无清单容器不会误伤任何正规产物。
 func verifyIntegrity(dir string, k secureKey, appBin []byte) error {
 	raw, err := os.ReadFile(filepath.Join(dir, ".integrity"))
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil
+			return errors.New("resources/.integrity 缺失：app.bin 未经完整性绑定，产物可能被整体替换（请重新 freedom build）")
 		}
 		return err
 	}

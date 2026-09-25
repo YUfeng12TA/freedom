@@ -141,7 +141,7 @@ async function build(projectDir, opts = {}) {
     html = fs.readFileSync(distHtml, 'utf8');
     warnIfNotSingleFile(html, distHtml);
   }
-  const configJSON = renderConfigJSON(cfg, name);
+  const configJSON = renderConfigJSON(cfg, name, version);
   // 安全模式：--security 优先于 freedom.config.js 的 security 字段，默认 none。
   //   none  = 明文资源（默认，兼容历史产物）
   //   basic = 明文资源 + 构建期安全提示（剥符号 / 混淆，后续可用高模式加密）
@@ -471,7 +471,10 @@ async function buildInstaller({ plat, name, version, targetDir, exeName }) {
   const artifacts = [];
 
   const zipPath = path.join(targetDir, `${name}-${plat}-portable.zip`);
-  const tmpPath = path.join(path.dirname(targetDir), `.freedom-portable-${process.pid}.zip`);
+  // 中间 zip 必须带平台后缀：多平台打包是并发的（emitPlatform 跑在 Promise.all 里），
+  // 而各 plat 的 targetDir 同级，只按 pid 命名会让 A 平台的 zipDir 覆写 B 平台正在 rename 的
+  // 临时文件——结果是 A 的 portable.zip 里装着 B 的二进制（静默错平台产物）或 ENOENT 崩在成功提示之后。
+  const tmpPath = path.join(path.dirname(targetDir), `.freedom-portable-${plat}-${process.pid}.zip`);
   zipDir(tmpPath, targetDir);
   await fsp.rename(tmpPath, zipPath);
   artifacts.push(zipPath);
@@ -531,9 +534,12 @@ function appVersionFromPkg(dir) {
 }
 
 // 渲染 resources/config.json（与壳 resources.go 的 runtimeConfigFile 字段对齐）
-function renderConfigJSON(cfg, name) {
+function renderConfigJSON(cfg, name, version) {
   const obj = {
     name,
+    // 应用自己的版本必须随产物落盘：通用壳编译期注入的 freedom.Version 是「壳」的版本域，
+    // 自更新拿它跟应用清单比，结果是「永远 uncomparable」或「下完更新还是同一个壳」。
+    version: version || undefined,
     title: cfg.title || cfg.name || name,
     titlebar: cfg.titlebar || 'frameless',
     width: intVal(cfg.width, 1024),
@@ -562,6 +568,14 @@ function renderConfigJSON(cfg, name) {
       publicKey: cfg.updater.publicKey,
       requireSignature: cfg.updater.requireSignature === true ? true : undefined,
     };
+  }
+  // 能力收口透传：壳在 Config.Capabilities 未编译设置时才采用这里的白/黑名单
+  // （capability.go 在 sys/tray/window 三桥派发前判定，拒绝零副作用）。
+  const caps = cfg.capabilities;
+  if (caps && (Array.isArray(caps.allow) || Array.isArray(caps.deny))) {
+    const allow = (caps.allow || []).filter((s) => typeof s === 'string' && s);
+    const deny = (caps.deny || []).filter((s) => typeof s === 'string' && s);
+    if (allow.length || deny.length) obj.capabilities = { allow, deny };
   }
   return JSON.stringify(obj, null, 2);
 }
@@ -722,4 +736,4 @@ function stripSourceMapRefs(html) {
   return { html: out, stripped };
 }
 
-module.exports = { build, parsePlatforms };
+module.exports = { build, parsePlatforms, renderConfigJSON };

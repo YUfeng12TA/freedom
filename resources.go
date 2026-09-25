@@ -52,6 +52,7 @@ type runtimeUpdater struct {
 // 由 freedom CLI 在 build 阶段根据 freedom.config.js 生成；Name 仅作来源标记不应用。
 type runtimeConfigFile struct {
 	Name           string          `json:"name"`
+	Version        string          `json:"version"`
 	Title          string          `json:"title"`
 	TitleBar       string          `json:"titlebar"`
 	Width          int             `json:"width"`
@@ -64,6 +65,9 @@ type runtimeConfigFile struct {
 	URL            string          `json:"url"`
 	SingleInstance *bool           `json:"singleInstance"`
 	Updater        *runtimeUpdater `json:"updater"`
+	// Capabilities 收口前端可调用面。通用壳里编译不进应用作者的 Config 字面量，
+	// 没有这条透传则 freedom.config.js 写 capabilities 会被静默忽略（= 全开）。
+	Capabilities *Capabilities `json:"capabilities"`
 }
 
 // resourcesDirOverride 是单测缝：非空时替代 exe 同目录的 resources 定位。
@@ -135,6 +139,15 @@ func (a *App) loadRuntimeConfigPlain() error {
 
 // applyRuntimeConfig 把解析后的运行时配置覆盖到应用配置（明文与加密路径共用）。
 func (a *App) applyRuntimeConfig(rc *runtimeConfigFile) {
+	// 应用版本：通用壳编译期注入的 Version 是「壳」的版本，不是「这个应用」的版本。
+	// 自更新比较必须用后者，否则要么永远报 uncomparable（壳未打戳时是 "dev"），
+	// 要么拿壳的版本号跟应用的清单比——换来的仍是同一个壳，更新永远收敛不了。
+	if rc.Version != "" {
+		a.runtimeVersion = rc.Version
+	}
+	if rc.Capabilities != nil && a.cfg.Capabilities == nil {
+		a.cfg.Capabilities = rc.Capabilities
+	}
 	// 窗口标题：config.json 的 title 覆盖编译期默认（"Freedom App"）。
 	if rc.Title != "" {
 		a.cfg.Title = rc.Title
@@ -193,12 +206,47 @@ func (a *App) applyRuntimeConfig(rc *runtimeConfigFile) {
 	}
 }
 
+// appVersion 返回「本应用」的版本：优先用 config.json / app.bin 容器里声明的值，
+// 回落编译期 Version（examples 自建壳走 ldflags 注入）。通用壳的 Version 是壳自己的
+// 版本域，拿它跟应用发布清单比是两个数在比——见 updater.go 的 CheckUpdate。
+func (a *App) appVersion() string {
+	if a != nil && a.runtimeVersion != "" {
+		return a.runtimeVersion
+	}
+	return Version
+}
+
 // backendWorkDir 返回后端进程的工作目录。
 func (a *App) backendWorkDir() (string, error) {
 	if a.secureBackendDir != "" {
 		return a.secureBackendDir, nil
 	}
 	return resourcesDir()
+}
+
+// installSecureShutdown 注册信号退出通道（Run 调用）。
+//
+// 清扫顺序刻意是「先后端、后目录」：后端子进程的工作目录就是 high 模式解出的那个明文临时
+// 目录，它还活着时 Windows 会因文件被占用让 RemoveAll 静默失败——明文源码继续留在 %TEMP%，
+// 而信号路径紧接着就 os.Exit，下次启动的 GC 也帮不上（PID 仍存活）。ProcBackend.Close 自带
+// closed 幂等与 3s 等待上界，与 Run 正常退出的 defer 双跑无害。
+// 非 high 模式下 cleanupSecureBackend 是 no-op，但后端该停照样得停，故不再判安全档。
+func (a *App) installSecureShutdown() {
+	secureCleanup = func() {
+		a.closeBackendForShutdown()
+		a.cleanupSecureBackend()
+	}
+	installShutdownCleanup()
+}
+
+// closeBackendForShutdown 停后端子进程；未配置后端（nil）时为空操作。
+func (a *App) closeBackendForShutdown() {
+	if a.backend == nil {
+		return
+	}
+	if err := a.backend.Close(); err != nil {
+		fmt.Fprintf(os.Stderr, "freedom: shutdown backend close: %v\n", err)
+	}
 }
 
 // cleanupSecureBackend 删除 high 模式解出的临时后端目录（Run 退出时调用）。
@@ -208,7 +256,10 @@ func (a *App) cleanupSecureBackend() {
 	if a.secureBackendDir == "" {
 		return
 	}
-	_ = os.RemoveAll(a.secureBackendDir)
+	// 删不掉必须在退出前喊出来：这是「磁盘不留明文」承诺当场失守的时刻，静默等于隐瞒。
+	if err := os.RemoveAll(a.secureBackendDir); err != nil {
+		fmt.Fprintf(os.Stderr, "freedom: 明文后端临时目录未清除（后端源码可能仍可读取）：%s: %v\n", a.secureBackendDir, err)
+	}
 	a.secureBackendDir = ""
 }
 

@@ -232,7 +232,7 @@ func saveWindowState(dir string, st WindowState) error {
 
 // ---- os / process 信息 ----
 
-func osInfo() map[string]interface{} {
+func osInfo(app *App) map[string]interface{} {
 	host, _ := os.Hostname()
 	info := map[string]interface{}{
 		"platform":   runtime.GOOS,
@@ -240,7 +240,7 @@ func osInfo() map[string]interface{} {
 		"hostname":   host,
 		"osVersion":  osVersionString(), // 平台分文件：osver_windows.go / osver_other.go
 		"goVersion":  runtime.Version(),
-		"appVersion": Version, // 构建期 ldflags 注入，见 freedom.go
+		"appVersion": app.appVersion(), // 运行时声明优先，回落 ldflags 注入值
 		"numCPU":     runtime.NumCPU(),
 	}
 	// M6：WebView2 Runtime 探测回显（仅 Windows 且检出时给键，其他平台省略）
@@ -311,7 +311,7 @@ func (a *App) sysGeneric(method string, args map[string]json.RawMessage) (result
 		}
 		return sf.keys(), true, nil
 	case "os.info":
-		info := osInfo()
+		info := osInfo(a)
 		// M3：回显生效的能力收口，前端可据此隐藏入口（nil=全开时省略该键）。
 		if a.cfg.Capabilities != nil {
 			info["capabilities"] = map[string][]string{

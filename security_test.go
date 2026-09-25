@@ -235,9 +235,26 @@ func TestVerifyIntegrity(t *testing.T) {
 	if err := verifyIntegrity(dir, k, appBin); err == nil {
 		t.Fatal("invalid hex must fail")
 	}
-	// 无 .integrity → 跳过（向后兼容）
-	if err := verifyIntegrity(t.TempDir(), k, appBin); err != nil {
-		t.Fatalf("missing .integrity should pass: %v", err)
+	// 无 .integrity → 致命：删掉清单就是绕过重放绑定的手法，不得当"旧产物"放过
+	if err := verifyIntegrity(t.TempDir(), k, appBin); err == nil {
+		t.Fatal("missing .integrity must fail (否则删清单即可整包替换产物)")
+	}
+}
+
+// 认证通过但结构不可用（缺 html 或 config）的容器必须拒绝：上层会静默回落到内置占位页，
+// 用户侧表现是"加密产物能跑但界面是空的"。打包端 lib/security.js 有同名门槛，壳侧不能更松。
+func TestDecryptRejectsEmptyPayloadFields(t *testing.T) {
+	for _, c := range []struct{ html, config string }{
+		{"", `{"title":"demo"}`},
+		{"<html>x</html>", ""},
+	} {
+		data, err := encryptForTest("demo", c.html, c.config, nil)
+		if err != nil {
+			t.Fatalf("encryptForTest: %v", err)
+		}
+		if _, err := decryptAppBin("demo", data); err == nil {
+			t.Fatalf("html=%q config=%q 的空载荷必须被拒，不得静默回落占位页", c.html, c.config)
+		}
 	}
 }
 

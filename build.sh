@@ -37,22 +37,26 @@ mkdir -p "$dist" "$bk"
 # shellcheck source=tools/webkit-env.sh
 . "$root/tools/webkit-env.sh"
 
+# 剥离符号/调试信息（-s -w）与抹掉构建期绝对路径（-trimpath）恒在，不再只在
+# VERSION 非空时生效：默认 ./build.sh 曾产出未剥离二进制（约 2 倍体积），且把
+# 函数名/DWARF 连同 FRDM2 派生逻辑一起留给逆向者。与 CI「Build generic shell」
+# 及 freedom-cli/lib/shell.js 的既有纪律（-trimpath -s -w 恒在）对齐。
 # 版本戳：VERSION 为空则不注入；字符白名单防参数注入
-ldflags=""
+ldflags="-s -w"
 if [ -n "${VERSION:-}" ]; then
     case "$VERSION" in
         *[!0-9A-Za-z.\-+]*) echo "VERSION 含非法字符: $VERSION" >&2; exit 1 ;;
     esac
-    ldflags="-s -w -X freedom.Version=$VERSION"
+    ldflags="$ldflags -X freedom.Version=$VERSION"
 fi
 
 echo "==> go build 壳层 (hello / multiproc / multiwin)"
-CGO_ENABLED=1 go build -ldflags "$ldflags" -o "$dist/hello" ./examples/hello
-CGO_ENABLED=1 go build -ldflags "$ldflags" -o "$dist/multiproc" ./examples/multiproc
-CGO_ENABLED=1 go build -ldflags "$ldflags" -o "$dist/multiwin" ./examples/multiwin
+CGO_ENABLED=1 go build -trimpath -ldflags "$ldflags" -o "$dist/hello" ./examples/hello
+CGO_ENABLED=1 go build -trimpath -ldflags "$ldflags" -o "$dist/multiproc" ./examples/multiproc
+CGO_ENABLED=1 go build -trimpath -ldflags "$ldflags" -o "$dist/multiwin" ./examples/multiwin
 
 echo "==> go build Go 后端"
-CGO_ENABLED=1 go build -o "$bk/go_backend" ./examples/multiproc/backends
+CGO_ENABLED=1 go build -trimpath -ldflags "-s -w" -o "$bk/go_backend" ./examples/multiproc/backends
 
 echo "==> 复制脚本后端 (Node / Python)"
 cp "$root/examples/multiproc/backends/node_backend.mjs" "$bk/"

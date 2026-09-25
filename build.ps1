@@ -22,12 +22,17 @@ param(
 )
 $ErrorActionPreference = "Stop"
 
-# 壳层链接参数：GUI 子系统恒在；-Version 时追加符号剥离与版本注入。
+# 壳层链接参数：符号与调试信息剥离恒在（-s -w），GUI 子系统恒在；
+# -trimpath 恒在（抹掉构建期绝对路径，同时让产物可复现）。
+# 这三项过去只在传了 -Version 时才生效，默认 `.\build.ps1` 产出 15 MB 未剥离
+# 二进制（实测 hello.exe 15,363,300 B vs 剥离后 7,549,952 B），且把函数名/DWARF
+# 连同 FRDM2 派生逻辑一起留给逆向者——与 freedom-cli/lib/shell.js 编译通用壳时
+# 的既有纪律（-trimpath -s -w 恒在）对齐。
 # 白名单校验防命令注入（$Version 会进入 go build 参数字符串）。
-$ldflags = "-H windowsgui"
+$ldflags = "-s -w -H windowsgui"
 if ($Version) {
     if ($Version -notmatch '^[0-9A-Za-z.\-+]+$') { throw "-Version 含非法字符: $Version" }
-    $ldflags = "-s -w -X freedom.Version=$Version $ldflags"
+    $ldflags = "$ldflags -X freedom.Version=$Version"
 }
 
 # $ErrorActionPreference 对原生命令（go/rustc）不生效，必须显式检查 $LASTEXITCODE，
@@ -118,10 +123,10 @@ $env:CGO_ENABLED = "1"
 Push-Location $root
 try {
     # GUI 子系统（-H windowsgui）：运行时壳层与后端均不弹出 cmd 黑窗
-    Invoke-Native "go build hello" { go build -ldflags $ldflags -o (Join-Path $dist "hello.exe") ./examples/hello }
-    Invoke-Native "go build multiproc" { go build -ldflags $ldflags -o (Join-Path $dist "multiproc.exe") ./examples/multiproc }
+    Invoke-Native "go build hello" { go build -trimpath -ldflags $ldflags -o (Join-Path $dist "hello.exe") ./examples/hello }
+    Invoke-Native "go build multiproc" { go build -trimpath -ldflags $ldflags -o (Join-Path $dist "multiproc.exe") ./examples/multiproc }
     # 多窗口冒烟示例：控制台子系统保留——SMOKE_OK 走 stdout，CI 断言可直接捕获
-    Invoke-Native "go build multiwin" { go build -ldflags "-H windows" -o (Join-Path $dist "multiwin.exe") ./examples/multiwin }
+    Invoke-Native "go build multiwin" { go build -trimpath -ldflags "-s -w -H windows" -o (Join-Path $dist "multiwin.exe") ./examples/multiwin }
 } finally {
     Pop-Location
 }
@@ -130,7 +135,7 @@ try {
 Write-Host "==> go build Go 后端"
 Push-Location $root
 try {
-    Invoke-Native "go build go_backend" { go build -o (Join-Path $bk "go_backend.exe") ./examples/multiproc/backends }
+    Invoke-Native "go build go_backend" { go build -trimpath -ldflags "-s -w" -o (Join-Path $bk "go_backend.exe") ./examples/multiproc/backends }
 } finally {
     Pop-Location
 }

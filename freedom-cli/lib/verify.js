@@ -226,13 +226,14 @@ function collectTree(dir, depth, out, maxDepth) {
     return out;
   }
   for (const e of entries) {
-    if (e.name === '.integrity') {
-      // 完整性清单内容为敏感校验值，仅标注存在与大小，不展开内容
-      out.push({ rel: e.name, size: 0, isDir: false, depth, hidden: true });
-      continue;
-    }
     const abs = path.join(dir, e.name);
     const stat = safeStat(abs);
+    if (e.name === '.integrity') {
+      // 清单内容是不对外展开的校验值，但大小必须照实报：写死 0 会让产物自检打印
+      // 「.integrity (0 B)」，在高模式安检语境下读起来像清单是空的，反而制造误判。
+      out.push({ rel: e.name, size: stat ? stat.size : 0, isDir: false, depth, hidden: true });
+      continue;
+    }
     if (e.isDirectory()) {
       out.push({ rel: e.name, size: 0, isDir: true, depth });
       if (depth < maxDepth) collectTree(abs, depth + 1, out, maxDepth);

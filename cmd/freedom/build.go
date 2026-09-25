@@ -39,10 +39,13 @@ func cmdBuild(args []string) error {
 	if runtime.GOOS == "windows" && !strings.HasSuffix(strings.ToLower(name), ".exe") {
 		name += ".exe" // go build -o 不自动补后缀，双击需要 .exe
 	}
-	ldflags := ""
+	// 剥离与 -trimpath 恒在（与 build.ps1 / build.sh / CI「Build generic shell」
+	// 同一纪律）：过去只有传 -version 才 -s -w，默认 `freedom build` 产出约两倍
+	// 体积、且带完整函数名表的壳。
+	ldflags := "-s -w"
 	if *gui {
 		if runtime.GOOS == "windows" {
-			ldflags += "-H windowsgui "
+			ldflags += " -H windowsgui"
 		} else {
 			fmt.Println("提示：-gui 仅 Windows 有意义，本平台忽略")
 		}
@@ -51,7 +54,7 @@ func cmdBuild(args []string) error {
 		if !buildVersionRe.MatchString(*version) {
 			return fmt.Errorf("-version %q 不符合 数字.数字.数字[-标签] 形式", *version)
 		}
-		ldflags += "-s -w -X freedom.Version=" + *version
+		ldflags += " -X freedom.Version=" + *version
 	}
 	if err := runGo(abs, "mod", "tidy"); err != nil {
 		return err
@@ -61,14 +64,11 @@ func cmdBuild(args []string) error {
 		if runtime.GOOS == "windows" {
 			bkOut += ".exe"
 		}
-		if err := runGo(abs, "build", "-o", bkOut, "./backends/go"); err != nil {
+		if err := runGo(abs, "build", "-trimpath", "-ldflags", "-s -w", "-o", bkOut, "./backends/go"); err != nil {
 			return err
 		}
 	}
-	buildArgs := []string{"build"}
-	if ldflags != "" {
-		buildArgs = append(buildArgs, "-ldflags", strings.TrimSpace(ldflags))
-	}
+	buildArgs := []string{"build", "-trimpath", "-ldflags", ldflags}
 	buildArgs = append(buildArgs, "-o", name)
 	if err := runGo(abs, buildArgs...); err != nil {
 		return err

@@ -1,7 +1,9 @@
 package freedom
 
 import (
+	"encoding/json"
 	"os"
+	"path/filepath"
 	"sync"
 	"syscall"
 	"testing"
@@ -57,4 +59,57 @@ func TestExitAfterCleanupWithoutRegisteredCleanup(t *testing.T) {
 	shutdownExit = func(int) {}
 	defer func() { secureCleanup, shutdownExit = oldCleanup, oldExit }()
 	exitAfterCleanup() // 不应 panic
+}
+
+// 退出清扫必须先停后端、再删明文临时目录：后端子进程的工作目录就是那个临时目录，
+// 它还活着时目录被占用（Windows 上 RemoveAll 直接失败），「磁盘不留明文」当场失守，
+// 外加一个孤儿进程。这里用「Close 时目录必须在、清扫后目录必须不在」同时钉住顺序与效果。
+type orderSensitiveBackend struct {
+	dir  string
+	seen *[]string
+}
+
+func (b *orderSensitiveBackend) Handle(string, []json.RawMessage) (interface{}, error) {
+	return nil, nil
+}
+
+func (b *orderSensitiveBackend) Close() error {
+	*b.seen = append(*b.seen, "backend-close")
+	if _, err := os.Stat(b.dir); err != nil {
+		*b.seen = append(*b.seen, "dir-already-gone")
+	} else {
+		*b.seen = append(*b.seen, "dir-still-there")
+	}
+	return nil
+}
+
+func TestSecureShutdownStopsBackendBeforeCleaningDir(t *testing.T) {
+	oldCleanup, oldExit, oldOnce, oldHooks := secureCleanup, shutdownExit, cleanupOnce, platformShutdownHooks
+	cleanupOnce = new(sync.Once)
+	platformShutdownHooks = nil
+	exited := make(chan int, 1)
+	shutdownExit = func(code int) { exited <- code }
+	defer func() {
+		secureCleanup, shutdownExit, cleanupOnce, platformShutdownHooks = oldCleanup, oldExit, oldOnce, oldHooks
+	}()
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main // 模拟解密的明文后端源码"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var seen []string
+	be := &orderSensitiveBackend{dir: dir, seen: &seen}
+	a := &App{backend: be, secureBackendDir: dir}
+	a.installSecureShutdown()
+	exitAfterCleanup() // 模拟信号命中后的清扫退场
+
+	if code := <-exited; code != 130 {
+		t.Errorf("退出码 = %d，期望 130", code)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Errorf("清扫后临时目录仍在：%v", err)
+	}
+	if len(seen) != 2 || seen[0] != "backend-close" || seen[1] != "dir-still-there" {
+		t.Errorf("清扫顺序应为「先关后端、此时目录仍在」，实际 %v", seen)
+	}
 }
