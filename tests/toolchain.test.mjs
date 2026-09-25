@@ -110,7 +110,7 @@ test('toolchain: PATH 指纹变化或 --refresh 即失效', () => {
   assert.ok(moved.rows.every((r) => !r.cached), 'PATH 变了不得再吃旧缓存');
   assert.equal(moved.rows.find((r) => r.key === 'go').ok, true);
   assert.equal(moved.rows.find((r) => r.key === 'cpp').ok, false, '上一轮就位不代表这一轮就位');
-  assert.equal(exec.calls.filter((c) => path.basename(c.exe).replace(/\.exe$/i, '') === 'go').length, 3, 'go 三轮各探一次：首轮 + 换 PATH 轮 + …');
+  assert.equal(exec.calls.filter((c) => c.args[0] === 'version').length, 2, 'go 只在首轮与换 PATH 轮各实探一次，缓存轮不 spawn');
 
   // 换回原 PATH 后命中缓存；--refresh 再强制重探。
   const back = tc.status(opts);
@@ -170,7 +170,9 @@ test('toolchain: optimize 写 Go 镜像走 go env -w，已优化则跳过', () =
   const row = applied.rows.find((r) => r.key === 'go');
   assert.equal(row.action, 'applied');
   assert.equal(row.status, 0);
-  assert.deepEqual(exec.calls.find((c) => path.basename(c.exe).replace(/\.exe$/i, '') === 'go').args, ['env', '-w', `GOPROXY=${tc.GO_PROXY}`]);
+  const writes = exec.calls.filter((c) => c.args && c.args[1] === '-w');
+  assert.equal(writes.length, 1, 'apply 只应写一次');
+  assert.deepEqual(writes[0].args, ['env', '-w', `GOPROXY=${tc.GO_PROXY}`]);
   rmSync(sb.root, { recursive: true, force: true });
 });
 
