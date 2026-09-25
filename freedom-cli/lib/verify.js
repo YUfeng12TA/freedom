@@ -193,7 +193,7 @@ function checkPlatformProduct({ projectDir, targetDir, plat, appName, hasBackend
     } catch (e) { /* 读取失败按不通过处理 */ }
     const head = bin.subarray(0, APP_BIN_MAGIC3.length).toString('latin1');
     if (head === APP_BIN_MAGIC) {
-      fail('app.bin 容器', `${APP_BIN_MAGIC} 属旧代际（密钥在公开源里，清单可被任意伪造）：请用 freedom-cli 1.14.0 及以上重新 build`);
+      fail('app.bin 容器', `${APP_BIN_MAGIC} 属旧代际（密钥在公开源里，清单可被任意伪造）：请用 freedom-cli 1.14.0-preview 及以上重新 build`);
     } else if (head !== APP_BIN_MAGIC3) {
       fail('app.bin 容器', `容器头不是 ${APP_BIN_MAGIC3}（实际 "${head}"），文件损坏、非本工具产物或旧代产物`);
     } else {

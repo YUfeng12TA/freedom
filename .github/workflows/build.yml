@@ -288,3 +288,6 @@ jobs:
         with:
           files: shells/*
           draft: false
+          # 标签名带 `-xxx` 后缀即预览代：标成 pre-release，不占 GitHub 的 "Latest" 位
+          # （CLI 下载走 releases/tags/<tag>，不受影响；受影响的只有人读观感与 latest 语义）。
+          prerelease: ${{ contains(github.ref_name, '-') }}

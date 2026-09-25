@@ -5,7 +5,38 @@
 
 ## [未发布]
 
+## [1.14.0-preview] - 2026-09-25
+
+### 破坏性变更
+
+- **加密代际断代 FRDM2 → FRDM3**（`security.go` / `freedom-cli/lib/security.js` /
+  `.liangzu/plans/r6-defense-max/frdm3-contract.md` 为唯一对齐依据）：容器 magic 改 `FRDM3`，KEK 输入从
+  「随 npm 包分发的全域主密钥」改为**每产物随机主密钥**（`<app>/.freedom/keys/<app>.key`，32B，hex64）；
+  派生标签域分离到 `freedom:derive:v3` / `freedom:mac:v3`。**旧产物（`FRDM1`/`FRDM2`）在新壳上一律明确拒绝，
+  不自动迁移、不静默降级**，须用 1.14.0-preview 及以上重新 `freedom build`。
+- **`security: 'high'` 收为 Tier B（自编译壳）专属**：high 不再复制预编译通用壳，而是为本应用现编专属壳——
+  信任锚公钥经 `-ldflags -X` 注入，每产物主密钥经**只属于本产物的装配码**（`go build -overlay` 注入的生成码）带入，
+  两者由 `lib/build.js` 的 `emitPlatform` → `buildShell({inject, stageGoFiles})` 一次完成（本条目发布前该注入
+  只有 `-X` 一条通道，见下 keySlot 条）。
+  代价是 high 需要 **Go 工具链**且**只能在目标平台本机编译**（webview_go 依赖系统 WebView，无法交叉编译）；
+  零工具链通用壳（Tier A）请改用 `basic`——它结构上拿不到任何 FRDM3 产物的密钥，真拿到也以退出码 70 拒跑。
+- **安全校验失败从"告警后继续"改为退出码 70**（`freedom.go` 的 secure-fatal 分支 + `resources.go` 的
+  `exitSecureFatal`）：此前 `Run` 打印告警后返回 nil，脚本与 CI 眼里「拒跑」与「正常退出」同形。
+
 ### 安全
+
+- **关闭 B-20260925-054（critical）**：1.13.x 的 high 允许持有 `freedom-cli` 包的人**离线解密任意产物并签出
+  合法 `.integrity`**（取证：仅用公开 CLI 解出 html/config/后端源码全文；自造清单换后端后壳照跑并在临时目录
+  落下攻击标记）。本版两处结构性封堵：
+  - `.integrity` 升 **v3 签名清单**（`{v:3, alg:'ed25519', pub, payload(base64), sig}`），claims 绑定
+    `app.bin` 摘要 + 应用标识 + 容器盐 + **exe 自身摘要**；签名对象是 base64 里那串确切字节（跨语言不做 JSON
+    规范化）。验签顺序锁死为：锚比对 → 验签 → claims 复查 → exe 自摘要 → 解密。
+  - 每产物主密钥与签名私钥**不进 npm 包、不以明文落进 `resources/`**（主密钥只以本产物专属的装配码形态编进
+    本应用专属壳，见下 keySlot 条；私钥只留在发布方 `.freedom/keys/`）；`freedom build --security high` 缺任一项即拒构建
+    （`prepareHighSecrets`），不再退回全域常量。
+- **强度口径按 Tier 分层**（`README.md` / `SECURITY.md` / `freedom-cli/README.md`）：删除无条件"逆向不出源码"
+  式表述，改列 Tier A（无锚，纸面强度，仅挡随手篡改）与 Tier B（编译期锚，挡重打包/换后端/改名）两档，
+  并写明共同上限：运行期密钥在进程内存里，不挡能读内存的对手，也不挡"攻击者自编壳"（那已是整个应用归攻击者）。
 
 - **high 产物的内存明文生命周期收口**（`security.go` / `resources.go`，R7 方向闸门
   `.liangzu/plans/r7-source-protection/gate.md` 甲）：
@@ -26,7 +57,7 @@
 - **每产物多态密钥装配（keySlot）**（`freedom-cli/lib/{security,shell,build}.js` / `security.go`，R7 方向闸门
   `.liangzu/plans/r7-source-protection/gate.md` 乙；契约 `.liangzu/plans/r6-defense-max/frdm3-contract.md` §7；
   关闭台账 B-20260925-060）：
-  - **`-X` 通道不再承载主密钥**。1.14.0 的注入是「一个 64 位十六进制字符串 + 一条公开固定掩码
+  - **`-X` 通道不再承载主密钥**。上一代（未发布的 1.14.0 提交）的注入是「一个 64 位十六进制字符串 + 一条公开固定掩码
     （`out[i] ^= (i*7+0x5A)`）」，两处弱点：注入值以 ASCII 原样落在 exe 数据段（`strings` 直接可定位，
     本轮以最小 Go 复现证实），且掩码公式随 npm 包与仓库公开 ⇒ **写一份脱壳器，之后所有 Freedom 产物通吃**；
   - 现在每次 `freedom build --security high` 现场生成一份**只属于本产物**的装配码 `keyslot_<tag>.go`：
@@ -44,38 +75,7 @@
   真机：`build-tmp/hi2` 重编专属壳后 R6 三用例 + Tier A 拒跑复跑通过，静态扫描确认产物 exe 中
   主密钥明文、其 32 字节、旧掩码的 ASCII 与字节形态**全部不存在**（`build-tmp/hi2/r7-scan.cjs`）。
   > 注：本条改了壳的运行期代码与 CLI 注入面，**发布前同样要用它重编三平台壳**；容器与清单格式未变，
-  > 1.14.0 已产出的 FRDM3 产物无需重打包（其壳仍是旧注入形态，能自解，但密钥提取成果可跨产物复用）。
-
-## [1.14.0] - 2026-09-25
-
-### 破坏性变更
-
-- **加密代际断代 FRDM2 → FRDM3**（`security.go` / `freedom-cli/lib/security.js` /
-  `.liangzu/plans/r6-defense-max/frdm3-contract.md` 为唯一对齐依据）：容器 magic 改 `FRDM3`，KEK 输入从
-  「随 npm 包分发的全域主密钥」改为**每产物随机主密钥**（`<app>/.freedom/keys/<app>.key`，32B，hex64）；
-  派生标签域分离到 `freedom:derive:v3` / `freedom:mac:v3`。**旧产物（`FRDM1`/`FRDM2`）在新壳上一律明确拒绝，
-  不自动迁移、不静默降级**，须用 1.14.0 重新 `freedom build`。
-- **`security: 'high'` 收为 Tier B（自编译壳）专属**：high 不再复制预编译通用壳，而是为本应用现编专属壳并经
-  `-ldflags -X` 注入每产物主密钥与信任锚公钥（`lib/build.js` 的 `emitPlatform` → `buildShell({inject})`）。
-  代价是 high 需要 **Go 工具链**且**只能在目标平台本机编译**（webview_go 依赖系统 WebView，无法交叉编译）；
-  零工具链通用壳（Tier A）请改用 `basic`——它结构上拿不到任何 FRDM3 产物的密钥，真拿到也以退出码 70 拒跑。
-- **安全校验失败从"告警后继续"改为退出码 70**（`freedom.go` 的 secure-fatal 分支 + `resources.go` 的
-  `exitSecureFatal`）：此前 `Run` 打印告警后返回 nil，脚本与 CI 眼里「拒跑」与「正常退出」同形。
-
-### 安全
-
-- **关闭 B-20260925-054（critical）**：1.13.x 的 high 允许持有 `freedom-cli` 包的人**离线解密任意产物并签出
-  合法 `.integrity`**（取证：仅用公开 CLI 解出 html/config/后端源码全文；自造清单换后端后壳照跑并在临时目录
-  落下攻击标记）。本版两处结构性封堵：
-  - `.integrity` 升 **v3 签名清单**（`{v:3, alg:'ed25519', pub, payload(base64), sig}`），claims 绑定
-    `app.bin` 摘要 + 应用标识 + 容器盐 + **exe 自身摘要**；签名对象是 base64 里那串确切字节（跨语言不做 JSON
-    规范化）。验签顺序锁死为：锚比对 → 验签 → claims 复查 → exe 自摘要 → 解密。
-  - 每产物主密钥与签名私钥**不进 npm 包、不以明文落进 `resources/`**（主密钥只以掩码态编进本应用专属壳，
-    私钥只留在发布方 `.freedom/keys/`）；`freedom build --security high` 缺任一项即拒构建
-    （`prepareHighSecrets`），不再退回全域常量。
-- **强度口径按 Tier 分层**（`README.md` / `SECURITY.md` / `freedom-cli/README.md`）：删除无条件"逆向不出源码"
-  式表述，改列 Tier A（无锚，纸面强度，仅挡随手篡改）与 Tier B（编译期锚，挡重打包/换后端/改名）两档，
-  并写明共同上限：运行期密钥在进程内存里，不挡能读内存的对手，也不挡"攻击者自编壳"（那已是整个应用归攻击者）。
+  > 本预览代之前已产出的 FRDM3 产物无需重打包（其壳仍是旧注入形态，能自解，但密钥提取成果可跨产物复用）。
 
 ### 新增
 

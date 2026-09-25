@@ -66,6 +66,23 @@
   "公钥锚不在壳里"是两个独立锁，但前者现在由生成码是否注入决定，故测试必须直接断 nil 分支，
   不能只断"没密钥"（那是同义反复）。
 
+## 发布代际命名（2026-09-25 裁「走预览」时取证）
+
+- **标签名不是自由变量**：`freedom-cli/lib/shell.js:50-60` 里 `releaseTag() = process.env.FREEDOM_SHELL_TAG || 'v' + pkgVersion()`，
+  且两条下载路径（直连 `releases/download/<tag>/<asset>` 与 API `releases/tags/<tag>`）都用它
+  ⇒ GitHub 标签**必须**等于 `v` + npm 版本号。npm 侧要 semver 合法（`1.14-preview` 非法，缺 patch），
+  所以预览代只能是 npm `1.14.0-preview` + 标签 `v1.14.0-preview`；用户原话的 `v1.14-preview` 会让
+  预览用户的 `freedom shell download` 默认 404（只能靠环境变量兜）。
+- **预览标签不会打断版本戳构建**：`tools/freedomres/main.go:151 parseVersion` 先 `TrimPrefix("v")`
+  再在首个 `-`/`+` 处截断 ⇒ `v1.14.0-preview` → `1.14.0.0`；`build.ps1:34` 的白名单 `^[0-9A-Za-z.\-+]+$` 也放行。
+- **CLI 自更新不会把预览用户拽回旧版**：`lib/update.js:24` 拉的是 registry 的 `/latest`，
+  用 `--tag preview` 发布则 `latest` 仍是 1.13.3；`compareVersions` 先把非数字字符抹掉
+  ⇒ `1.14.0-preview` 视作 1.14.0 > 1.13.3，判定为"已比线上新"，不触发降级安装。
+- **版本号散落在 8 类载体上**，改代际必须同步：`package.json`、`package-lock.json`（两处 `version`，
+  不一致会让 `npm ci` 报错）、`CHANGELOG.md`、`README.md`、`SECURITY.md`、`freedom-cli/README.md`、
+  `AGENTS.md`、`.github/ISSUE_TEMPLATE/bug_report.yml`，外加代码里的用户文案 `lib/verify.js` 与
+  `security.go`（后者有逐字节镜像 `templates/go/pkg/freedom/security.go`）。
+
 ## 环境/工具坑（本轮新增）
 
 - **Stop 钩子按"到行尾"抓 `交付物:` 的路径**：表格里写 `交付物: X<br>验收: Y` 会把 `<br>` 连同验收句

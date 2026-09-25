@@ -39,7 +39,7 @@
 - `authenticode_windows.go` / `authenticode_other.go` — M6 WinVerifyTrust 离线 Authenticode 复核（`Update.RequireSignature` 可选启用；非 Windows 诚实报错）。
 - `cmd/freedom/` — M7 项目 CLI：`new <dir> -backend embed|go|node|python|rust` 生成骨架（go.mod 以 replace 指向框架目录），`build [dir] -gui -version X.Y.Z` 包装壳层构建（存在 `backends/go` 时一并编译）。
 - `cmd/shell/` — 预编译通用壳入口（零应用专属资源，内容全部来自 resources/）：CI tag 构建为 Release 资产 `freedom-shell-<plat>`，freedom-cli 按需下载或走包内自带壳。
-- `freedom-cli/` — npm 打包 CLI（@yufengtadian/freedom-cli，v1.14.0）：`bin/lib/postinstall/tutorial` 源自 npm 1.12.18 tarball 恢复（源码曾丢失），`templates/go` 为框架源码快照（`freedom shell build` 用），`shell/<plat>` 为随包壳二进制（.gitignore 排除入库、npm files 白名单打包）。
+- `freedom-cli/` — npm 打包 CLI（@yufengtadian/freedom-cli，v1.14.0-preview）：`bin/lib/postinstall/tutorial` 源自 npm 1.12.18 tarball 恢复（源码曾丢失），`templates/go` 为框架源码快照（`freedom shell build` 用），`shell/<plat>` 为随包壳二进制（.gitignore 排除入库、npm files 白名单打包）。
 - `sysint_common.go` / `tray_common.go` — 无 build tag 的跨平台共享层：openExternal/scheme 白名单、deep-link 参数、dataURL 解析、菜单条目模型（Windows/Linux 两侧复用）。
 - `msgwindow_windows.go` / `singleinstance_windows.go` — 独立消息窗口线程（WM_HOTKEY/WM_COPYDATA）与 CreateMutexW 权威单实例锁。
 - `store.go` / `osver_windows.go` — 平台无关数据层（path/store/window-state/os/process，经 sysGeneric 分发）与 Windows 侧几何/版本支撑。

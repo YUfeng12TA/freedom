@@ -90,13 +90,23 @@
 - 验收：`go test ./...` + `node --test tests/*.test.mjs` + 镜像门 `fail=0` + `gofmt -l *.go` 空 + `git status --porcelain` 空
 - 状态：done — E-R7-12（060 fixed、`open critical/major` 仅剩跨波次的 B-20260924-022；四处变异各红后还原）
 
-## 版本与发布
+## 版本与发布（2026-09-25 用户裁定：出走预览代）
 
-- 已裁（2026-09-25 用户）：不走 1.14.0/1.14.1，**以 `v1.14-preview` 出预览代**。本地注解标签已打在 `bea7cea`
-  （含甲 `6ba7ea8` + 乙 `5ee4b08`），CI 三壳由该标签产出后回填 `freedom-cli/shell/<plat>`。
-  兼容性核对：`tools/freedomres/main.go:151 parseVersion` 接受 `v` 前缀并丢弃 `-prerelease` 后缀
-  ⇒ `v1.14-preview` 解析为 `1.14.0.0`，Windows VERSIONINFO 不会因标签名而构建失败。
-- `待裁: npm 侧版本号` —— ①`1.14.0-preview` + `npm publish --tag preview`（不烧掉 1.14.0 号段）
-  ②仍发 `1.14.0`（用预览标签的壳，registry 上即正式版）③本轮只发 GitHub 预发布资产、npm 不动。建议 ①。
-- `待裁: 本地旧标签 v1.14.0`（指向 `841630f`，不含甲乙且从未推送）—— ①保留但只推 `v1.14-preview`
-  ②经明示批准后删除本地 `v1.14.0`。风险点：若哪天 `git push --tags`，CI 会用旧提交产出一个"正式版"Release。
+- 裁定：不发 1.14.0 正式版，以**预览代**出（含 R7 甲+乙）。落到可执行形态即：
+  npm `1.14.0-preview` + `npm publish --tag preview`（registry 的 `latest` 仍留在 1.13.3），
+  本地旧标签 `v1.14.0`（指向不含甲乙的 `841630f`）已删除。
+- 标签名取自机械耦合而非字面：`freedom-cli/lib/shell.js:58-60 releaseTag() = v${pkgVersion()}`
+  ⇒ npm 版本 `1.14.0-preview` 只能配 GitHub 标签 **`v1.14.0-preview`**（写成 `v1.14-preview`
+  会让 `freedom shell download` 默认查一个不存在的 release）。已按此打标签于 `3c87aec`。
+- CI 兼容性核对：`tools/freedomres/main.go:151 parseVersion` 去 `v` 前缀并丢 `-prerelease` 后缀
+  ⇒ 版本戳解析为 `1.14.0.0`，Windows VERSIONINFO 不因标签名失败；`build.yml` 的 release job
+  新增 `prerelease: ${{ contains(github.ref_name, '-') }}`，预览代不占 "Latest" 位。
+- 版本号一致性连带项（同一提交内改完）：`package.json`、`package-lock.json`（两处 version 字段，
+  否则 `npm ci` 判锁不一致）、`CHANGELOG.md`（R7 甲/乙从 `[未发布]` 并入 `[1.14.0-preview]` 的「安全」子节，
+  并把"1.14.0 已发布"式表述改成实际未发布的措辞）、`README.md`/`SECURITY.md`/`freedom-cli/README.md`/
+  `AGENTS.md`/`bug_report.yml`/`verify.js`/`security.go`(+镜像) 里指向"本版做什么"的 `1.14.0` → `1.14.0-preview`。
+- 未改的两处及理由：`.liangzu/**` 与 `tests/*.mjs` 注释里的 `1.14.0` 是**当时的台账/取证记录**，
+  历史记录不回改；`verify.js`/`security.go` 的"旧代际请重新 build"文案只改了版本号，
+  未改成 `npm i @…@preview` 这种安装指引（安装通道属发布策略，等用户定预览推广口径再动）。
+- 下一步（用户执行）：`git push origin main v1.14.0-preview` → 等 `build.yml` 产三壳 →
+  我用资产 API 回填 `freedom-cli/shell/<plat>` + `npm pack` 冒烟 → 用户 `cd freedom-cli && FREEDOM_AUTO_UPDATE=0 npm publish --tag preview --otp=…`。
