@@ -117,6 +117,14 @@
 - 测试：`tests/desktop-secrets.test.mjs` 4/4；全量 `node --test tests/*.test.mjs → 91/91`。
 - 遗留事实：已发布的 1.14.0-preview **不含**此修复（`latest`/`preview` 通道都不含）；本机 Desktop 目录两把资产已就位，
   故用户当下再跑 `freedom desktop` 不再撞错。新用户要拿到修复需下一次发布（是否追加一个预览代由用户裁）。
+- E-R7-20（2026-09-25 收口）：`git push origin main` 完成 `091160f..540b3db`（三条修复 062/063/064 上远端），标签未动
+  （`v1.14.0-preview` 仍在 `4f36b87`）。推送需 `-c http.sslBackend=openssl`：本机走 127.0.0.1:10808 代理，其 TLS 链止于
+  Sectigo 证书，schannel 取不到 CRL ⇒ `CRYPT_E_REVOCATION_OFFLINE`（`http.schannelCheckRevoke=false` 与
+  `GIT_SSL_NO_REVOKE` 在此构建上均无效，OpenSSL 后端一次通过）。GitHub Release `v1.14.0-preview` 正文原为空，
+  现补上「新增 / 安全加固 / 修复 / 破坏性变更 / 已知边界」全量说明（3004 字符，源文 `build-tmp/release-notes-preview.md`），
+  写法经本地脚本读文件发起 PATCH，密钥不出现在任何命令行里。
+  注：清理 scratch 时钩子自建了 `9d8f550 liangzu-gate: pre-destructive snapshot`（含另一会话的 `freedom-cli/AGENTS.md`
+  等 3 个文件 + 我落在仓库根的 `rel.json`），**该提交未推送**，是否保留由用户裁；已核其中无密钥。
 - **本条修法已被 E-R7-19 推翻**（`ensureSecrets` 与其测试已删除）；保留原文留审计痕迹。
 
 ## E-R7-19 方向推翻：Desktop 降为零工具链档（B-20260925-064，取代 E-R7-18 的修法）
