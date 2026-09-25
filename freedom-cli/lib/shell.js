@@ -390,8 +390,12 @@ async function fetchShellDirect(plat, url, dest) {
 //
 // opts.dest：产物落点（默认为包内通用壳位置）。high 模式传临时路径，编出的是
 // 本应用专属壳（Tier B），不得覆盖通用壳缓存。
-// opts.inject：{-X 符号路径: 值} 映射，用于把每产物主密钥与信任锚编进壳（见 lib/security.js
-// shellInject）。值必须是命令行安全字符集——这里拼进单个 -ldflags 字符串，含空格即串味。
+// opts.inject：{-X 符号路径: 值} 映射，用于把信任锚编进壳（见 lib/security.js shellInject）。
+// 值必须是命令行安全字符集——这里拼进单个 -ldflags 字符串，含空格即串味。
+// opts.stageGoFiles：{文件名: Go 源码} —— 编壳时**本次构建专属**的 Go 源文件（Tier B 的
+// keyslot 装配码），经 `go build -overlay` 虚拟进 pkg/freedom。刻意不落进 templates/go：
+// 那是随 npm 包分发的公共树，写进去一次就等于把某个产物的主密钥编进之后所有壳（含通用壳），
+// 还会撞上 CI 的 Template mirror 门。overlay 让它只活在这次构建的这一个进程里。
 function buildShell(plat, opts = {}) {
   plat = requirePlatform(plat);
   // 本机只能编译本机平台（webview_go 依赖系统 WebView 框架，无法交叉编译）。
@@ -431,19 +435,50 @@ function buildShell(plat, opts = {}) {
   if (webkit.tags.length) {
     process.stdout.write(`[freedom] 本机 WebKitGTK 仅有 4.1，构建加 -tags ${webkit.tags.join(',')}\n`);
   }
-  const build = spawnSync('go', ['build', '-trimpath', '-ldflags', ldflags.join(' '), '-o', dest, '.'], {
+  // 本次构建专属的 Go 源文件经 overlay 虚拟进壳的包目录（见函数注释）。
+  const staged = stageOverlayFiles(buildDir, opts.stageGoFiles);
+  const args = ['build', '-trimpath'];
+  if (staged.overlayPath) args.push(`-overlay=${staged.overlayPath}`);
+  args.push('-ldflags', ldflags.join(' '), '-o', dest, '.');
+  const build = spawnSync('go', args, {
     cwd: buildDir,
     encoding: 'utf8',
     env: Object.assign({ CGO_ENABLED: '1' }, webkit.env),
   });
-  if (build.error || build.status !== 0) {
-    const hint = plat.startsWith('linux') && /webkit2gtk-4\.0/.test(`${build.stdout}${build.stderr}`)
-      ? `\n提示：本机未装 webkit2gtk-4.0/4.1 开发库。Ubuntu/Debian 执行 ` +
-        `sudo apt install libgtk-3-dev libwebkit2gtk-4.1-dev（老发行版用 4.0）后重试。`
-      : '';
-    throw new Error(`Go 编译失败：\n${build.stdout}\n${build.stderr}${hint}`);
+  try {
+    if (build.error || build.status !== 0) {
+      const hint = plat.startsWith('linux') && /webkit2gtk-4\.0/.test(`${build.stdout}${build.stderr}`)
+        ? `\n提示：本机未装 webkit2gtk-4.0/4.1 开发库。Ubuntu/Debian 执行 ` +
+          `sudo apt install libgtk-3-dev libwebkit2gtk-4.1-dev（老发行版用 4.0）后重试。`
+        : '';
+      throw new Error(`Go 编译失败：\n${build.stdout}\n${build.stderr}${hint}`);
+    }
+  } finally {
+    staged.cleanup();
   }
   return dest;
+}
+
+// stageOverlayFiles 把 {文件名: 源码} 写成临时文件并产出一份 go command 认的 overlay 清单
+// （Replace: 虚拟路径 → 真实路径）。返回 { overlayPath, cleanup }；无文件时 overlayPath 为 null。
+// 虚拟路径必须落在目标包目录下，否则不会被视为该包的源文件。
+function stageOverlayFiles(buildDir, files) {
+  const entries = Object.entries(files || {});
+  if (!entries.length) return { overlayPath: null, cleanup() {} };
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'freedom-stage-'));
+  const replace = {};
+  for (const [name, src] of entries) {
+    if (!/^keyslot_[0-9a-f]{6}\.go$/.test(name)) {
+      fs.rmSync(dir, { recursive: true, force: true });
+      throw new Error(`internal: 不接受的壳源文件名 ${name}（只允许 keyslot_<tag>.go）`);
+    }
+    const real = path.join(dir, name);
+    fs.writeFileSync(real, src, 'utf8');
+    replace[path.join(buildDir, 'pkg', 'freedom', name)] = real;
+  }
+  const overlayPath = path.join(dir, 'overlay.json');
+  fs.writeFileSync(overlayPath, JSON.stringify({ Replace: replace }), 'utf8');
+  return { overlayPath, cleanup: () => fs.rmSync(dir, { recursive: true, force: true }) };
 }
 
 function nativePlatformKey() {

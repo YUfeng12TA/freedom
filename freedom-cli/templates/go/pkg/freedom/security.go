@@ -621,35 +621,52 @@ const (
 
 // ---- Tier B 编译期注入（CLI 用 -ldflags "-X freedom-cli-shell/pkg/freedom.<var>=<值>" 写入）----
 //
-// FRDM3 的全部秘密都从这两个值进来：
+// FRDM3 的两样秘密输入各有各的通道，通道不同是要防的对手不同：
 //
-//	securityMasterCipher —— 每产物主密钥（32B）经位置掩码异或后的 hex。掩码算法与
-//	  FRDM2 的 masterKeyCipher 同一条（out[i] ^= (i*7+0x5A)），目的只是让 strings /
-//	  十六进制扫描在壳里找不到密钥；运行时内存中仍有明文，对抗边界见 anti_debug_*。
 //	securityAnchorPubHex —— 发布方 ed25519 公钥（信任锚，hex32），验 .integrity 只认它。
+//	  它本就不需要保密，故留在 -X。
+//	keySlotAssemble —— 每产物主密钥的**装配函数**。R7-乙（台账 B-20260925-060）之前它是
+//	  一个 -X 注入的 hex 串加一条公开固定掩码（out[i] ^= (i*7+0x5A)）——那份掩码在 npm 包
+//	  与仓库里都读得到，等于"写一次脱壳器、所有 Freedom 产物通吃"。现在改由 CLI 每次 high
+//	  构建在一次性目录里代码生成 keyslot_<tag>.go（分片数/内容/变换/参数全随机）并在 init()
+//	  里赋值给本变量：静态提取的成果只对提取自的那个产物有效。
+//	  注意抬的是**自动化与复用**成本，不是绝对强度：装配码仍在同一个壳里，肯为单个产物人工
+//	  逆向的人照样拼得出来（边界见 SECURITY.md 与 README 的加固上限说明）。
 //
-// 通用预编译壳（Tier A）两值恒为空：它既解不开任何 FRDM3 产物（没有每产物主密钥），
-// 也没有产物外的锚可验签，故 high 模式在 CLI 侧就要求自编译壳（见 freedom-cli lib/build.js）。
+// 通用预编译壳（Tier A）既没有 -X 注入的锚，也没有那份生成码（keySlotAssemble 恒为 nil）：
+// 它既解不开任何 FRDM3 产物，也没有产物外的锚可验签，故 high 模式在 CLI 侧就要求自编译壳
+// （见 freedom-cli lib/build.js）。
+
 var (
-	securityMasterCipher = ""
 	securityAnchorPubHex = ""
+	// keySlotAssemble 由本应用的生成码在 init() 里赋值；nil 即"这只壳没有主密钥来源"。
+	keySlotAssemble func() []byte
 )
 
-// productMaster 还原注入的每产物主密钥。未注入或注入值非法（长度/十六进制）时 ok=false——
-// 非法值绝不退化成"拿空字节当密钥继续解密"，那会派生出一个人人可复现的密钥。
+// productMaster 取出本产物主密钥。装配函数缺失（Tier A）或产出长度不对（生成码被改坏、
+// 生成器与壳版本不匹配）一律 ok=false——非法值绝不退化成"拿空字节当密钥继续解密"，
+// 那会派生出一个人人可复现的密钥，比拒跑糟得多。
 func productMaster() ([]byte, bool) {
-	if securityMasterCipher == "" {
+	if keySlotAssemble == nil {
 		return nil, false
 	}
-	raw, err := hex.DecodeString(securityMasterCipher)
-	if err != nil || len(raw) != securityProductKeyLen {
+	master := keySlotAssemble()
+	// 全零主密钥是"生成码被改坏/装配链断掉"的典型形态：长度合规却等于没有密钥，
+	// 拿它派生会得出一个人人可复现的 KEK。宁可拒跑，不能静默用一把公开密钥加密出厂。
+	if len(master) != securityProductKeyLen || isZeroBytes(master) {
+		clearBytes(master)
 		return nil, false
 	}
-	out := make([]byte, len(raw))
-	for i, b := range raw {
-		out[i] = b ^ byte((i*7+0x5A)&0xff)
+	return master, true
+}
+
+func isZeroBytes(b []byte) bool {
+	for _, x := range b {
+		if x != 0 {
+			return false
+		}
 	}
-	return out, true
+	return true
 }
 
 // deriveSecurityKeyV3 用每产物主密钥派生容器密钥（PBKDF2 60 万次，实测约 180ms）。

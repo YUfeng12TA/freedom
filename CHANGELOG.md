@@ -23,6 +23,29 @@
   R6 真机三用例与 Tier A 拒跑在重编专属壳后复跑通过。
   > 注：本条改的是运行期代码，**发布前必须用它重编三平台壳**并同步 `freedom-cli/shell/<plat>`（Tier B 专属壳另由用户本机现编，不受影响）。
 
+- **每产物多态密钥装配（keySlot）**（`freedom-cli/lib/{security,shell,build}.js` / `security.go`，R7 方向闸门
+  `.liangzu/plans/r7-source-protection/gate.md` 乙；契约 `.liangzu/plans/r6-defense-max/frdm3-contract.md` §7；
+  关闭台账 B-20260925-060）：
+  - **`-X` 通道不再承载主密钥**。1.14.0 的注入是「一个 64 位十六进制字符串 + 一条公开固定掩码
+    （`out[i] ^= (i*7+0x5A)`）」，两处弱点：注入值以 ASCII 原样落在 exe 数据段（`strings` 直接可定位，
+    本轮以最小 Go 复现证实），且掩码公式随 npm 包与仓库公开 ⇒ **写一份脱壳器，之后所有 Freedom 产物通吃**；
+  - 现在每次 `freedom build --security high` 现场生成一份**只属于本产物**的装配码 `keyslot_<tag>.go`：
+    主密钥切成 3~7 片，切法、顺序、每片的变换（`xor | add | sub | rol | posxor`）与参数全部随机，
+    经 `go build -overlay` 虚拟进壳的包目录参与编译，临时目录编完即删（生成码**绝不写进 `templates/go`**，
+    否则等于把某个产物的密钥编进之后所有壳）；`-X` 只剩信任锚公钥（公钥本就不需保密）；
+  - 壳侧钩子 `keySlotAssemble func() []byte` 默认 nil ⇒ **通用壳（Tier A）结构上仍解不开**；
+    `productMaster()` 只认「非 nil、长度恰为 32、非全零」的装配结果，否则以退出码 70 拒跑（全零单堵：
+    长度合规却等于没有密钥，拿它派生会得出人人可复现的 KEK）；
+  - 诚实边界：抬的是**静态提取 + 跨产物复用**的成本，不是绝对强度——装配码与被它装出来的密钥仍在同一个壳里，
+    肯为单个产物人工逆向的人照样拼得出来（`SECURITY.md` 与 `freedom-cli/README.md` 已按此改写口径）。
+  回归网：JS 侧三条新断言（每构建唯一且装配回原密钥 / 变换族 ≥3 防伪多态 / **真编译并 `go run` 生成码**验证跨语言一致，
+  本机无 Go 自动 skip）+ `-X` 注入面收缩断言；Go 侧 `TestFRDM3ProductMasterHookContract` 锁坏值必拒。
+  变异验证四处各红（Go 渲染把 `add` 的逆写成加 / 去掉长度校验 / 去掉 nil 守卫 / 装配码两次构建相同）。
+  真机：`build-tmp/hi2` 重编专属壳后 R6 三用例 + Tier A 拒跑复跑通过，静态扫描确认产物 exe 中
+  主密钥明文、其 32 字节、旧掩码的 ASCII 与字节形态**全部不存在**（`build-tmp/hi2/r7-scan.cjs`）。
+  > 注：本条改了壳的运行期代码与 CLI 注入面，**发布前同样要用它重编三平台壳**；容器与清单格式未变，
+  > 1.14.0 已产出的 FRDM3 产物无需重打包（其壳仍是旧注入形态，能自解，但密钥提取成果可跨产物复用）。
+
 ## [1.14.0] - 2026-09-25
 
 ### 破坏性变更

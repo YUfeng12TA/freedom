@@ -44,6 +44,28 @@
 - **`len(secureKeyCache)==0` 比"没有 v3: 前缀的条目"更值得断言**：后者换个键名就静默失效，
   而那正是断言要防的行为（变异网 M2 用整表断言才成立）。
 
+## 实施期新发现（乙落地时）
+
+- **`-X` 是明文写进二进制的**：最小复现（`build-tmp/hi2/r7-scan.cjs` B 段）证明 `-X main.securityMasterCipher=<hex>`
+  的值以**原样 ASCII** 出现在 `.text`/`.rodata`，`strings` 一次就取到 ⇒ 甲代之前"注入即秘密"的假设是假的，
+  这才是 B-20260925-060 的真实严重性来源（不是掩码算式公开，而是公开算式掩盖的值本身裸奔）。
+- **生成码绝不能落 `templates/go`**：那是镜像门的源侧（CI `Template mirror in sync` 逐字节比对根目录 ↔ 镜像），
+  且模板是所有壳（含 Tier A 通用壳）的共用底本——把某个产品的装配码写进去，等于把它的密钥分发给所有人的产物。
+  正解是 `go build -overlay=<json>`：装配文件写到 `mkdtemp` 一次性目录，`Replace` 映射进
+  `pkg/freedom/keyslot_<tag>.go`，编译结束 `finally` 删除。模板树零写入，镜像门不受影响。
+- **`spawnSync(..., {shell:true})` 在 Windows 上会拆坏 `-ldflags`**：`-ldflags "-s -w"` 经 cmd 再解析后
+  变成 `malformed import path ... invalid char '='`。取证脚本第一次红就是这个原因，不是代码问题 ⇒ 一律去掉
+  `shell:true`，用参数数组。
+- **生成器的三个静默坑（读码时抓到，未跑到）**：① `posxor` 的随机参数若可取负，渲染出的 Go 字面量 `0x-1` 直接编译失败；
+  ② 分片切点若不强制唯一，可能切出 <3 片、退化到"整密钥一片"；③ `rol` 的逆运算渲染成 `rotl`（同方向）时
+  只有真实跑一次 `go run` 才发现——故跨语言锁测试必须真的编译执行，纯 JS 自洽的装配断言是假绿。
+- **全零主密钥必须显式拒**：装配链断掉（生成码被改坏、hook 返回零值）时长度是合规的 32B，
+  拿它派生会得出一个人人可复现的 KEK，比拒跑危险得多 ⇒ `productMaster()` 除长度外加 `isZeroBytes` 判定，
+  `TestFRDM3ProductMasterHookContract` 锁 nil/短/长/空/全零五种畸形返回一律 `ok=false`。
+- **Tier A 的"结构上解不开"依赖一个变量为 nil**：`keySlotAssemble` 无默认实现，通用壳里它恒 nil ⇒ 与
+  "公钥锚不在壳里"是两个独立锁，但前者现在由生成码是否注入决定，故测试必须直接断 nil 分支，
+  不能只断"没密钥"（那是同义反复）。
+
 ## 环境/工具坑（本轮新增）
 
 - Bash `grep --include=*_test.go`（不带引号的 glob）被 pretool-gate 拦成 exit 2 ⇒ 一律改用 `git grep ... -- "*_test.go"`。

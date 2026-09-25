@@ -1,7 +1,7 @@
 {
   "version": 4,
   "subKind": "bugs",
-  "lastUpdated": "2026-09-25T08:30:00.000Z",
+  "lastUpdated": "2026-09-25T09:10:00.000Z",
   "bugRegistry": [
     {
       "id": "B01",
@@ -744,9 +744,10 @@
       "file": "security.go",
       "line": 621,
       "summary": "主密钥掩码是公开固定式：Go productMaster() 与 npm 包内 lib/security.js maskPositional() 同式（out[i]^=(i*7+0x5A)）⇒ 静态逆向出任一 Tier B 专属壳者能还原其每产物主密钥；更关键的是这套提取法**跨产物复用**（写一个通用脱壳器，之后所有 Freedom 产物一次到位）。",
-      "status": "open",
-      "fix": "",
-      "regressionTest": "在办：R7-乙「每产物多态密钥装配」（.liangzu/plans/r7-source-protection/gate.md §3 乙，任务 #49）——CLI 在一次性构建目录里代码生成每产物唯一的装配片段，使\"公开源里的算法\"不再等于万能钥匙，破一个产物的成果对下一个产物无效。诚实上限：只抬自动化与复用成本，不挡愿意逐产物人工逆向的人。"
+      "status": "fixed",
+      "fix": "主密钥不再有 -X 通道：CLI 每次 high 构建现场生成只属于本产物的装配码 keyslot_<tag>.go（lib/security.js keySlotForBuild：切成 3~7 片、切法/顺序/变换 xor|add|sub|rol|posxor 与参数全随机），经 go build -overlay（lib/shell.js stageOverlayFiles）虚拟进 pkg/freedom 编译，临时目录编完即删（严禁落进 templates/go）。壳侧钩子 keySlotAssemble 默认 nil ⇒ Tier A 结构上仍解不开；productMaster() 只认非 nil、长度 32、非全零的结果，否则退出码 70。删除 SHELL_VAR_MASTER / productMasterCipher / securityMasterCipher 与 JS 侧 maskPositional 的 v3 用途，-X 只剩信任锚公钥。契约见 frdm3-contract.md §7。",
+      "regressionTest": "tests/security-frdm3.test.mjs 四条：每构建唯一且装配回原主密钥（8 seed，含\"无 ≥32 字节连续字面量\"）/ 变换族 ≥3（防伪多态）/ **真编译并 go run 生成码**断言输出等于主密钥（跨语言锁，本机无 Go 即 skip）/ -X 注入面收缩（符号表只剩 securityAnchorPubHex，productMasterCipher 与 SHELL_VAR_MASTER 必须不存在）；security_frdm3_test.go TestFRDM3ProductMasterHookContract 锁坏值必拒（nil/短/长/全零）。变异四处各红：Go 渲染把 add 的逆写成加 → 跨语言锁红；去掉长度与全零校验 → 短/长/全零三条红；去掉 nil 守卫 → panic 红。真机：build-tmp/hi2 重编专属壳 → REALCASE_PASS + TIER_A_REFUSE_OK；r7-scan.cjs 扫产物 exe，主密钥明文 hex、明文 32B、旧掩码 ASCII、旧掩码 32B 全部不存在（同时用最小 Go 复现证明 -X 注入值本会以 ASCII 落进数据段）。",
+      "fixedAt": "2026-09-25"
     }
   ]
 }

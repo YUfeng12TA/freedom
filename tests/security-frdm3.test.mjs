@@ -13,6 +13,7 @@ import { test } from 'node:test';
 import assert from 'node:assert';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -202,31 +203,97 @@ test('FRDM3: 跨语言夹具（Go security_test.go 读同一份）', () => {
   assert.strictEqual(k.mac.toString('hex'), golden.deriveGolden.macHex, 'macKey 与夹具不一致');
 });
 
-test('FRDM3: Tier B 注入表与 Go productMaster 同式（每产物主密钥编进壳）', () => {
+// ---- R7-乙：每产物多态密钥装配（keySlot）----
+//
+// 台账 B-20260925-060：1.14.0 的 Tier B 注入是「单变量 + 公开固定掩码」
+// （`-X …securityMasterCipher=<out[i]^(i*7+0x5A)>`，算法在 npm 包与 GitHub 都读得到），
+// 于是写一份通用脱壳器即可**跨产物复用**。本代际改成每构建现场生成的装配码：
+// 分片数 / 分片内容 / 装配顺序 / 变换与参数全随机，破一个产物拿到的成果对下一个无效。
+const KEYSLOT_MASTER = '11e8'.repeat(16); // 64 位十六进制 = 32 字节（测试用假主密钥）
+
+test('FRDM3: keySlot 每构建唯一，且装配结果恒等于原主密钥', () => {
+  const slots = [];
+  for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
+    const s = sec.keySlotForBuild(KEYSLOT_MASTER, { seed });
+    slots.push(s);
+    // 装配结果必须逐字节还原主密钥（生成器内的自检是同一件事，这里独立复算一次）
+    assert.strictEqual(sec.assembleKeySlot(s.plan).toString('hex'), KEYSLOT_MASTER,
+      `seed=${seed} 装配出的主密钥与原值不符`);
+    assert.match(s.fileName, /^keyslot_[0-9a-f]{6}\.go$/);
+    assert.match(s.source, /^package freedom$/m);
+    assert.match(s.source, /keySlotAssemble = /, '生成码必须挂上壳侧的运行期钩子');
+    // 明文主密钥不得作为连续字面量出现在生成码里
+    assert.strictEqual(s.source.includes(KEYSLOT_MASTER), false);
+  }
+  const names = new Set(slots.map((s) => s.fileName));
+  const srcs = new Set(slots.map((s) => s.source));
+  assert.strictEqual(names.size, slots.length, '文件名必须每次构建唯一（同一目录内不互相覆盖）');
+  assert.strictEqual(srcs.size, slots.length, '同一主密钥两次构建的装配码必须互不相同');
+  // 分片规模在区间内，且任何一片都短到不足以被"扫 32 字节高熵块"命中
+  for (const s of slots) {
+    assert.ok(s.plan.shards.length >= 3 && s.plan.shards.length <= 7, `分片数越界：${s.plan.shards.length}`);
+    for (const sh of s.plan.shards) {
+      assert.ok(Buffer.from(sh.bytes, 'hex').length < 32, '单片长度必须小于主密钥');
+    }
+    const lits = [...s.source.matchAll(/\[\]byte\{([\s\S]*?)\}/g)]
+      .map((m) => m[1].split(',').filter((x) => x.trim()).length);
+    assert.ok(lits.length >= 2 && Math.max(...lits) < 32,
+      '生成码里出现 ≥32 字节的连续字面量：整把主密钥可能以可扫描形态落进 exe');
+  }
+  // 非法主密钥必须响亮拒绝（半截密钥编进壳 = 产物跑不起来，比静默降级好）
+  assert.throws(() => sec.keySlotForBuild('ab'.repeat(31)), /32 字节/);
+  assert.throws(() => sec.keySlotForBuild('zz'.repeat(32)), /32 字节|十六进制/);
+});
+
+test('FRDM3: 装配码覆盖三种以上变换（防"只换分片不换算法"的假多态）', () => {
+  const ops = new Set();
+  for (const seed of [1, 5, 9, 13, 17, 21, 25, 29, 33, 37]) {
+    for (const sh of sec.keySlotForBuild(KEYSLOT_MASTER, { seed }).plan.shards) ops.add(sh.op);
+  }
+  assert.ok(ops.size >= 3, `10 次构建只出现 ${[...ops].join(',')}：变换族过窄`);
+});
+
+test('FRDM3: 生成的 Go 装配码能编译并跑出同一主密钥（跨语言锁）', (t) => {
+  const go = spawnSync('go', ['version'], { encoding: 'utf8' });
+  if (go.error || go.status !== 0) {
+    t.skip('本机无 Go 工具链：跳过生成码编译验证（CI 的 cli-contract-tests 同理）');
+    return;
+  }
+  for (const seed of [3, 11]) {
+    const slot = sec.keySlotForBuild(KEYSLOT_MASTER, { seed });
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'keyslot-go-'));
+    try {
+      fs.writeFileSync(path.join(dir, 'go.mod'), 'module kstest\n\ngo 1.22\n');
+      fs.mkdirSync(path.join(dir, 'ks'), { recursive: true });
+      // 与 security.go 里的钩子同形：生成码只负责给 keySlotAssemble 赋值。
+      fs.writeFileSync(path.join(dir, 'ks', 'shim.go'),
+        'package ks\n\nvar keySlotAssemble func() []byte\n\n' +
+        'func Assembled() []byte {\n\tif keySlotAssemble == nil {\n\t\treturn nil\n\t}\n\treturn keySlotAssemble()\n}\n');
+      fs.writeFileSync(path.join(dir, 'ks', slot.fileName), slot.source
+        .replace(/^package freedom$/m, 'package ks'));
+      fs.writeFileSync(path.join(dir, 'main.go'),
+        'package main\n\nimport (\n\t"fmt"\n\n\t"kstest/ks"\n)\n\nfunc main() { fmt.Printf("%x", ks.Assembled()) }\n');
+      const r = spawnSync('go', ['run', '.'], { cwd: dir, encoding: 'utf8' });
+      assert.strictEqual(r.status, 0, `生成码编译失败（seed=${seed}）：\n${r.stdout}${r.stderr}`);
+      assert.strictEqual(r.stdout.trim(), KEYSLOT_MASTER, `seed=${seed} Go 侧装配结果与主密钥不一致`);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});
+
+test('FRDM3: Tier B 注入面收口——-X 只带信任锚，主密钥走生成码', () => {
   const golden = JSON.parse(fs.readFileSync(FIXTURE, 'utf8'));
-  const cipher = sec.productMasterCipher(golden.productMasterHex);
-  // 注入表就是夹具里 Go 侧读的那一份：两侧各自实现掩码，此处双向锁死。
-  assert.strictEqual(cipher, golden.injectGolden.cipherHex, '注入密文与夹具不一致');
+  // 信任锚不需要保密（它本就是公钥），继续走 -X；主密钥不再有任何 -X 通道。
+  const inject = sec.shellInject(golden.pubHex);
+  assert.deepStrictEqual(Object.keys(inject), ['freedom-cli-shell/pkg/freedom.securityAnchorPubHex']);
+  assert.strictEqual(inject['freedom-cli-shell/pkg/freedom.securityAnchorPubHex'], golden.pubHex);
+  for (const v of Object.values(inject)) assert.match(v, /^[A-Za-z0-9_./:-]+$/);
   // 信任锚取的是私钥配对的公钥：传私钥必须与传公钥同解（构建期只有私钥在手）。
   const kp = crypto.generateKeyPairSync('ed25519');
   assert.strictEqual(sec.rawPubHexFromKey(kp.privateKey), sec.rawPubHexFromKey(kp.publicKey));
-  assert.strictEqual(golden.injectGolden.masterHex, golden.productMasterHex);
-  assert.notStrictEqual(cipher, golden.productMasterHex, '注入表不得是明文主密钥（strings 直读即泄）');
-  assert.match(cipher, /^[0-9a-f]{64}$/, '注入表须为 hex（-X 只能注入字符串）');
-  // 掩码是自逆的：还原一次即回明文（Go productMaster 走同一件事）
-  const back = Buffer.from(cipher, 'hex').map((b, i) => b ^ ((i * 7 + 0x5a) & 0xff));
-  assert.strictEqual(back.toString('hex'), golden.productMasterHex);
-  assert.throws(() => sec.productMasterCipher('ab'.repeat(31)), /32 字节/);
-  assert.throws(() => sec.productMasterCipher('zz'.repeat(32)), /32 字节/);
-  // 符号路径 = Go 包级变量名。改 Go 侧变量名而不同步这里，产出的壳会静默拿到空密钥。
-  assert.deepStrictEqual(Object.keys(sec.shellInject(golden.productMasterHex, golden.pubHex)), [
-    'freedom-cli-shell/pkg/freedom.securityMasterCipher',
-    'freedom-cli-shell/pkg/freedom.securityAnchorPubHex',
-  ]);
-  // 值必须过 shell.js 的 -X 字符集门（含空格即拼坏 -ldflags）
-  for (const v of Object.values(sec.shellInject(golden.productMasterHex, golden.pubHex))) {
-    assert.match(v, /^[A-Za-z0-9_./:-]+$/);
-  }
+  assert.strictEqual(sec.productMasterCipher, undefined, '固定掩码注入通道必须删净（留着就是可复用脱壳入口）');
+  assert.strictEqual(sec.SHELL_VAR_MASTER, undefined, '主密钥不再有 -X 注入符号');
 });
 
 // high 模式的发布方资产门：缺任一把钥匙必须在跑 vite/编译壳之前拒绝，
@@ -297,7 +364,6 @@ if (process.env.FRDM3_REGEN) {
     appBin: bin.toString('base64'), integrity: manifest,
     pubHex: sec.rawPubHexFromKey(kp.publicKey),
     deriveGolden: { saltHex: '000102030405060708090a0b0c0d0e0f', encHex: derived.enc.toString('hex'), macHex: derived.mac.toString('hex') },
-    injectGolden: { masterHex: master, cipherHex: sec.productMasterCipher(master) },
   };
   fs.writeFileSync(FIXTURE, JSON.stringify(out, null, 2) + '\n', 'utf8');
   console.log('夹具已重写：', FIXTURE);

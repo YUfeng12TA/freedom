@@ -366,30 +366,183 @@ function productMasterBytes(master) {
 
 // ---- Tier B 编译期注入（每产物壳）----
 //
-// high 模式在 Tier B 下不再复制预编译通用壳，而是为本应用现编一个专属壳，把两样东西
-// 经 -ldflags -X 编进去：每产物主密钥（解密用）与发布方公钥（验签信任锚）。
+// high 模式在 Tier B 下不再复制预编译通用壳，而是为本应用现编一个专属壳。两样秘密输入
+// 各有通道，通道不同是因为它们要防的对手不同：
+//
+//   信任锚（发布方 ed25519 公钥）—— 不需要保密，走 -ldflags -X 字符串变量即可。
+//   每产物主密钥 —— 不能走 -X：单个字符串常量（哪怕掩码过）在 exe 里是一个可定位的整体，
+//     而掩码算法在公开源里 ⇒ 一份脱壳器通吃所有产物（台账 B-20260925-060）。改走 keySlot
+//     代码生成（见下），每次 high 构建现场产出一份只属于本产物的装配码。
+//
 // 符号路径与 Go 侧包级变量一一对应，改任一侧必须同步——这是 build 产物能否启动的硬绑定。
 const SHELL_PKG = 'freedom-cli-shell/pkg/freedom';
-const SHELL_VAR_MASTER = 'securityMasterCipher';
 const SHELL_VAR_ANCHOR = 'securityAnchorPubHex';
 
-// productMasterCipher 把每产物主密钥（hex64）转成注入用密文表（hex）：
-// 与 Go productMaster() 的位置掩码同式，使 exe 里 strings 扫不到那 32 字节密钥。
-function productMasterCipher(master) {
-  const raw = productMasterBytes(master);
-  if (raw.length !== PRODUCT_KEY_LEN) {
-    throw new Error(`每产物主密钥需 32 字节（64 位十六进制），实际 ${raw.length} 字节`);
-  }
-  return maskPositional(raw).toString('hex');
+// shellInject 返回 buildShell 可直接消费的 -X 映射（完整符号路径 → 值）。
+function shellInject(anchorPubHex) {
+  return { [`${SHELL_PKG}.${SHELL_VAR_ANCHOR}`]: normalizePubHex(anchorPubHex) };
 }
 
-// shellInject 返回 buildShell 可直接消费的 -X 映射（完整符号路径 → 值）。
-function shellInject(master, anchorPubHex) {
-  return {
-    [`${SHELL_PKG}.${SHELL_VAR_MASTER}`]: productMasterCipher(master),
-    [`${SHELL_PKG}.${SHELL_VAR_ANCHOR}`]: normalizePubHex(anchorPubHex),
+// ---- 每产物多态密钥装配（keySlot，R7-乙）----
+//
+// 主密钥拆成 3~7 片，每片自选一种可逆变换与参数，装配循环的次序与声明次序都随机。
+// 产出的 Go 源落进**一次性构建目录**（不入库、不发布），编进该产物专属壳后：
+//   · 静态扫描找不到连续的 32 字节密钥形态；
+//   · 更关键的是"如何拼回主密钥"这件事本身变成每产物一份代码——从 A 产物逆出的流程
+//     对 B 产物无效，脱壳器无法一份通吃。
+// 边界要说清楚：这抬的是**自动化与跨产物复用**的成本，挡不住肯为单个产物人工逆向的人
+// （装配码本身在壳里、明文密钥运行期仍在内存）。口径见 SECURITY.md 与 README 加固上限。
+
+const KEYSLOT_OPS = ['xor', 'add', 'sub', 'rol', 'posxor'];
+const KEYSLOT_SHARD_MIN = 3;
+const KEYSLOT_SHARD_MAX = 7;
+
+// mulberry32：可播种的小 PRNG。播种的意义是"同一 seed 必得同一份装配码"，
+// 让测试能锁死生成器的输出形状；真实构建不传 seed，每次随机。
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function next() {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
+
+function rotl8(b, k) {
+  const s = k & 7;
+  return ((b << s) | (b >>> (8 - s))) & 0xff;
+}
+
+// keySlotPlan 把主密钥切成 plan：{ shards: [{ op, p, positions, bytes(hex) }] }。
+// positions[i] 与 bytes[i] 成对——存的就是"这一片落在主密钥的哪个位置、该位置存什么字节"，
+// 顺序本身随机，所以不需要额外的逆序标志。
+function keySlotPlan(master, opts = {}) {
+  const raw = productMasterBytes(master);
+  if (raw.length !== PRODUCT_KEY_LEN) {
+    throw new Error(`每产物主密钥需 ${PRODUCT_KEY_LEN} 字节（64 位十六进制），实际 ${raw.length} 字节`);
+  }
+  const rng = typeof opts.seed === 'number' ? mulberry32(opts.seed) : null;
+  const rnd = rng || (() => crypto.randomBytes(4).readUInt32BE(0) / 0x100000000);
+  const pick = (arr) => arr[Math.floor(rnd() * arr.length)];
+
+  const idx = Array.from({ length: raw.length }, (_, i) => i);
+  for (let i = idx.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    [idx[i], idx[j]] = [idx[j], idx[i]];
+  }
+  const shardCount = KEYSLOT_SHARD_MIN + Math.floor(rnd() * (KEYSLOT_SHARD_MAX - KEYSLOT_SHARD_MIN + 1));
+  // 切点不得重复：重复切点会产出空片，实际片数就可能掉到下限以下。
+  const cutSet = new Set();
+  while (cutSet.size < shardCount - 1) cutSet.add(1 + Math.floor(rnd() * (raw.length - 2)));
+  const cuts = [...cutSet].sort((a, b) => a - b);
+  const groups = [];
+  let prev = 0;
+  for (const c of cuts.concat(raw.length)) {
+    groups.push(idx.slice(prev, c));
+    prev = c;
+  }
+  const tag = Math.floor(rnd() * 0xffffff).toString(16).padStart(6, '0');
+  const shards = groups.map((positions, n) => {
+    const op = pick(KEYSLOT_OPS);
+    // posxor 的 a 取奇数，位置掩码才能在 0..255 上真正铺开；两侧都用非负字节，
+    // 渲染成 Go 字面量才是合法的 0xNN。
+    const param = op === 'posxor'
+      ? [1 + 2 * Math.floor(rnd() * 128), Math.floor(rnd() * 256)]
+      : [op === 'rol' ? 1 + Math.floor(rnd() * 7) : Math.floor(rnd() * 256), 0];
+    const bytes = Buffer.from(positions.map((p) => keySlotForward(op, raw[p], p, param)));
+    return { name: `k${tag}s${n}`, positions, op, param, bytes: bytes.toString('hex') };
+  });
+  const plan = { v: 1, tag, func: `ks${tag}`, len: raw.length, shards };
+  const back = assembleKeySlot(plan);
+  if (back.equals(raw) === false) {
+    // 装配自检不过就等于"编出来的壳永远跑不起来"，必须在生成期当场炸，而不是让用户拿到坏产物。
+    throw new Error('internal: keySlot 装配自检失败（生成器与参考装配实现不一致）');
+  }
+  return plan;
+}
+
+function keySlotForward(op, b, pos, p) {
+  switch (op) {
+    case 'xor': return b ^ p[0];
+    case 'add': return (b + p[0]) & 0xff;
+    case 'sub': return (b - p[0]) & 0xff;
+    case 'rol': return rotl8(b, p[0]);
+    case 'posxor': return b ^ ((pos * p[0] + p[1]) & 0xff);
+    default: throw new Error(`internal: 未知 keySlot 变换 ${op}`);
+  }
+}
+
+// assembleKeySlot 是 plan 的参考装配实现（JS 侧，用于生成期自检与测试独立复算）。
+// 运行期真正跑的是渲染出来的 Go 代码——两者由 tests/security-frdm3.test.mjs 的
+// 「生成码能编译并跑出同一主密钥」一条跨语言锁死。
+function assembleKeySlot(plan) {
+  const out = Buffer.alloc(plan.len);
+  for (const sh of plan.shards) {
+    const bytes = Buffer.from(sh.bytes, 'hex');
+    sh.positions.forEach((pos, i) => {
+      const b = bytes[i];
+      switch (sh.op) {
+        case 'xor': out[pos] = b ^ sh.param[0]; break;
+        case 'add': out[pos] = (b - sh.param[0]) & 0xff; break;
+        case 'sub': out[pos] = (b + sh.param[0]) & 0xff; break;
+        case 'rol': out[pos] = rotl8(b, 8 - sh.param[0]); break;
+        case 'posxor': out[pos] = b ^ ((pos * sh.param[0] + sh.param[1]) & 0xff); break;
+        default: throw new Error(`internal: 未知 keySlot 变换 ${sh.op}`);
+      }
+    });
+  }
+  return out;
+}
+
+// renderKeySlotGo 把 plan 渲染成 Go 源（package freedom，在 init() 里挂上壳侧钩子）。
+function renderKeySlotGo(plan) {
+  const hex = (n) => `0x${n.toString(16).padStart(2, '0')}`;
+  const lit = (arr) => arr.map((x) => hex(x)).join(', ');
+  const vars = plan.shards.map((sh) =>
+    `\t${sh.name} = []byte{${lit(Buffer.from(sh.bytes, 'hex'))}}\n` +
+    `\t${sh.name}At = []byte{${lit(sh.positions)}}`
+  ).join('\n');
+  const loops = plan.shards.map((sh) => {
+    const [a, c] = sh.param;
+    let expr;
+    switch (sh.op) {
+      case 'xor': expr = `b ^ ${hex(a)}`; break;
+      case 'add': expr = `byte((int(b) - ${hex(a)}) & 0xff)`; break;
+      case 'sub': expr = `byte((int(b) + ${hex(a)}) & 0xff)`; break;
+      case 'rol': expr = `b>>${a} | b<<${8 - a}`; break;
+      case 'posxor': expr = `b ^ byte((int(p)*${hex(a)} + ${hex(c)}) & 0xff)`; break;
+      default: throw new Error(`internal: 未知 keySlot 变换 ${sh.op}`);
+    }
+    return (
+      `\tfor i, p := range ${sh.name}At {\n` +
+      `\t\tb := ${sh.name}[i]\n` +
+      `\t\tout[p] = ${expr}\n` +
+      `\t}`
+    );
+  }).join('\n');
+  return (
+    '// Code generated by freedom-cli (Tier B keySlot). DO NOT EDIT.\n' +
+    `// 本文件只属于这一次构建：分片数、分片内容、变换与参数均随机（tag ${plan.tag}）。\n` +
+    '// 目的不是保密算法（算法在公开源里），而是让"从产物里拼回主密钥"这件事每产物一套代码，\n' +
+    '// 使针对某个产物得到的脱壳流程无法直接复用到下一个产物。边界见 SECURITY.md。\n' +
+    'package freedom\n\n' +
+    `func init() { keySlotAssemble = ${plan.func} }\n\n` +
+    'var (\n' + vars + '\n)\n\n' +
+    `// ${plan.func} 拼出 ${plan.len} 字节主密钥；长度由调用方 productMaster() 复核。\n` +
+    `func ${plan.func}() []byte {\n` +
+    `\tout := make([]byte, ${plan.len})\n` + loops + '\n' +
+    '\treturn out\n}\n'
+  );
+}
+
+// keySlotForBuild 产出本次构建的装配码：{ fileName, source, plan }。
+// opts.seed 仅供测试复现；构建期不传，每次全新随机。
+function keySlotForBuild(master, opts = {}) {
+  const plan = keySlotPlan(master, opts);
+  return { fileName: `keyslot_${plan.tag}.go`, source: renderKeySlotGo(plan), plan };
+}
+
 
 // ---- 容器密钥派生（v3）----
 
@@ -528,9 +681,9 @@ module.exports = {
   verifyIntegrityV3,
   rawPubHexFromKey,
   sha256hex,
-  productMasterCipher,
+  keySlotForBuild,
+  assembleKeySlot,
   shellInject,
   SHELL_PKG,
-  SHELL_VAR_MASTER,
   SHELL_VAR_ANCHOR,
 };

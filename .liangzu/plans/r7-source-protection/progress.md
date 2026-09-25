@@ -8,12 +8,12 @@
 | 2 甲-红 | 三条新断言（只解密一次 / KEK 不驻留 / 后端物化后即擦）先红 | done — E-R7-1（红以变异形式取证：M1 次数=2、M2 缓存条目=1、M3 后端 1 份、M4 容器串号，四条各自红；见下 3 的证据） |
 | 3 甲-绿 | 三条断言全绿，且 R6 v3 测试与 `security_frdm3_test.go` 不回归 | done — E-R7-2：`go test ./... → ok freedom 18.263s`（含 `TestRuntimeSecureMode`/`TestSecureBackendMaterialized`/`TestLoadSecureResourcesV3AcceptsInjectedProduct`） |
 | 4 甲-镜像同步 | `templates/go/pkg/freedom` 与根目录逐字节相同 + 镜像门绿 | done — E-R7-3：本地复跑 CI `Template mirror in sync` 循环 → `mirror_gate_fail=0` |
-| 5 乙-红 | JS 测试锁「注入符号表变更」与「每构建生成码唯一」先红 | 未开工（上下文预算 → handoff，见文末） |
-| 6 乙-绿 | `node --test tests/*.test.mjs` 全绿 | 未开工 |
-| 7 乙-契约与文档 | `frdm3-contract.md` §7 + SECURITY/README 口径 | 部分 done — E-R7-4：文档口径已随甲改（SECURITY.md 内存边界、freedom-cli/README 新增"运行期明文只有一份"条 + 加固上限两条已知边界、AGENTS.md security.go 段）；契约 §7（乙的装配代际）未开工 |
-| 8 真机四用例 | ①正常启动 ②改造 resources ③换公钥文件 ④Tier A 壳加载 Tier B 产物；②③④ 必须 exit 70 | done — E-R7-5：用改后镜像重编 `build-tmp/hi2`（Tier B，产物自检 10 项全通过）→ `r6-tierb-cases.cjs` ①页面加载+后端起在私有临时目录、②`exited code=70`（app.bin 与签名清单不符）、③`exited code=70`（公钥与信任锚不一致）、`REALCASE_PASS`；④`r6-tiera-refusal.cjs` → `exit=70` + `TIER_A_REFUSE_OK` |
-| 9 台账 | `bugs.json` 登记并关闭本波缺口，open critical/major = 0 | 部分 done — E-R7-6：058（KEK 终生驻留）、059（明文双副本/不擦）已 fixed；**060（掩码公开固定式 + 提取法跨产物复用）open/major，由乙承接** |
-| 10 全闸门 + 提交 | `go test ./...`、`node --test tests/*.test.mjs`、镜像门、`gofmt -l` 全绿，工作树干净 | done — E-R7-7 |
+| 5 乙-红 | JS 测试锁「注入符号表变更」与「每构建生成码唯一」先红 | done — E-R7-8：三条新断言首次运行全红在 `sec.keySlotForBuild is not a function` 与 `shellInject` 旧签名上（旧断言已同步删除） |
+| 6 乙-绿 | `node --test tests/*.test.mjs` 全绿 | done — E-R7-9：`80 pass / 0 fail`（甲时 77 条 + 乙新增 3 条），`go test ./... → ok freedom 19.325s`，镜像门 `mirror_fail=0`，`gofmt -l *.go` 无输出 |
+| 7 乙-契约与文档 | `frdm3-contract.md` §7 + SECURITY/README 口径 | done — E-R7-4 + E-R7-10：甲的文档口径（SECURITY.md 内存边界、README 明文只有一份 + 两条已知边界、AGENTS.md security.go 段）之后，追加契约 §7（keySlot 装配代际：动因/新机制/落点纪律/注入面收缩/失败模式/跨语言锁/诚实边界/改生成器的同步义务），并把 §6.2、§6.3 标注为被 §7 取代；README 第 229/238/244 行与 SECURITY.md:50 改为"每产物一份装配码，抬复用成本非绝对强度" |
+| 8 真机四用例 | ①正常启动 ②改造 resources ③换公钥文件 ④Tier A 壳加载 Tier B 产物；②③④ 必须 exit 70 | done — E-R7-5（甲代）+ **E-R7-11（乙代重跑）**：`freedom build` 现编专属壳（overlay 注入生成码）产物自检 10 项通过 → `REALCASE_PASS`（②③ exit 70）、`TIER_A_REFUSE_OK`（④ exit 70）；另 `r7-scan.cjs` 静态面取证 A/B/C 三条断言成立 |
+| 9 台账 | `bugs.json` 登记并关闭本波缺口，open critical/major = 0 | done — E-R7-6 + E-R7-12：058、059 已 fixed（甲）；060（掩码公开固定式 + 提取法跨产物复用）已 fixed（乙），脚本回读 `open critical/major = []` |
+| 10 全闸门 + 提交 | `go test ./...`、`node --test tests/*.test.mjs`、镜像门、`gofmt -l` 全绿，工作树干净 | done — E-R7-7（甲）+ E-R7-9（乙复跑同口径） |
 
 ## 证据明细
 
@@ -26,6 +26,27 @@
   `TestLoadSecureResourcesV3AcceptsInjectedProduct` 的换锚与 self 不符两用例当场假通过（`应被拒绝，实际：<nil>`）。
   改判为"验签每次照跑、缓存只记忆化解密"后全绿——R2 曾记过同族教训（`r2-hardening/findings.md:22` 载荷不缓存）。
 - **E-R7-5 启动代价**：`freedom build` 产物自检通过，专属壳 7.16 MB；PBKDF2 由 2 次降为 1 次（甲的预期收益）。
+- **E-R7-8 乙-红**：新增断言先红在缺实现上（`TypeError: sec.keySlotForBuild is not a function` ×2、
+  `shellInject` 仍旧签名报 `ed25519 公钥需为 64 位十六进制…实际：undefined`）。
+- **E-R7-9 乙-全闸门**：`go test ./... → ok freedom 19.325s`；`node --test tests/*.test.mjs → tests 80 / pass 80 / fail 0`；
+  本地复跑 CI 镜像循环 `mirror_fail=0`；`gofmt -l *.go` 无输出；`git status --porcelain` 除本轮改动文件外无残留
+  （**关键**：high 构建跑完后 `freedom-cli/templates/go` 干净 ⇒ overlay 落点纪律成立，生成码没写进公共树）。
+- **E-R7-10 乙-跨语言锁**：`生成的 Go 装配码能编译并跑出同一主密钥` 一条在本地**真编译真执行**（seed 3/11 各一次，
+  `go run` 输出等于 master hex），本机无 Go 时 `t.skip` 不假绿；Go 侧对偶 `TestFRDM3ProductMasterHookContract`
+  锁 nil/短/长/全零四种坏装配结果一律 `ok=false`。夹具 `frdm3-golden.json` 随之删掉 `injectGolden`（旧掩码注入的对照物）。
+- **E-R7-11 乙-真机与静态面**（`build-tmp/hi2`，同一份产物重编）：
+  ①正常启动：页面加载、后端起在 `…\Temp\freedom-his2-33912-4085863693`；
+  ②改 `app.bin`：`exited code=70`「app.bin 与签名清单不符」；
+  ③换签名钥重签：`exited code=70`「公钥与信任锚不一致」；→ `REALCASE_PASS`；
+  ④Tier A 通用壳加载该产物：`exit=70` +「每产物主密钥未注入本 exe」⇒ `TIER_A_REFUSE_OK`；
+  静态扫描（`r7-scan.cjs`）：产物 exe 中 主密钥 ASCII / 主密钥 32B / 甲代掩码 ASCII / 甲代掩码 32B **四项全不存在**，
+  同时用一个最小 Go 复现证明 `-X` 注入的同一串掩码值**确实**以 ASCII 落在二进制数据段（⇒ 前四项为"没了"而非"扫不到"），
+  并验证同 master 两次构建的装配码文件名与内容互不相同（实测分片：`subx1,rolx15,rolx2,subx14`）。
+- **E-R7-12 乙-变异取证**（四处各红后还原转绿）：
+  M-a `renderKeySlotGo` 里把 `add` 的逆写成加 → 跨语言锁红（证明该断言真在验证 Go 渲染而非只跑 JS）；
+  M-b 去掉 `len==32 && !isZero` 校验 → 「短 / 长 / 全零」三条红；
+  M-c 去掉 `keySlotAssemble == nil` 守卫 → 测试以 nil 调用 panic 红（Tier A 结构性拒解密有锁）；
+  M-d 生成器 seed 不参与随机（两次构建相同）→ 「每构建唯一」红。
 
 ## 裁定与待裁
 

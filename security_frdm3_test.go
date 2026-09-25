@@ -39,12 +39,6 @@ type frdm3Fixture struct {
 		EncHex  string `json:"encHex"`
 		MacHex  string `json:"macHex"`
 	} `json:"deriveGolden"`
-	// InjectGolden 锁的是 Tier B 注入格式：JS productMasterCipher 产出的密文表，
-	// Go productMaster 必须还原出同一个主密钥（掩码算法跨语言同式）。
-	InjectGolden struct {
-		MasterHex string `json:"masterHex"`
-		CipherHex string `json:"cipherHex"`
-	} `json:"injectGolden"`
 }
 
 func readFRDM3Fixture(t *testing.T) (*frdm3Fixture, []byte) {
@@ -327,12 +321,24 @@ func TestFRDM3EmitGoSignedVector(t *testing.T) {
 
 // ---- Tier B 注入与启动校验链（loadSecureResources）----
 
-// withShellInjection 临时设定编译期注入值（＝"本应用专属壳"这一形态），测完复原。
-func withShellInjection(t *testing.T, cipherHex, anchorHex string) {
+// withShellInjection 临时设定"本应用专属壳"这一形态（编译期注入的等价物），测完复原。
+// masterHex 为空即 Tier A 形态：既没有装配函数也没有信任锚，结构上就解不开任何产物。
+// 真实构建里 masterHex 的位置换成 CLI 代码生成的 keyslot_<tag>.go（init() 里给
+// keySlotAssemble 赋值）；测试用等价的闭包注入，避免把生成器搬进 Go 侧。
+func withShellInjection(t *testing.T, masterHex, anchorHex string) {
 	t.Helper()
-	oldM, oldA := securityMasterCipher, securityAnchorPubHex
-	securityMasterCipher, securityAnchorPubHex = cipherHex, anchorHex
-	t.Cleanup(func() { securityMasterCipher, securityAnchorPubHex = oldM, oldA })
+	oldA, oldK := securityAnchorPubHex, keySlotAssemble
+	securityAnchorPubHex = anchorHex
+	if masterHex == "" {
+		keySlotAssemble = nil
+	} else {
+		master, err := hex.DecodeString(masterHex)
+		if err != nil {
+			t.Fatalf("测试注入的主密钥非法：%v", err)
+		}
+		keySlotAssemble = func() []byte { return append([]byte(nil), master...) }
+	}
+	t.Cleanup(func() { securityAnchorPubHex, keySlotAssemble = oldA, oldK })
 }
 
 // tierBPublisher 造一套发布方资产（每产物主密钥 + ed25519 签名钥），并把注入值
@@ -348,11 +354,7 @@ func tierBPublisher(t *testing.T, name string) func(html, configJSON string, bac
 	if err != nil {
 		t.Fatal(err)
 	}
-	cipher := make([]byte, len(master))
-	for i, b := range master {
-		cipher[i] = b ^ byte((i*7+0x5A)&0xff)
-	}
-	withShellInjection(t, hex.EncodeToString(cipher), hex.EncodeToString(pub))
+	withShellInjection(t, hex.EncodeToString(master), hex.EncodeToString(pub))
 	return func(html, configJSON string, backend map[string]secureFile) ([]byte, []byte) {
 		bin := sealForTest(t, securityMagic3, deriveV3ForTest(master, name), html, configJSON, backend)
 		return bin, signIntegrityForTest(t, priv, name, bin, "")
@@ -386,21 +388,34 @@ func writeAppBin(t *testing.T, res string, appBin []byte) {
 	}
 }
 
-func TestFRDM3ProductMasterUnmaskMatchesNode(t *testing.T) {
+// TestFRDM3ProductMasterHookContract 锁的是壳侧消费装配码的那道契约（生成码本身由
+// freedom-cli 每次构建现场产出；JS→Go 的"生成码真能跑出同一把密钥"由
+// tests/security-frdm3.test.mjs 编译并运行生成码来锁，本文件锁它的对偶：坏值必须拒）。
+func TestFRDM3ProductMasterHookContract(t *testing.T) {
 	fx, _ := readFRDM3Fixture(t)
-	withShellInjection(t, fx.InjectGolden.CipherHex, fx.PubHex)
+	withShellInjection(t, fx.ProductMaster, fx.PubHex)
 	raw, ok := productMaster()
 	if !ok {
-		t.Fatal("productMaster 应认下夹具里 JS 实算的注入值")
+		t.Fatal("productMaster 应认下合法装配结果")
 	}
 	if got := hex.EncodeToString(raw); got != fx.ProductMaster {
-		t.Fatalf("还原出的主密钥 = %s，期望 %s：JS productMasterCipher 与 Go productMaster 掩码不同式", got, fx.ProductMaster)
+		t.Fatalf("取出的主密钥 = %s，期望 %s", got, fx.ProductMaster)
 	}
-	// 非法注入值一律判"未注入"：拿半截或坏掉的字节当主密钥去解密，是比拒绝更糟的静默降级。
-	for _, bad := range []string{"", "zz", hex.EncodeToString(make([]byte, 16))} {
-		withShellInjection(t, bad, "")
+	// 装配函数缺失（Tier A 形态）或结果长度不对/全零 ⇒ 一律判"没有主密钥"。
+	// 拿半截、坏掉或全零的字节当主密钥去解密，等于用一把人人可复现的钥出厂，比拒跑糟得多。
+	keySlotAssemble = nil
+	if _, ok := productMaster(); ok {
+		t.Error("未挂装配函数（Tier A）不得产出主密钥")
+	}
+	for name, bad := range map[string]func() []byte{
+		"短":  func() []byte { return make([]byte, 16) },
+		"长":  func() []byte { return make([]byte, 33) },
+		"空":  func() []byte { return nil },
+		"全零": func() []byte { return make([]byte, securityProductKeyLen) },
+	} {
+		keySlotAssemble = bad
 		if _, ok := productMaster(); ok {
-			t.Errorf("注入值 %q 应判非法（不得继续解密）", bad)
+			t.Errorf("装配结果 %s 应判非法（不得继续解密）", name)
 		}
 	}
 }
@@ -466,7 +481,7 @@ func TestLoadSecureResourcesV3AcceptsInjectedProduct(t *testing.T) {
 	manifest := signIntegrityForTest(t, priv, "tierb", container, self)
 	res := writeSecureProduct(t, "tierb", container, manifest)
 	anchor := hex.EncodeToString(pub)
-	withShellInjection(t, fx.InjectGolden.CipherHex, anchor)
+	withShellInjection(t, fx.ProductMaster, anchor)
 
 	p, hit, err := loadSecureResources()
 	if !hit || err != nil {
@@ -491,12 +506,12 @@ func TestLoadSecureResourcesV3AcceptsInjectedProduct(t *testing.T) {
 
 	// 真机用例③：换信任锚（换成攻击者自己的公钥／挪用到另一份产物）→ 锚不匹配即拒。
 	// 关键在"只认注入的那把"：清单自带的 pub 不可自证。
-	withShellInjection(t, fx.InjectGolden.CipherHex, hex.EncodeToString(otherPub))
+	withShellInjection(t, fx.ProductMaster, hex.EncodeToString(otherPub))
 	if _, _, err := loadSecureResources(); err == nil ||
 		!strings.Contains(err.Error(), "信任锚") {
 		t.Errorf("换锚应被拒绝，实际：%v", err)
 	}
-	withShellInjection(t, fx.InjectGolden.CipherHex, anchor)
+	withShellInjection(t, fx.ProductMaster, anchor)
 
 	// exe 本体被改写（补丁壳／事后签名）：清单里的 self 与真实哈希不符即拒。
 	// 这里换一个未签名的假 self 需要重签，故改用"签名者绑了别的哈希"等价场景：

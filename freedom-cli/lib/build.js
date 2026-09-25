@@ -44,6 +44,7 @@ const {
   signIntegrityV3,
   renderManifestV3,
   shellInject,
+  keySlotForBuild,
   loadProductKey,
   signingKeyPath,
   rawPubHexFromKey,
@@ -240,9 +241,16 @@ async function emitPlatform({ plat, name, version, targetDir, html, configJSON, 
       );
     }
     process.stdout.write(
-      `[freedom] high 模式（Tier B）：编译 ${name} 的专属壳，注入每产物主密钥与信任锚公钥（需 Go 工具链）...\n`
+      `[freedom] high 模式（Tier B）：编译 ${name} 的专属壳，注入信任锚公钥 + 本次构建专属的主密钥装配码（需 Go 工具链）...\n`
     );
-    buildShell(plat, { dest: outFile, inject: shellInject(secrets.master, secrets.anchorPubHex) });
+    // 主密钥不再有 -X 通道（固定掩码 = 一份脱壳器通吃所有产物，台账 B-20260925-060）：
+    // 每次构建现场生成一份只属于本产物的装配码，经 overlay 虚拟进壳的包目录，编完即弃。
+    const keySlot = keySlotForBuild(secrets.master);
+    buildShell(plat, {
+      dest: outFile,
+      inject: shellInject(secrets.anchorPubHex),
+      stageGoFiles: { [keySlot.fileName]: keySlot.source },
+    });
     if (!isWinPlat(plat)) await fsp.chmod(outFile, 0o755);
   } else {
     const shell = localShellPath(plat);

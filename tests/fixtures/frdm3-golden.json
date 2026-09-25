@@ -1,26 +1,22 @@
 {
   "magic": "FRDM3",
   "identity": "demo3",
-  "productMasterHex": "bea964a0bd23dbccd61555364b52361f44a0048bb15d120f9eaf27492616d35b",
+  "productMasterHex": "6425f7ca53db92b4e93d4bfefd330e77bca7fe9b276825aa099189f879b45c08",
   "html": "<html><body>frdm3-vector-演示</body></html>",
   "config": "{\"title\":\"FRDM3向量\",\"width\":800}",
   "backendContent": "package main // 跨语言夹具\n",
-  "appBin": "RlJETTPM/iHW9SrKyjtbZCmX86CV+lrc/RzfyfqVQ9ahrycD4OdwSmTikNUv5EzwAaeKl7TnKeBEP2NZGfNCK8HfnrmAi6IuqxSR/CIhKcDir0YPi4zRR5WztmjJTKK8fEnEhIcvJZdhlkWCBkkihNGW2U4OCjR+fxT81UfZzx7yl27Oi0Q0lBRK83pDFZrqzK6aZlkxkOYhjS6OgpcouQq+vbJE7QUVf+audojn33w4vi+7fFn0hkB70K+jXbar6vGjR3PCWMB9H3zQfB31UxpDiokKSmYrr+SZ7iR7nerEXkei3lRsY37WlbxBQzSdWqeZxzelm26mtBSYiQ==",
+  "appBin": "RlJETTMEfs+paVu6W3Yw1pTowX96i/iTklVNYqqVTjGk4Ed8F5ToeLXk0oa2FskN8mdUqX2SL8SlW/mtbvMtxlTFUlgQ4vXUEl/6cmq1yLk1FpUtqvwRpzZlfweyEj7x1hAhFie77ims0Q0/9TvTxEYS4m2v7K0XvsgwcISDzcWsJEVGlTlAZOLLw2WrdpmsOlL34SrSNj43HCuPzw4byzawCtsbFpjv2Se8M8pweqR8r4QVPkLXJvVPxARaWiP2Snkczu5v8IhVpCjozJLf/aTM7uyumlb0H8RHXT7eJ2kqtIhMDXOMFHn+yLBcrrxWjdx3ATNzqHEUbrV/zg==",
   "integrity": {
     "v": 3,
     "alg": "ed25519",
-    "pub": "397da547451225011f7a976d1240890e8079067c5decd45b8384036cac5e7f4a",
-    "payload": "eyJhcHBCaW4iOiJmZWE4ODE4YjA0YTgxMjdhNWY4MmY2MmUyYWM4NTU2NjVkNDAyMWM2ZmY0MTYzMDA1NGRlNjdjODdkNjBmNmYyIiwiaWRlbnRpdHkiOiJkZW1vMyIsInNhbHQiOiJjY2ZlMjFkNmY1MmFjYWNhM2I1YjY0Mjk5N2YzYTA5NSIsInNlbGYiOiIiLCJidWlsdCI6IjIwMjYtMDktMjVUMDA6MDA6MDAuMDAwWiJ9",
-    "sig": "ba62ec33c96cd6e2c8dfbceb8972496815b2704cffac82aaaf26b8d7d286744113aa16a0f71c56f727e94133e6df09a59f85133af5d96e8b183f75e80603e40c"
+    "pub": "7eabd4cb810d8e601fe40af14bf3579c796be09ab45a1003089c8d1bd1140544",
+    "payload": "eyJhcHBCaW4iOiI3NGNlYjk1ZDhjNjZjMjcxMTRlYzVkODA4OWYwMjZjYzU0MmIzY2M5NGRiYzIyYWZlNGM2M2EzNTAyZjU1OThmIiwiaWRlbnRpdHkiOiJkZW1vMyIsInNhbHQiOiIwNDdlY2ZhOTY5NWJiYTViNzYzMGQ2OTRlOGMxN2Y3YSIsInNlbGYiOiIiLCJidWlsdCI6IjIwMjYtMDktMjVUMDA6MDA6MDAuMDAwWiJ9",
+    "sig": "767afb83589282d31eb18266368de1c3c87322b06340c41030883994796625139596c048259a54b6651ac200b919961a35bafc26077fc59efb629b9a95ba3d0e"
   },
-  "pubHex": "397da547451225011f7a976d1240890e8079067c5decd45b8384036cac5e7f4a",
+  "pubHex": "7eabd4cb810d8e601fe40af14bf3579c796be09ab45a1003089c8d1bd1140544",
   "deriveGolden": {
     "saltHex": "000102030405060708090a0b0c0d0e0f",
-    "encHex": "81678e6befd9d8b09c0902a0812f4f75512ecfcffd36643aaf6506b9b492d006",
-    "macHex": "dbc253426718a5ca8a288892cb95f4d201824ea48c22e5f8bb224027f286f9c9"
-  },
-  "injectGolden": {
-    "masterHex": "bea964a0bd23dbccd61555364b52361f44a0048bb15d120f9eaf27492616d35b",
-    "cipherHex": "e4c80ccfcb5e5f47448cf591e5e78adc8e71dc5457b0e6f49ca6375e3833ff68"
+    "encHex": "076ff15f3f3d62db36027322e12644990da6a1c5b93dc5eb48b3972fb3231416",
+    "macHex": "6fc90d33a0abd71495539da8477096a80e782622e26b84fd098b003d88d634e0"
   }
 }

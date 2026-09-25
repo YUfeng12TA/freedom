@@ -75,13 +75,16 @@
    Tier A 跑 high 的整条分支**删除**，不留"能跑但纸面"的第三态。理由：Tier A 的锚在产物内 ⇒ 循环信任，
    而 `freedom build --security high` 对它只能产出一个"谁都能重签"的产物，摆在那儿等于给用户一个假的安全感。
    Tier A 保留 `basic`（明文 + 符号剥离建议）。CLI 侧缺资产即红：`未检测到 Go 工具链` / `缺每产物主密钥` / `缺少发布方签名私钥`。
-2. **勘误（§1）**：每产物主密钥**会**进 exe（掩码后 `-X` 注入），准确边界是"不进 npm 包、不进 `resources/`、不进公开源"。
+2. **勘误（§1）**：每产物主密钥**会**进 exe（甲代为掩码后 `-X` 注入，现由 §7 的生成码承载），
+   准确边界是"不进 npm 包、不进 `resources/`、不进公开源"。
    壳必须在运行时拿到 KEK 的输入，这是逻辑必然而非实现疏漏；对抗的是静态 `strings`/十六进制扫描，
    内存态攻防归 `anti_debug_*`（原文"永不进产物"的说法作废）。
-3. **注入机制**：两个包级变量 `securityMasterCipher` / `securityAnchorPubHex`（`var` 非 `const`，`-X` 只写字符串变量）。
+3. **注入机制（本项已被 §7 取代：主密钥不再走 `-X`）**：曾有 `securityMasterCipher` 与
+   `securityAnchorPubHex` 两个包级变量（`var` 非 `const`，`-X` 只写字符串变量），
    符号路径由 `lib/security.js` 的 `SHELL_PKG` + `shellInject()` 单一来源产出，并被 JS 测试逐字锁死——
    Go 侧改字段名而不同步注入表，产出的壳会静默拿到空密钥，那是最坏的一种"构建成功"。
    通用壳两值恒空 ⇒ 结构上不可能解开任何 FRDM3 产物（不是"我们禁止"，是"没有材料"）。
+   这条"结构上不可能"的性质在 §7 之后由 `keySlotAssemble == nil` 继续承担。
 4. **验签顺序是契约的一部分**：锚比对 → 验签 → 清单回绑现实（appBin 哈希 / identity / 容器盐）→ exe 自检 → 才解密。
    先验签后解密，攻击者就无法用"构造一个能让解密吐出自家 JSON 的密文"这类选择密文探测清单语义。
 5. **`self` 与构建后改写的边界**：`self` 绑的是注入图标之后、生成安装包之前的 exe 字节。
@@ -93,3 +96,34 @@
    删掉会连带删掉"新壳拒旧代际"这条断言的对照物；若将来确认无别的用途，按死代码整块移除并同步 `lib/security.js`。
 7. **旧代际当场拒绝**：壳读到 `FRDM2`/`FRDM1` 头的 `app.bin` 直接拒跑并点名"旧代际 + 重新 build"，
    绝不回退解密——否则攻击者只要把 app.bin 换成 v2 就能把强度降回可伪造的那一档（B-20260925-054 的封堵点）。
+
+## 7. keySlot 装配代际（2026-09-25 R7-乙，台账 B-20260925-060）
+
+容器格式与清单**不变**（仍是 `FRDM3` + v3 签名清单），改的是"壳怎么在运行时拿到每产物主密钥"。
+本节之后的对齐口径以本节为准。
+
+1. **动因**：`-X …securityMasterCipher=<out[i]^(i*7+0x5A)>` 的两处结构性弱点——
+   ① 注入值是 ASCII 字符串，`strings` 直接可定位（本轮最小复现证实：任何 `-X` 字符串变量都以 ASCII 落在数据段）；
+   ② 掩码公式在 npm 包与仓库里公开（用户裁定「保持公开」），于是**一份脱壳器通吃所有产物**。
+2. **新机制**：CLI 每次 high 构建现场生成一份 `keyslot_<tag>.go`（`lib/security.js` 的 `keySlotForBuild`）：
+   3~7 片、分片切法随机、每片自选 `xor | add | sub | rol | posxor` 之一与随机参数、位置表与字面量分表存放。
+   生成码在 `init()` 里把装配函数赋给 `security.go` 的包级钩子 `keySlotAssemble`（默认 nil）。
+3. **落点纪律**：生成码**只经 `go build -overlay` 虚拟进 `pkg/freedom`**（`lib/shell.js` 的 `stageOverlayFiles`），
+   绝不写进 `freedom-cli/templates/go`——那棵树随 npm 包分发且被所有产物共用，落进去一次等于
+   把某产物的主密钥编进之后所有壳，且必然撞上 CI 的 Template mirror 门。overlay 目录在编译结束后立即删除。
+4. **注入面收缩**：`-X` 只剩 `securityAnchorPubHex`（公钥本就不需保密）。`SHELL_VAR_MASTER` /
+   `productMasterCipher` 已删除，由 `tests/security-frdm3.test.mjs` 断言其不再存在——留着就是可复用脱壳入口。
+5. **失败模式（必须响亮）**：`productMaster()` 在 `keySlotAssemble == nil`（Tier A 形态）、装配结果
+   长度 ≠ 32、或结果为全零时返回 `ok=false` ⇒ 走 `secureFatal` 拒跑（退出码 70）。全零单独封堵的理由：
+   长度合规却等于没有密钥，拿它派生会得出人人可复现的 KEK，比拒跑糟得多。
+6. **跨语言锁**：JS 生成器 → 真 `go run` 编译并执行生成码 → 断言吐回同一把主密钥
+   （`tests/security-frdm3.test.mjs`「生成的 Go 装配码能编译并跑出同一主密钥」；本机无 Go 即 skip）。
+   Go 侧对偶锁是 `TestFRDM3ProductMasterHookContract`（坏值必须拒）。
+7. **诚实边界**：抬的是**静态提取 + 跨产物复用**的成本，不是绝对强度。装配码与被装出来的密钥
+   仍在同一个壳里；肯为单个产物人工逆向的人照样拼得出来，运行期内存态攻防仍归 `anti_debug_*` 与甲代
+   的"派生钥不驻留"（`securePayloadCache` / `clear()` / `scrubSecureBackendPayload`）。
+   对外表述沿用"提高逆向成本的尽力而为"，不得写成"密钥无法提取"。
+8. **改生成器时的同步义务**：`lib/security.js` 的 `KEYSLOT_OPS` 与 `renderKeySlotGo` 是唯一实现，
+   Go 侧不含任何对称实现（这是刻意的——一旦 Go 侧出现"解释装配方案"的代码，就把公开固定式请回来了）。
+   改渲染语法或分片规模，跑 `node --test tests/*.test.mjs` 即可（含编译执行锁）；改 `keySlotAssemble`
+   这个名字则要同时改 `lib/security.js` 的生成模板与 `templates/go` 镜像。
