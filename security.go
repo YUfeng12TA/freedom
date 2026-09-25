@@ -70,12 +70,28 @@ var masterKeyCipher = []byte{
 }
 
 // masterSecret 还原主密钥（PBKDF2 的 password）。
+// 生产路径请用 withMasterSecret：明文只存在于回调作用域内，返回前逐字节抹零。
 func masterSecret() []byte {
 	out := make([]byte, len(masterKeyCipher))
 	for i, b := range masterKeyCipher {
 		out[i] = b ^ byte((i*7+0x5A)&0xff)
 	}
 	return out
+}
+
+// withMasterSecret 把还原出的主密钥交给 fn，并在 fn 返回后立刻抹零该缓冲区
+// （Go 的分配器会复用内存，留着明文等于给内存扫描留靶子）。
+func withMasterSecret(fn func(secret []byte)) {
+	secret := masterSecret()
+	defer clearBytes(secret)
+	fn(secret)
+}
+
+// clearBytes 抹零一段字节。编译器不会把对切片的显式写零当死代码删掉（逐元素赋值）。
+func clearBytes(b []byte) {
+	for i := range b {
+		b[i] = 0
+	}
 }
 
 // securePayload 是 app.bin 解密后的载荷（与 JS 侧加密载荷结构一致）。
@@ -172,11 +188,19 @@ func deriveSecurityKey(appName string, salt []byte) secureKey {
 		return k
 	}
 	base := append([]byte(securityDeriveSalt+":"+appIdentityName(appName)), salt...)
-	kek := pbkdf2HMACSHA256(masterSecret(), base, securityPbkdf2Iter, securityKeyLen)
-	h := hmac.New(sha256.New, kek)
-	h.Write([]byte(securityMacLabel))
-	k := secureKey{enc: kek, mac: h.Sum(nil)}
+	var k secureKey
+	withMasterSecret(func(secret []byte) {
+		kek := pbkdf2HMACSHA256(secret, base, securityPbkdf2Iter, securityKeyLen)
+		h := hmac.New(sha256.New, kek)
+		h.Write([]byte(securityMacLabel))
+		k = secureKey{enc: kek, mac: h.Sum(nil)}
+	})
 	if len(secureKeyCache) >= secureKeyCacheMax { // 防御性上限：单进程正常只用一两条
+		// 淘汰不是"丢掉引用"就完事：被丢弃的密钥字节仍会被分配器复用，先抹零。
+		for _, stale := range secureKeyCache {
+			clearBytes(stale.enc)
+			clearBytes(stale.mac)
+		}
 		secureKeyCache = make(map[string]secureKey)
 	}
 	secureKeyCache[id] = k

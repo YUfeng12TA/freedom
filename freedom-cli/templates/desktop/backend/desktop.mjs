@@ -21,12 +21,18 @@ function write(msg) {
 }
 
 // ---- CLI 定位：优先 cli-entry.json（freedom desktop 打包时写入），再退到环境变量 ----
+// cliMeta.root 一并带出：high 模式下本文件被解到系统临时目录，
+// 不能再靠 `__dirname/../package.json` 反推 CLI 包版本，只能读容器里的 root。
+const cliMeta = { entry: null, root: null };
 function cliEntry() {
   const candidates = [];
-  try {
-    const meta = JSON.parse(fs.readFileSync(path.join(__dirname, 'cli-entry.json'), 'utf8'));
-    if (meta && meta.entry) candidates.push(meta.entry);
-  } catch { /* 缺文件走后续回退 */ }
+  if (!cliMeta.entry) {
+    try {
+      const meta = JSON.parse(fs.readFileSync(path.join(__dirname, 'cli-entry.json'), 'utf8'));
+      if (meta && meta.entry) { cliMeta.entry = meta.entry; cliMeta.root = meta.root || null; }
+    } catch { /* 缺文件走后续回退 */ }
+  }
+  if (cliMeta.entry && fs.existsSync(cliMeta.entry)) return cliMeta.entry;
   if (process.env.FREEDOM_CLI_ENTRY) candidates.push(process.env.FREEDOM_CLI_ENTRY);
   for (const c of candidates) {
     if (c && fs.existsSync(c)) return c;
@@ -108,10 +114,14 @@ function stopDev() {
 const api = {
   async 'app.info'() {
     const entry = cliEntry();
-    const pkg = entry ? (() => { try { return JSON.parse(fs.readFileSync(path.join(path.dirname(entry), '..', 'package.json'), 'utf8')); } catch { return {}; } })() : {};
+    const readVersion = (base) => {
+      try { return JSON.parse(fs.readFileSync(path.join(base, 'package.json'), 'utf8')).version || null; } catch { return null; }
+    };
+    const cliVersion = (entry ? readVersion(path.join(path.dirname(entry), '..')) : null)
+      || (cliMeta.root ? readVersion(cliMeta.root) : null);
     return {
       cliEntry: entry,
-      cliVersion: pkg.version || null,
+      cliVersion,
       platform: `${process.platform}-${process.arch}`,
       nodeVersion: process.version,
       home: os.homedir(),

@@ -253,6 +253,11 @@ func (a *App) Run() {
 	}
 	// high 模式的临时后端目录随进程退出清理（defer 早于后端 Close 注册 → 后于其执行）。
 	defer a.cleanupSecureBackend()
+	// Ctrl+C / SIGTERM / 控制台关闭：defer 不会执行，须显式清扫，
+	// 否则解密的明文后端源码留在临时目录直到下次启动才被回收。
+	// 非 high 模式下 cleanupSecureBackend 本身是 no-op，无需再判安全档。
+	secureCleanup = a.cleanupSecureBackend
+	installShutdownCleanup()
 	// high 模式：解密后复查调试器（见 Run 开头的"解密前一次"）。
 	if a.secure && a.antiDebugEnabled() {
 		antiDebugCheck()
