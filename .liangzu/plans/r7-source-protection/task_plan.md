@@ -90,6 +90,13 @@
 - 验收：`go test ./...` + `node --test tests/*.test.mjs` + 镜像门 `fail=0` + `gofmt -l *.go` 空 + `git status --porcelain` 空
 - 状态：done — E-R7-12（060 fixed、`open critical/major` 仅剩跨波次的 B-20260924-022；四处变异各红后还原）
 
-## 版本与发布（不在本计划内动手）
+## 版本与发布
 
-- `待裁:` tag `v1.14.0` 早于 `6ba7ea8`（甲）与 `5ee4b08`（乙），按 tag 出的 CI 三壳不含甲乙 —— 三选项见记忆 `project-release-1140`；铁律 14 禁自行递增或移 tag，等用户裁定后再动 `freedom-cli/package.json` 与 CHANGELOG 定版行。
+- 已裁（2026-09-25 用户）：不走 1.14.0/1.14.1，**以 `v1.14-preview` 出预览代**。本地注解标签已打在 `bea7cea`
+  （含甲 `6ba7ea8` + 乙 `5ee4b08`），CI 三壳由该标签产出后回填 `freedom-cli/shell/<plat>`。
+  兼容性核对：`tools/freedomres/main.go:151 parseVersion` 接受 `v` 前缀并丢弃 `-prerelease` 后缀
+  ⇒ `v1.14-preview` 解析为 `1.14.0.0`，Windows VERSIONINFO 不会因标签名而构建失败。
+- `待裁: npm 侧版本号` —— ①`1.14.0-preview` + `npm publish --tag preview`（不烧掉 1.14.0 号段）
+  ②仍发 `1.14.0`（用预览标签的壳，registry 上即正式版）③本轮只发 GitHub 预发布资产、npm 不动。建议 ①。
+- `待裁: 本地旧标签 v1.14.0`（指向 `841630f`，不含甲乙且从未推送）—— ①保留但只推 `v1.14-preview`
+  ②经明示批准后删除本地 `v1.14.0`。风险点：若哪天 `git push --tags`，CI 会用旧提交产出一个"正式版"Release。
