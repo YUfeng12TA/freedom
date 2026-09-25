@@ -215,6 +215,19 @@ test('toolchain: upsertTomlTable 新增/替换/保留兄弟表', () => {
   assert.equal((one.text.match(/\[source\.crates-io\]/g) || []).length, 1, '不得重复追加同名表');
 });
 
+test('toolchain: 缺 Go 时 shell build 的错误必须指向本扩展（否则功能等于没内置）', () => {
+  const { spawnSync } = require('node:child_process');
+  const cli = path.join(here, '..', 'freedom-cli', 'bin', 'freedom.js');
+  const empty = mkdtempSync(path.join(os.tmpdir(), 'frdm-nopath-'));
+  const r = spawnSync(process.execPath, [cli, 'shell', 'build', 'win'], {
+    encoding: 'utf8',
+    env: Object.assign({}, process.env, { PATH: empty, SystemRoot: process.env.SystemRoot }),
+  });
+  assert.notEqual(r.status, 0, '没有 go 就不该报成功');
+  assert.match(`${r.stdout}${r.stderr}`, /freedom toolchain install go/, '错误文案要给出可执行的下一步');
+  rmSync(empty, { recursive: true, force: true });
+});
+
 test('toolchain: 缓存文件跨主机搬运不误用 + clear 生效', () => {
   const sb = sandbox(VERSIONS);
   const exec = fakeExec(VERSIONS);
