@@ -97,14 +97,26 @@ test('toolchain: 失败结论不入缓存，装好当场认出', () => {
 test('toolchain: PATH 指纹变化或 --refresh 即失效', () => {
   const sb = sandbox(VERSIONS);
   const exec = fakeExec(VERSIONS);
-  tc.status({ env: sb.env(), exec, home: sb.home });
-  const n = exec.calls.length;
-  const other = path.join(sb.root, 'otherbin');
-  mkdirSync(other, { recursive: true });
-  tc.status({ env: Object.assign({}, sb.env(), { PATH: other }), exec, home: sb.home });
-  assert.equal(exec.calls.length - n, 3, 'PATH 变了就得重探');
-  tc.status({ env: Object.assign({}, sb.env(), { PATH: other }), exec, home: sb.home, refresh: true });
-  assert.equal(exec.calls.length - n, 6, '--refresh 强制重探');
+  const opts = { env: sb.env(), exec, home: sb.home };
+  tc.status(opts);
+  assert.equal(exec.calls.length, 3);
+  assert.equal(tc.status(opts).skipped, 3, '同 PATH 二次调用应全部走缓存');
+
+  // 换一个只有 go 的 PATH：缓存必须整体作废（go 重探成功，rust/cpp 报缺失而非沿用旧结论）。
+  const only = path.join(sb.root, 'onlybin');
+  mkdirSync(only, { recursive: true });
+  writeFileSync(path.join(only, 'go'), '#!/bin/sh\nexit 0\n');
+  const moved = tc.status({ env: Object.assign({}, sb.env(), { PATH: only }), exec, home: sb.home });
+  assert.ok(moved.rows.every((r) => !r.cached), 'PATH 变了不得再吃旧缓存');
+  assert.equal(moved.rows.find((r) => r.key === 'go').ok, true);
+  assert.equal(moved.rows.find((r) => r.key === 'cpp').ok, false, '上一轮就位不代表这一轮就位');
+  assert.equal(exec.calls.filter((c) => path.basename(c.exe).replace(/\.exe$/i, '') === 'go').length, 3, 'go 三轮各探一次：首轮 + 换 PATH 轮 + …');
+
+  // 换回原 PATH 后命中缓存；--refresh 再强制重探。
+  const back = tc.status(opts);
+  assert.equal(back.skipped, 3);
+  const refreshed = tc.status(Object.assign({}, opts, { refresh: true }));
+  assert.equal(refreshed.skipped, 0, '--refresh 必须绕过缓存');
   rmSync(sb.root, { recursive: true, force: true });
 });
 
