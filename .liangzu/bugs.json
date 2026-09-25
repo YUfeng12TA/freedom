@@ -1,7 +1,7 @@
 {
   "version": 4,
   "subKind": "bugs",
-  "lastUpdated": "2026-09-25T03:02:17.949Z",
+  "lastUpdated": "2026-09-25T03:55:06.389Z",
   "bugRegistry": [
     {
       "id": "B01",
@@ -583,6 +583,83 @@
       "fix": "cli.js:8 的 utils 解构补上 normalizePlatform。取证：修复前 node freedom-cli/bin/freedom.js shell build win-x64 输出「[freedom] 执行失败： normalizePlatform is not defined」而产物 7493632 B 在盘上；修复后同一命令输出「✓ 已编译 win-x64 壳：…freedom-shell.exe」且 EXIT=0",
       "regressionTest": "tests/cli-shell-command-path.test.mjs：以桩替换 require.cache 里的 lib/shell.js（buildShell/downloadShell 直接返回假路径），再重新求值 lib/cli.js，跑 run([shell,build,win]) 与 run([shell,download,linux-x64]) 两条完整分支，断言退出码 0、输出含壳路径、且不含「执行失败」——不依赖真编 Go 与网络下载。TDD 红绿实测：补 import 前 2 fail 且报错正是 ReferenceError: normalizePlatform is not defined，补后 2 pass；node --test tests/*.test.mjs → tests 49 / pass 49 / fail 0",
       "fixedAt": "2026-09-25T03:02:17.949Z"
+    },
+    {
+      "id": "B-20260925-046",
+      "sev": "major",
+      "file": "resources.go",
+      "line": 146,
+      "summary": "通用壳把编译期 freedom.Version 当作「应用版本」上报：os.info 的 appVersion、updater 的比较基准、store 的版本回显全取壳自身 ldflags 注入值，而不是 freedom.config.js 声明的应用版本。一条命令编出的壳服务 N 个应用，壳的版本域与应用的版本域必须分开——串台后自动更新拿壳版本与应用版本比对，误报或永不报都 possible，前端也看到错误版本号。根因：CLI 早已把 version 写进 config.json（build.js:542），壳侧 runtimeConfigFile 却没有 Version 字段，键被 json.Unmarshal 静默丢弃",
+      "status": "fixed",
+      "fix": "runtimeConfigFile 增 Version 字段 → applyRuntimeConfig 落到新增的 a.runtimeVersion → 新增访问器 a.appVersion()（运行时声明优先、回落编译期值，resources.go:213），osInfo/store/updater 五处取值点改走该访问器。真机取证：high 产物（version 9.9.9 经 FRDM2 容器解密）内 os.info 实测 appVersion=9.9.9，非壳编译戳",
+      "regressionTest": "runtime_config_test.go：版本优先级（容器值覆盖编译值 / 空值回落 / nil 接收者不 panic）+ 线格式用例（逐字解析 CLI 真实产出的 config.json 键名）；tests/config-wire-format.test.mjs 锁跨语言键契约（含 version、无版本时不得写出 undefined）。node --test → 63 pass / 0 fail；go test -count=1 ./... → ok freedom 12.391s",
+      "fixedAt": "2026-09-25T03:55:06.389Z"
+    },
+    {
+      "id": "B-20260925-047",
+      "sev": "critical",
+      "file": "security.go",
+      "line": 315,
+      "summary": "verifyIntegrity 遇 resources/.integrity 缺失时静默放过（当作「老产物」）。但 .integrity 是 FRDM2 起 CLI 无条件写出的清单——删掉它是绕过完整性绑定最省事的手法：整体替换 app.bin（换 HTML、换后端源码、换 capabilities）后连清单一起删，壳照常运行，等于这道门留给攻击者关",
+      "status": "fixed",
+      "fix": "缺失即致命错误「resources/.integrity 缺失：app.bin 未经完整性绑定，产物可能被整体替换（请重新 freedom build）」，附注释说明为何不再有兼容分支。真机取证：删除 hi2 产物的 .integrity 后启动，壳打印「安全模式资源校验失败，拒绝运行」并退出，且不落地任何临时明文目录（tempdirs=0）；恢复清单后同一产物正常运行",
+      "regressionTest": "security_test.go：原「缺 .integrity 应放过」断言反转为期望拒绝（修复前红/修复后绿）。真机 tamper 用例 build-tmp/hi2/tamper.ps1 实测输出为拒绝运行 + 零残留",
+      "fixedAt": "2026-09-25T03:55:06.389Z"
+    },
+    {
+      "id": "B-20260925-048",
+      "sev": "major",
+      "file": "freedom-cli/lib/build.js",
+      "line": 477,
+      "summary": "多平台并行打包（emitPlatform 走 Promise.all）把 portable zip 的临时文件写成同名固定路径，三个平台同时读写同一个 .freedom-portable.zip：互相截断→产物 zip 内容属于别的平台（用户装到错架构包，静默不报错），或先完成方删掉后者正在写的文件→已在「✓ 构建完成」之后 ENOENT",
+      "status": "fixed",
+      "fix": "临时路径按平台与进程隔离：`.freedom-portable-${plat}-${process.pid}.zip`，保留原 finally 删除逻辑；注释写明为何不能共用固定名",
+      "regressionTest": "并发正确性需真实多平台 zip 产物，CLI 契约层不可达（本机无第二平台壳），以命名隔离 + 代码走查保证；node --test 全量 63 pass 无回归，build 路径改动经真机 freedom build --security high 全流程跑通（产物自检 9 项全通过）",
+      "fixedAt": "2026-09-25T03:55:06.389Z"
+    },
+    {
+      "id": "B-20260925-049",
+      "sev": "major",
+      "file": "security.go",
+      "line": 277,
+      "summary": "decryptAppBin 认证通过后直接 json.Unmarshal 载荷，不校验字段：html/config 为空串的容器（构造或截断）解密成功，resolveHTML 便回落到内置默认页、后端配置回落为空——用户看到「应用启动成空白示例页」，而这是一份签名认证全通过的容器，完整性层无法察觉语义为空",
+      "status": "fixed",
+      "fix": "解密后强制校验 p.HTML 与 p.Config 非空，空即报「app.bin 载荷结构无效：缺少 html/config 字段」，在回落发生之前拒绝运行",
+      "regressionTest": "security_test.go TestDecryptRejectsEmptyPayloadFields（用既有 encryptForTest 造空 html / 空 config 两种容器，断言均被拒）。go test -count=1 ./... → ok freedom 12.391s",
+      "fixedAt": "2026-09-25T03:55:06.389Z"
+    },
+    {
+      "id": "B-20260925-050",
+      "sev": "major",
+      "file": "resources.go",
+      "line": 234,
+      "summary": "信号退出通道只清扫临时目录、不关后端子进程：ProcBackend 的 stdin 管道写端仍被持有，RemoveAll 在 Windows 上会因文件被占用而失败（明文源码留在磁盘），而既有代码用 `_ =` 吞掉这个错误——正好在最需要留痕的路径上静默",
+      "status": "fixed",
+      "fix": "新增 installSecureShutdown()：注册的 secureCleanup 先 closeBackendForShutdown()（未配置后端时空操作、失败写 stderr）再 cleanupSecureBackend()；cleanupSecureBackend 的 RemoveAll 失败改为写 stderr 留痕，不再吞错",
+      "regressionTest": "shutdown_test.go TestSecureShutdownStopsBackendBeforeCleaningDir：orderSensitiveBackend 桩记录调用序与「清扫时目录是否仍在」，断言退出码 130、目录消失、顺序恰为 [backend-close, dir-still-there]（先关后端再删目录，二者都成立才算对）；既有幂等挂载与无注册不 panic 两条守护用例保持绿",
+      "fixedAt": "2026-09-25T03:55:06.389Z"
+    },
+    {
+      "id": "B-20260925-051",
+      "sev": "major",
+      "file": "freedom-cli/lib/build.js",
+      "line": 578,
+      "summary": "capabilities 在链路两头都断：CLI 的 renderConfigJSON 从不写 capabilities 键，壳的 runtimeConfigFile 也没有该字段——freedom.config.js 声明的白/黑名单被静默丢弃，通用壳运行时永远「全开」。M3 能力模型只对 Config.Capabilities（编译进壳的应用）生效，而通用壳恰恰没有编译期 Config，等于对外承诺的收口能力在主打使用路径上空转",
+      "status": "fixed",
+      "fix": "renderConfigJSON 透传 cfg.capabilities（过滤非字符串项，allow/deny 皆空时不写键）；runtimeConfigFile 增 Capabilities 字段并在 applyRuntimeConfig 里「仅当编译期未显式配置时」采用（应用代码写死的策略优先于外部文件，防 resources/ 被替换即提权）。真机取证：high 产物 deny:[\"clipboard.*\"] 经容器解密后 os.info 回显 capabilities，前端调 clipboard.read 实测「freedom: capability denied: \"clipboard.read\"」（拒绝路径零副作用）",
+      "regressionTest": "runtime_config_test.go（capabilities 覆盖与编译期优先）+ tests/config-wire-format.test.mjs（CLI 侧键名/过滤/空值不写键）；node --test → 63 pass / 0 fail",
+      "fixedAt": "2026-09-25T03:55:06.389Z"
+    },
+    {
+      "id": "B-20260925-052",
+      "sev": "minor",
+      "file": "freedom-cli/lib/verify.js",
+      "line": 234,
+      "summary": "产物结构树把 .integrity 的 size 写死为 0，打印成「.integrity (0 B) [校验值]」。注释说的是「仅标注存在与大小」，实现却把大小抹成 0——在高模式安全自检语境里这行读起来像完整性清单是空文件，属安检输出中的假信号（真清单 92 B）",
+      "status": "fixed",
+      "fix": "collectTree 对 .integrity 取真实 stat.size（仍不展开内容），并把该分支移到 stat 计算之后；真机复查：重新构建后输出「.integrity (92 B) [校验值]」",
+      "regressionTest": "tests/verify-tree-size.test.mjs：临时目录写 92 B 清单 + 3388 B app.bin，断言树里出现「(92 B)」、不含「0 B)」、清单内容不外泄、同目录文件仍按 KB 口径显示。单文件 1 pass，全量 63 pass / 0 fail",
+      "fixedAt": "2026-09-25T03:55:06.389Z"
     }
   ]
 }

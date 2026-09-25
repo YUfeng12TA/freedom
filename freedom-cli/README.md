@@ -261,6 +261,10 @@ freedom security <none|basic|high>     # 设置安全模式（写入配置）
 freedom icon <path>                    # 设置应用图标（Windows 用 .ico，macOS 用 .icns）
 freedom config [get|set]
 freedom shell list|download <platform>|build <platform>
+freedom toolchain status [--refresh] [--home <dir>]        # 探测 Go / Rust / C++ 工具链（成功结论才缓存，绑 PATH 指纹）
+freedom toolchain install [go,rust,cpp|missing] [--apply]  # 默认只打印安装命令，加 --apply 才执行
+freedom toolchain optimize [--apply]                       # 国内网络迹象下换 Go/Rust 镜像源（改配置前留 .bak）
+freedom toolchain clear                                   # 清空探测缓存（~/.freedom/toolchain-cache.json）
 freedom dmg [--platform <plat>]      # 在 macOS 上把 .app 打包为 .dmg
 freedom keygen [--force]             # 生成应用自更新 ed25519 密钥对（私钥留 .freedom/keys/，公钥进配置）
 freedom manifest --artifact <产物> --url <下载地址> [--version x] [--notes txt]  # 产出签名更新清单 dist/latest.json

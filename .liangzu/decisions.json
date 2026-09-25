@@ -1,6 +1,6 @@
 {
   "version": 4,
-  "lastUpdated": "2026-09-25T01:52:28.611Z",
+  "lastUpdated": "2026-09-25T03:55:43.588Z",
   "decisions": [
     {
       "date": "2026-08-19",
@@ -96,6 +96,38 @@
         "只按 bin 探测（多数 agent 无 CLI 入口，误判为未装）"
       ],
       "notes": "已登记 17 家，含新增 Reasonix（%APPDATA%/reasonix/config.toml 的 [[plugins]] 数组表按 name 定位，取证于本机实况）"
+    },
+    {
+      "date": "2026-09-25",
+      "decision": "工具链探测结果只缓存「已就绪」结论（~/.freedom/toolchain-cache.json，PATH 指纹 + 7 天 TTL），失败结论永不入缓存；PATH 变更或 --refresh 即失效",
+      "rationale": "用户要求「检测到配置好就不去检测」，但缓存失败会让刚装好的工具当场认不出来——装完还得等缓存过期，比不缓存更糟。缓存命中判定绑 PATH 指纹：换终端/换 PATH 后旧结论不可复用",
+      "alternatives": [
+        "一律每次实探（每次 status 都要 spawn 多个探针进程，慢且吵）",
+        "失败也缓存并设短 TTL（仍需等 TTL 过期才认出新装工具，用户体验不可预期）",
+        "缓存整个环境快照（体积与失效判定都复杂化，收益不比 PATH 指纹多）"
+      ],
+      "notes": "安装动作默认只打印命令、加 --apply 才执行：联网、要管理员权限、会改系统，属高危面；优化项同理（Go 走 go env -w，Rust 写 $CARGO_HOME/config.toml 前留 .bak）"
+    },
+    {
+      "date": "2026-09-25",
+      "decision": ".integrity 缺失从「静默放过（兼容老产物）」改为致命拒绝运行，且不留兼容开关",
+      "rationale": "FRDM2 起 CLI 无条件写清单，任何合法产物都带它；而删清单正是绕过完整性绑定最省事的手法。留兼容分支＝把门留给攻击者关，且没有合法产物会因此受损",
+      "alternatives": [
+        "保留缺失即跳过的旧行为（等于放弃这道门）",
+        "加环境变量开关允许跳过（开关本身就是攻击面）",
+        "仅在 high 模式拒绝（basic/none 产物根本没有 app.bin，不构成额外风险但也没必要）"
+      ],
+      "notes": "真机取证：删清单后壳打印「安全模式资源校验失败，拒绝运行」并退出、零明文残留；恢复清单同一产物正常运行"
+    },
+    {
+      "date": "2026-09-25",
+      "decision": "版本域分家：壳编译期 freedom.Version 归壳，应用版本归 config.json/app.bin 容器，运行期一律经 a.appVersion() 取值（运行时优先、回落编译值）",
+      "rationale": "通用壳一条二进制服务 N 个应用，把壳的版本当应用的版本会让 os.info 报错数、updater 比较基准错位。nil 接收者也要返回值，否则未跑过 Run 的路径直接 panic",
+      "alternatives": [
+        "要求应用作者在 Go 代码里设 Config.Version（通用壳路径根本没有编译期 Config）",
+        "删掉编译期 Version 只信容器（丢失裸 go build 自研应用与 ldflags 注入的既有能力）"
+      ],
+      "notes": "capabilities 透传采用「编译期显式配置优先于外部文件」：防止 resources/ 被替换即悄悄提权"
     }
   ]
 }

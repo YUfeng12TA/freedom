@@ -32,6 +32,16 @@
   抓不改 PEB、不建调试端口的硬件/内存断点（调试器 attach 时线程被挂起，正是这一路能读通的状态）。
 - 主密钥生命周期收紧：`withMasterSecret` 把还原出的 password 限定在回调作用域并在返回时抹零；
   密钥缓存淘汰前先清零被丢弃的 enc/mac 字节（只删引用＝密钥仍可被内存扫描捡到）。
+- **内置工具链扩展 `freedom toolchain`**（`freedom-cli/lib/toolchain.js`）：探测 / 安装 / 优化
+  C++（MSVC cl / MinGW g++ / clang++）、Rust、Go 三条工具链，全部经能力映射到各平台真实安装命令
+  （winget / brew / apt）。`status` 逐行给「已就绪/缺失 + 版本 + 路径 + 它是干什么的」；
+  **检测到配置好就不再实探**——探测结论缓存到 `~/.freedom/toolchain-cache.json`，绑 PATH 指纹 + 7 天 TTL，
+  但**只缓存成功**：失败结论永不入缓存，刚装好的工具当场即可被认出来（缓存失败等于逼用户等 TTL 过期）。
+  `install [go,rust,cpp|missing]` 默认只打印命令、加 `--apply` 才执行（联网、要管理员权限、会改系统，属高危面）；
+  `optimize` 在国内网络迹象下（`zh_*` locale 或 `Asia/Shanghai` 等时区，可用 `FREEDOM_CN_MIRROR=1/0` 显式覆写）
+  把 Go 的 GOPROXY、Rust 的 crates-io 源换成国内镜像（写 `$CARGO_HOME/config.toml` 前留 `.bak`
+  并保留既有 `[build]` / `[target.*]` 段），C++ 无可安全自动化的项故只报告；`clear` 清缓存。
+  `freedom shell build` 缺 Go 的报错现在直接指向 `freedom toolchain install go`。
 - Desktop 模板默认 `security: 'high'`（自举产物同样不留明文源码），并修正 high 模式下后端从临时目录
   运行时 `app.info` 取不到 CLI 版本的问题（改由 `cli-entry.json` 反查包内 package.json）。
 - Agent 集成新增 **安装检测门**：`freedom skill/mcp install` 仅在检出该 agent 的安装足迹
@@ -49,6 +59,34 @@
   打印 `[freedom] 执行失败： normalizePlatform is not defined`，而产物 7,493,632 B 确实在盘上。
   回归以桩替换 shell 模块跑通 `run(['shell', …])` 完整分支（`tests/cli-shell-command-path.test.mjs`，
   修复前红 / 修复后绿），无需真编 Go 也无需真下载。
+- **`.integrity` 缺失被静默放过 → 现在拒绝运行**（`security.go`）：清单缺失旧版当作「老产物」跳过校验，
+  而 FRDM2 起 CLI 无条件写出该文件——**删掉 `.integrity` 正是绕过完整性绑定最省事的手法**（整体替换
+  `app.bin` 里的 HTML / 后端源码 / capabilities 后连清单一起删，壳照常运行）。真机取证：删除清单后壳打印
+  「安全模式资源校验失败，拒绝运行」并退出、不落地任何明文临时目录；恢复后同一产物正常跑通。
+- **通用壳的版本域串台**（`resources.go` / `store.go` / `updater.go`）：`os.info` 的 `appVersion`、updater 的
+  比较基准过去取壳自身编译期的 `freedom.Version`，一条壳服务 N 个应用时这个数属于「壳」而不属于「应用」，
+  自动更新于是拿错基准比对。现在应用版本经 `config.json` / `app.bin` 容器进入 `a.appVersion()`
+  （运行时声明优先、回落编译期值，nil 接收者不 panic）。同时补上 `capabilities` 的两头断链：
+  CLI 的 `renderConfigJSON` 从不写该键、壳的 `runtimeConfigFile` 也没有该字段，
+  `freedom.config.js` 里声明的收口白/黑名单在通用壳路径上被静默丢弃（= 永远全开）；
+  现在透传且**编译期显式配置优先于外部文件**，防 `resources/` 被替换即悄悄提权。
+  回归：`runtime_config_test.go` 三条 + `tests/config-wire-format.test.mjs` 锁跨语言键契约。
+- **`app.bin` 载荷字段可为空**（`security.go`）：认证通过后不校验 `html` / `config`，一份签名认证全通过但
+  语义为空的容器会让应用静默回落成内置示例页——完整性层察觉不到「内容是空的」。现在空字段直接拒绝解密成功。
+- **信号退出通道不关后端子进程**（`resources.go`）：`secureCleanup` 过去只删临时目录，后端仍持有管道与文件句柄，
+  Windows 上 `RemoveAll` 会因占用而失败，而该失败被 `_ =` 吞掉——正好在最需要留痕的路径上静默。
+  现在先 `closeBackendForShutdown()` 再清扫，清扫失败写 stderr。回归断言的是**顺序**
+  （`[backend-close, dir-still-there]`）而非只断言目录消失。
+- **多平台并行打包共用同一个 portable zip 临时文件**（`freedom-cli/lib/build.js`）：`emitPlatform` 走
+  `Promise.all`，三平台同时读写固定名 `.freedom-portable.zip` → 互相截断产出内容属于别的平台的 zip
+  （装了错架构包且不报错），或先完成方删掉后者正在写的文件 → 「✓ 构建完成」之后 ENOENT。临时名现按
+  平台 + PID 隔离。
+- **产物结构树把 `.integrity` 打印成 `0 B`**（`freedom-cli/lib/verify.js`）：该文件的 size 被写死为 0，
+  在高模式安全自检的输出里读起来像「完整性清单是空的」，属安检输出中的假信号；现在照实报字节数
+  （仍不展开清单内容）。
+- 回归 `tests/verify-tree-size.test.mjs`；`node --test tests/*.test.mjs` → 63 pass / 0 fail，
+  `go test -count=1 ./...` → `ok freedom 12.391s`，Linux（WSL2）`go vet` 干净 + 安全/配置/退出用例 `ok 2.511s`，
+  模板镜像双向比对 `mirror fail=0`。
 
 ### 变更
 
