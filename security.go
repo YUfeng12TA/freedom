@@ -30,9 +30,9 @@ package freedom
 // 旧版 FRDM1 容器一律拒绝并提示重新 build，不做静默降级（静默回退即降级攻击面）。
 //
 // high 模式产物布局（CLI build 写入，与明文模式互斥）：
-//   resources/app.bin      FRDM2 容器：magic(5)+salt(16)+iv(16)+tag(16)+ciphertext
+//   resources/app.bin      FRDM3 容器：magic(5)+salt(16)+iv(16)+tag(16)+ciphertext
 //                          解密载荷 JSON：{"html","config","backend":{"<rel>":{"d","m"}}}
-//   resources/.integrity   HMAC-SHA256(app.bin)，壳启动时校验，防容器被整体替换
+//   resources/.integrity   发布方 ed25519 私钥签名的清单（v3），壳只认编译期内嵌的信任锚
 // 壳启动时在内存解密，磁盘无明文；exe 被重命名/资源被篡改 → 解密失败即拒绝运行。
 // （不用 GCM：曾在 Windows 环境出现标准库 GHASH 确定性认证失败，CTR+HMAC 语义等价
 // 且规避该问题。）
@@ -49,6 +49,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -370,8 +371,13 @@ func (a *App) antiDebugEnabled() bool {
 // 返回 (载荷, 是否命中, 错误)：resources/app.bin 不存在时命中=false（非 high 产物），
 // 命中但解密/校验失败时返回错误（拒绝静默回退明文，避免降级攻击）。
 //
+// 自 FRDM3 起本函数只接受 FRDM3 容器，旧代际（FRDM1/FRDM2）一律拒绝。这不是兼容性取舍
+// 而是 v3 强度的前提：v2 的主密钥与 HMAC 清单钥连同解密器一起随 npm 包公开
+// （台账 B-20260925-054），任何持 CLI 者都能造出「合法」的 v2 容器与清单。若本壳仍认 v2，
+// 攻击者把 app.bin 换成 v2 即完成降级，签名清单这道门等于白建。
+//
 // 每次调用都重新读盘并复算认证标签（不缓存载荷）：容器被替换后立即失效，
-// 启动路径上真正昂贵的 PBKDF2 已由 deriveSecurityKey 记忆化。
+// 启动路径上真正昂贵的 PBKDF2 已由派生缓存记忆化。
 func loadSecureResources() (*securePayload, bool, error) {
 	dir, err := resourcesDir()
 	if err != nil {
@@ -388,18 +394,88 @@ func loadSecureResources() (*securePayload, bool, error) {
 	if err != nil {
 		return nil, false, err
 	}
-	salt, _, _, _, err := splitAppBin(data)
-	if err != nil {
-		return nil, false, err
+	if len(data) >= len(securityMagic) && string(data[:len(securityMagic)]) == securityMagic {
+		return nil, true, errors.New("app.bin 是 FRDM2 旧代际容器，本壳不再接受（其主密钥与清单密钥都在公开源里，可被任意伪造）：" +
+			"请用 freedom-cli 1.14.0 及以上重新 freedom build（high 模式需本机 Go 工具链编译本应用专属壳）")
 	}
-	if err := verifyIntegrity(dir, deriveSecurityKey(name, salt), data); err != nil {
-		return nil, false, err
-	}
-	p, err := decryptAppBin(name, data)
+	p, err := loadSecureResourcesV3(dir, name, data)
 	if err != nil {
-		return nil, false, err
+		return nil, true, err
 	}
 	return p, true, nil
+}
+
+// loadSecureResourcesV3 是 FRDM3 的启动校验链：注入的每产物主密钥 → 信任锚验签清单 →
+// exe 自身哈希 → 容器认证解密。
+//
+// 顺序刻意是「先验签、后解密」：清单是这份产物经发布方私钥背书的外部绑定，
+// 先解密等于把 PBKDF2 与 AES 花在未经背书的内容上（且验签失败时解出的明文已进过内存）。
+func loadSecureResourcesV3(dir, name string, data []byte) (*securePayload, error) {
+	master, ok := productMaster()
+	if !ok {
+		return nil, errors.New("FRDM3 产物需本应用专属壳（每产物主密钥未注入本 exe）：high 模式要求在本机用 Go 工具链" +
+			"编译壳（freedom build / freedom shell build），预编译通用壳不支持；请重新 freedom build，或改用 --security basic")
+	}
+	defer clearBytes(master) // 派生完成后这份明文就不再需要了，留着等于给内存扫描留靶子
+	if securityAnchorPubHex == "" {
+		return nil, errors.New("FRDM3 产物需本应用专属壳（信任锚公钥未注入本 exe）：请重新 freedom build")
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, ".integrity"))
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, errors.New("resources/.integrity 缺失：app.bin 未经签名清单绑定，产物可能被整体替换（请重新 freedom build）")
+		}
+		return nil, err
+	}
+	claims, err := verifyIntegrityManifest(securityAnchorPubHex, raw, name, data)
+	if err != nil {
+		return nil, err
+	}
+	if err := verifySelfHash(claims.Self); err != nil {
+		return nil, err
+	}
+	return decryptAppBinV3(master, name, data)
+}
+
+// verifySelfHash 用清单里发布方签下的 exe 哈希自校验。
+//
+// 挡住的是「换个壳来加载这套 resources」：应用标识（exe 文件名）与容器盐都在产物里，
+// 只绑它们的清单仍可被挪到另一个同名 exe 上（含把校验分支补掉的补丁壳）。exe 字节哈希
+// 一变即拒。空串表示构建期未绑定（Tier A 通用壳没有可声明的自身摘要），跳过。
+//
+// 诚实边界：exe 若在产品化之后被改写（典型是补做 Authenticode 签名，它会改 PE 证书表），
+// 本检查会拒启动——必须在签名后重新 freedom build，或由 CLI 支持签名后再签清单（尚未实现）。
+func verifySelfHash(want string) error {
+	if want == "" {
+		return nil
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("无法定位 exe，self 自校验无法完成：%w", err)
+	}
+	got, err := hashFileHex(exe)
+	if err != nil {
+		return fmt.Errorf("无法读取 exe 以校验 self：%w", err)
+	}
+	if !hmac.Equal([]byte(strings.ToLower(want)), []byte(got)) {
+		return fmt.Errorf("exe 本体与签名清单不符（清单 %s…，实际 %s…）：壳被替换或被补缀，或产物在 build 之后被改写过",
+			want[:sha256HexShort], got[:sha256HexShort])
+	}
+	return nil
+}
+
+// hashFileHex 流式 sha256 → hex。exe 可达数十 MB，整读进内存会白白抬高启动峰值。
+func hashFileHex(p string) (string, error) {
+	f, err := os.Open(p)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // materializeSecureBackend 把容器内的后端源码解密写入进程私有临时目录（0700），
@@ -470,7 +546,44 @@ const (
 	securityMagic3      = "FRDM3"
 	// 每产物主密钥长度（发布方仓库里以 64 位十六进制文本存放）。
 	securityProductKeyLen = 32
+	// sha256HexShort 是错误消息里展示哈希前缀的长度（完整哈希无隐私价值，前缀足够定位）。
+	sha256HexShort = 8
+	// sha256HexLen 是清单里 self / appBin 哈希的合法文本长度。
+	sha256HexLen = 64
 )
+
+// ---- Tier B 编译期注入（CLI 用 -ldflags "-X freedom-cli-shell/pkg/freedom.<var>=<值>" 写入）----
+//
+// FRDM3 的全部秘密都从这两个值进来：
+//
+//	securityMasterCipher —— 每产物主密钥（32B）经位置掩码异或后的 hex。掩码算法与
+//	  FRDM2 的 masterKeyCipher 同一条（out[i] ^= (i*7+0x5A)），目的只是让 strings /
+//	  十六进制扫描在壳里找不到密钥；运行时内存中仍有明文，对抗边界见 anti_debug_*。
+//	securityAnchorPubHex —— 发布方 ed25519 公钥（信任锚，hex32），验 .integrity 只认它。
+//
+// 通用预编译壳（Tier A）两值恒为空：它既解不开任何 FRDM3 产物（没有每产物主密钥），
+// 也没有产物外的锚可验签，故 high 模式在 CLI 侧就要求自编译壳（见 freedom-cli lib/build.js）。
+var (
+	securityMasterCipher = ""
+	securityAnchorPubHex = ""
+)
+
+// productMaster 还原注入的每产物主密钥。未注入或注入值非法（长度/十六进制）时 ok=false——
+// 非法值绝不退化成"拿空字节当密钥继续解密"，那会派生出一个人人可复现的密钥。
+func productMaster() ([]byte, bool) {
+	if securityMasterCipher == "" {
+		return nil, false
+	}
+	raw, err := hex.DecodeString(securityMasterCipher)
+	if err != nil || len(raw) != securityProductKeyLen {
+		return nil, false
+	}
+	out := make([]byte, len(raw))
+	for i, b := range raw {
+		out[i] = b ^ byte((i*7+0x5A)&0xff)
+	}
+	return out, true
+}
 
 // cacheSecureKey 写入派生密钥缓存（调用方持锁）。上限淘汰前先抹零：
 // 丢弃引用不等于销毁密钥，Go 的分配器会复用那片内存。
@@ -630,6 +743,11 @@ func verifyIntegrityManifest(anchorPubHex string, raw []byte, appName string, ap
 	var c integrityClaimsV3
 	if err := json.Unmarshal(bytes, &c); err != nil {
 		return nil, fmt.Errorf(".integrity 签名载荷不是合法 JSON：%w", err)
+	}
+	// self 由发布方签名，正常恒为 hex64 或空串；长度不合法说明清单与本壳不同代（或
+	// 构建端写错字段）。先卡格式再进 verifySelfHash，免得那里对短串切片越界。
+	if c.Self != "" && len(c.Self) != sha256HexLen {
+		return nil, fmt.Errorf(".integrity self 非法（需 %d 位十六进制或空串，实际 %d 字符）", sha256HexLen, len(c.Self))
 	}
 	sum := sha256.Sum256(appBin)
 	if !hmac.Equal([]byte(c.AppBin), []byte(hex.EncodeToString(sum[:]))) {

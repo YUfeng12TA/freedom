@@ -39,6 +39,12 @@ type frdm3Fixture struct {
 		EncHex  string `json:"encHex"`
 		MacHex  string `json:"macHex"`
 	} `json:"deriveGolden"`
+	// InjectGolden 锁的是 Tier B 注入格式：JS productMasterCipher 产出的密文表，
+	// Go productMaster 必须还原出同一个主密钥（掩码算法跨语言同式）。
+	InjectGolden struct {
+		MasterHex string `json:"masterHex"`
+		CipherHex string `json:"cipherHex"`
+	} `json:"injectGolden"`
 }
 
 func readFRDM3Fixture(t *testing.T) (*frdm3Fixture, []byte) {
@@ -104,7 +110,8 @@ func deriveV3ForTest(master []byte, name string) func(salt []byte) (secureKey, e
 // signIntegrityForTest 签出 v3 清单。载荷字段的序列化顺序即 integrityClaimsV3 的结构体顺序，
 // 与 JS 侧 JSON.stringify 的键序必须一致——该一致性由 tests/security-frdm3.test.mjs
 // 验一份 Go 实算产出的清单来锁死（见 TestFRDM3EmitGoSignedVector）。
-func signIntegrityForTest(t *testing.T, priv ed25519.PrivateKey, name string, appBin []byte) []byte {
+// self 是要绑定的 exe 哈希（空串 = 不绑定，等同 Tier A 通用壳的清单）。
+func signIntegrityForTest(t *testing.T, priv ed25519.PrivateKey, name string, appBin []byte, self string) []byte {
 	t.Helper()
 	salt := appBin[len(securityMagic3) : len(securityMagic3)+securitySaltLen]
 	sum := sha256.Sum256(appBin)
@@ -112,7 +119,7 @@ func signIntegrityForTest(t *testing.T, priv ed25519.PrivateKey, name string, ap
 		AppBin:   hex.EncodeToString(sum[:]),
 		Identity: appIdentityName(name),
 		Salt:     hex.EncodeToString(salt),
-		Self:     "",
+		Self:     self,
 		Built:    "2026-09-25T00:00:00.000Z",
 	})
 	if err != nil {
@@ -212,7 +219,7 @@ func TestFRDM3ForgedManifestNeedsPublishersKey(t *testing.T) {
 	}
 	forged := sealForTest(t, securityMagic3, deriveV3ForTest(master, f.Identity),
 		"<html>pwned</html>", `{"x":1}`, nil)
-	forgedManifest := signIntegrityForTest(t, evilKey, f.Identity, forged)
+	forgedManifest := signIntegrityForTest(t, evilKey, f.Identity, forged, "")
 
 	// 锚是发布方公钥 ⇒ 攻击者自签的清单必须进不来（本波 PoC 的封堵点）
 	if _, err := verifyIntegrityManifest(f.PubHex, forgedManifest, f.Identity, forged); err == nil ||
@@ -313,7 +320,209 @@ func TestFRDM3EmitGoSignedVector(t *testing.T) {
 	sum := sha256.Sum256(container)
 	t.Logf("master=%s", f3Master)
 	t.Logf("appBin=%s", base64.StdEncoding.EncodeToString(container))
-	t.Logf("manifest=%s", signIntegrityForTest(t, priv, "go3", container))
+	t.Logf("manifest=%s", signIntegrityForTest(t, priv, "go3", container, ""))
 	t.Logf("pub=%s", hex.EncodeToString(priv.Public().(ed25519.PublicKey)))
 	t.Logf("sha256=%s", hex.EncodeToString(sum[:]))
+}
+
+// ---- Tier B 注入与启动校验链（loadSecureResources）----
+
+// withShellInjection 临时设定编译期注入值（＝"本应用专属壳"这一形态），测完复原。
+func withShellInjection(t *testing.T, cipherHex, anchorHex string) {
+	t.Helper()
+	oldM, oldA := securityMasterCipher, securityAnchorPubHex
+	securityMasterCipher, securityAnchorPubHex = cipherHex, anchorHex
+	t.Cleanup(func() { securityMasterCipher, securityAnchorPubHex = oldM, oldA })
+}
+
+// tierBPublisher 造一套发布方资产（每产物主密钥 + ed25519 签名钥），并把注入值
+// 设进本测试的壳变量——等价于 CLI 为该应用编译的 Tier B 专属壳。
+// 返回的 seal 用这套资产产出「壳会接受」的合法产物：容器用本主密钥加密，清单用本私钥签名。
+func tierBPublisher(t *testing.T, name string) func(html, configJSON string, backend map[string]secureFile) ([]byte, []byte) {
+	t.Helper()
+	master := make([]byte, securityProductKeyLen)
+	if _, err := rand.Read(master); err != nil {
+		t.Fatal(err)
+	}
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cipher := make([]byte, len(master))
+	for i, b := range master {
+		cipher[i] = b ^ byte((i*7+0x5A)&0xff)
+	}
+	withShellInjection(t, hex.EncodeToString(cipher), hex.EncodeToString(pub))
+	return func(html, configJSON string, backend map[string]secureFile) ([]byte, []byte) {
+		bin := sealForTest(t, securityMagic3, deriveV3ForTest(master, name), html, configJSON, backend)
+		return bin, signIntegrityForTest(t, priv, name, bin, "")
+	}
+}
+
+// writeSecureProduct 造一份 high 产物布局（<tmp>/resources/app.bin[+.integrity]），
+// 并把 resources 定位与应用标识重定向到它（作用域=本测试）。
+func writeSecureProduct(t *testing.T, name string, appBin, manifest []byte) string {
+	t.Helper()
+	res := filepath.Join(t.TempDir(), "resources")
+	if err := os.MkdirAll(res, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(res, "app.bin"), appBin, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if manifest != nil {
+		if err := os.WriteFile(filepath.Join(res, ".integrity"), manifest, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	withResourcesDir(t, res, name)
+	return res
+}
+
+func writeAppBin(t *testing.T, res string, appBin []byte) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(res, "app.bin"), appBin, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestFRDM3ProductMasterUnmaskMatchesNode(t *testing.T) {
+	fx, _ := readFRDM3Fixture(t)
+	withShellInjection(t, fx.InjectGolden.CipherHex, fx.PubHex)
+	raw, ok := productMaster()
+	if !ok {
+		t.Fatal("productMaster 应认下夹具里 JS 实算的注入值")
+	}
+	if got := hex.EncodeToString(raw); got != fx.ProductMaster {
+		t.Fatalf("还原出的主密钥 = %s，期望 %s：JS productMasterCipher 与 Go productMaster 掩码不同式", got, fx.ProductMaster)
+	}
+	// 非法注入值一律判"未注入"：拿半截或坏掉的字节当主密钥去解密，是比拒绝更糟的静默降级。
+	for _, bad := range []string{"", "zz", hex.EncodeToString(make([]byte, 16))} {
+		withShellInjection(t, bad, "")
+		if _, ok := productMaster(); ok {
+			t.Errorf("注入值 %q 应判非法（不得继续解密）", bad)
+		}
+	}
+}
+
+func TestLoadSecureResourcesRejectsFRDM2Container(t *testing.T) {
+	// 旧代际容器任何持 CLI 者都能造（主密钥与 HMAC 清单钥都在公开源里）。若本壳仍认 FRDM2，
+	// 攻击者把 app.bin 换成 v2 即完成降级，v3 的签名清单这道门等于白建——故当场拒绝。
+	appBin := sealForTest(t, securityMagic, func(salt []byte) (secureKey, error) {
+		return deriveSecurityKey("legacy", salt), nil
+	}, "<html>legacy</html>", "{}", nil)
+	writeSecureProduct(t, "legacy", appBin, nil)
+	withShellInjection(t, "", "")
+	_, hit, err := loadSecureResources()
+	if !hit || err == nil {
+		t.Fatalf("FRDM2 容器必须被拒绝，实际 hit=%v err=%v", hit, err)
+	}
+	if !strings.Contains(err.Error(), "FRDM2") {
+		t.Errorf("错误应点名旧代际（否则用户看不出要重新 build），实际：%v", err)
+	}
+}
+
+func TestLoadSecureResourcesV3RefusesGenericShell(t *testing.T) {
+	// 通用预编译壳（Tier A）没有每产物主密钥：必须明确指向"需要自编译壳 + 可改用 basic"，
+	// 而不是抛一句看不出根因的"认证失败"。这正是 high 收为 Tier B 专属后的用户可见契约。
+	fx, bin := readFRDM3Fixture(t)
+	writeSecureProduct(t, fx.Identity, bin, []byte(fx.Integrity))
+	withShellInjection(t, "", "")
+	_, hit, err := loadSecureResources()
+	if !hit || err == nil {
+		t.Fatalf("未注入主密钥时必须拒绝加载，实际 hit=%v err=%v", hit, err)
+	}
+	msg := err.Error()
+	for _, want := range []string{"专属壳", "Go", "basic"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("错误消息缺少可操作线索 %q：%v", want, msg)
+		}
+	}
+}
+
+func TestLoadSecureResourcesV3AcceptsInjectedProduct(t *testing.T) {
+	// 端到端：CLI 侧（JS）实算的主密钥与容器 + Go 侧签的清单 + 注入的锚，壳必须解出载荷。
+	fx, _ := readFRDM3Fixture(t)
+	master := mustHex(t, fx.ProductMaster)
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherPub, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	self, err := hashFileHex(exe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	container := sealForTest(t, securityMagic3, deriveV3ForTest(master, "tierb"),
+		"<html><body>tier-b-演示</body></html>", `{"title":"TierB"}`,
+		map[string]secureFile{"backend/main.go": {Data: []byte("package main\n"), Mode: 0o755}})
+	manifest := signIntegrityForTest(t, priv, "tierb", container, self)
+	res := writeSecureProduct(t, "tierb", container, manifest)
+	anchor := hex.EncodeToString(pub)
+	withShellInjection(t, fx.InjectGolden.CipherHex, anchor)
+
+	p, hit, err := loadSecureResources()
+	if !hit || err != nil {
+		t.Fatalf("注入齐备的合法产物应加载成功：%v", err)
+	}
+	if p.HTML != "<html><body>tier-b-演示</body></html>" || p.Config != `{"title":"TierB"}` {
+		t.Errorf("解出的载荷不符：html=%q config=%q", p.HTML, p.Config)
+	}
+	if string(p.Backend["backend/main.go"].Data) != "package main\n" {
+		t.Errorf("后端载荷不符：%q", p.Backend["backend/main.go"].Data)
+	}
+
+	// 真机用例②：改造 resources（容器换内容、清单不动）→ 清单与容器对不上即拒。
+	tampered := append([]byte(nil), container...)
+	tampered[len(tampered)-1] ^= 0x01
+	writeAppBin(t, res, tampered)
+	if _, _, err := loadSecureResources(); err == nil ||
+		!strings.Contains(err.Error(), "app.bin 与签名清单不符") {
+		t.Errorf("替换容器应被签名清单检出，实际：%v", err)
+	}
+	writeAppBin(t, res, container)
+
+	// 真机用例③：换信任锚（换成攻击者自己的公钥／挪用到另一份产物）→ 锚不匹配即拒。
+	// 关键在"只认注入的那把"：清单自带的 pub 不可自证。
+	withShellInjection(t, fx.InjectGolden.CipherHex, hex.EncodeToString(otherPub))
+	if _, _, err := loadSecureResources(); err == nil ||
+		!strings.Contains(err.Error(), "信任锚") {
+		t.Errorf("换锚应被拒绝，实际：%v", err)
+	}
+	withShellInjection(t, fx.InjectGolden.CipherHex, anchor)
+
+	// exe 本体被改写（补丁壳／事后签名）：清单里的 self 与真实哈希不符即拒。
+	// 这里换一个未签名的假 self 需要重签，故改用"签名者绑了别的哈希"等价场景：
+	// 直接签一个指向不存在文件的 self（同一次进程内 os.Executable 不变，必然对不上）。
+	mismatch := signIntegrityForTest(t, priv, "tierb", container, strings.Repeat("00", sha256HexLen/2))
+	writeSecureProduct(t, "tierb", container, mismatch)
+	if _, _, err := loadSecureResources(); err == nil ||
+		!strings.Contains(err.Error(), "exe 本体与签名清单不符") {
+		t.Errorf("exe 哈希不符应被拒绝，实际：%v", err)
+	}
+}
+
+func TestVerifySelfHashSkipsUnboundManifest(t *testing.T) {
+	// 空 self = 构建期未绑定（Tier A 通用壳语义），必须跳过而不是报错。
+	if err := verifySelfHash(""); err != nil {
+		t.Errorf("self 为空应跳过，实际：%v", err)
+	}
+	// 长度非法的 self 要在验签阶段就红，而不是走到切片取前缀时 panic。
+	fx, bin := readFRDM3Fixture(t)
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := signIntegrityForTest(t, priv, fx.Identity, bin, "deadbeef")
+	if _, err := verifyIntegrityManifest(hex.EncodeToString(pub), manifest, fx.Identity, bin); err == nil ||
+		!strings.Contains(err.Error(), "self 非法") {
+		t.Errorf("非法 self 应被格式门挡住，实际：%v", err)
+	}
 }

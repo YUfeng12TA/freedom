@@ -9,8 +9,18 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { isWinPlat, platformExeName } = require('./utils');
-const { APP_BIN_MAGIC, decryptApp, buildIntegrity } = require('./security');
+const {
+  APP_BIN_MAGIC,
+  APP_BIN_MAGIC3,
+  decryptAppV3,
+  loadProductKey,
+  verifyIntegrityV3,
+  signingKeyPath,
+  rawPubHexFromKey,
+  sha256hex,
+} = require('./security');
 
 // ---- 产物定位 ----
 
@@ -67,8 +77,66 @@ function fmtSize(n) {
   return `${(n / 1024 / 1024).toFixed(2)} MB`;
 }
 
+// checkSignedProduct —— FRDM3 high 产物的签名链复核，返回解密载荷（失败返回 null）。
+//
+// 三步与壳的启动校验同源同序（先比锚、再验签、后解密），verify 绿即启动必绿：
+//   1) .integrity 用发布方公钥验签，并把 appBin/identity/salt 与真实产物逐项比对；
+//   2) claims.self 与 exe 本体哈希比对（壳被替换或 build 后改写 exe 即红）；
+//   3) 用每产物主密钥真解一次容器（认证失败 = 内容被篡改）。
+// 信任锚来自项目内的发布方私钥（freedom keygen 资产）：私钥不在就无从判真伪，
+// 按红处理而不是跳过——"没钥匙所以当作没问题"正是降级攻击要走的那一步。
+function checkSignedProduct({ projectDir, resDir, bin, appName, exePath, fail, okc }) {
+  let manifest;
+  try {
+    manifest = JSON.parse(fs.readFileSync(path.join(resDir, '.integrity'), 'utf8'));
+  } catch (e) {
+    fail('签名清单', `.integrity 读取/解析失败：${e.message}`);
+    return null;
+  }
+  const privPath = signingKeyPath(projectDir);
+  if (!fs.existsSync(privPath)) {
+    fail('签名清单', `缺信任锚（发布方私钥 ${privPath} 不存在）：无法判定清单真伪，请先 freedom keygen 或用同钥匙重新构建`);
+    return null;
+  }
+  let anchorPubHex;
+  try {
+    anchorPubHex = rawPubHexFromKey(crypto.createPrivateKey(fs.readFileSync(privPath)));
+  } catch (e) {
+    fail('签名清单', `发布方私钥不可用：${e.message}`);
+    return null;
+  }
+  let claims;
+  try {
+    claims = verifyIntegrityV3({ manifest, anchorPubHex, name: appName, appBin: bin });
+    okc('签名清单', `ed25519 验签通过，且清单与 app.bin/应用标识/容器盐逐项吻合（built ${claims.built}）`);
+  } catch (e) {
+    fail('签名清单', e.message);
+    return null;
+  }
+  if (claims.self) {
+    try {
+      const got = sha256hex(fs.readFileSync(exePath));
+      if (got !== claims.self.toLowerCase()) {
+        fail('exe 自绑定', `exe 哈希与清单不符（清单 ${claims.self.slice(0, 8)}…，实际 ${got.slice(0, 8)}…）：壳被替换，或 build 之后改写过 exe（含事后补做代码签名）`);
+      } else {
+        okc('exe 自绑定', `exe 哈希与签名清单一致（${got.slice(0, 8)}…）`);
+      }
+    } catch (e) {
+      fail('exe 自绑定', e.message);
+    }
+  }
+  try {
+    const p = decryptAppV3(loadProductKey(projectDir, appName), appName, bin);
+    okc('容器解密', `认证通过，html ${fmtSize(p.html.length)} / config ${fmtSize(p.config.length)}`);
+    return p;
+  } catch (e) {
+    fail('容器解密', e.message);
+    return null;
+  }
+}
+
 // 单平台产物校验，返回 [{ name, pass, detail }]。
-function checkPlatformProduct({ targetDir, plat, appName, hasBackend }) {
+function checkPlatformProduct({ projectDir, targetDir, plat, appName, hasBackend }) {
   const checks = [];
   const fail = (name, detail) => checks.push({ name, pass: false, detail });
   const okc = (name, detail) => checks.push({ name, pass: true, detail });
@@ -117,34 +185,20 @@ function checkPlatformProduct({ targetDir, plat, appName, hasBackend }) {
     }
     if (!hasIntegrity) fail('完整性清单', '缺失 .integrity');
     else okc('完整性清单', '.integrity 存在');
-    // app.bin 容器头校验（FRDM2）
+    // app.bin 容器代际校验。FRDM2 及其以前一律红：壳侧同样拒收旧代际（其主密钥与清单
+    // 密钥都随 npm 包公开，人人可伪造），verify 放行就会出现"自检绿、启动红"。
     let bin = Buffer.alloc(0);
     try {
       bin = fs.readFileSync(path.join(resDir, 'app.bin'));
     } catch (e) { /* 读取失败按不通过处理 */ }
-    const head = bin.subarray(0, APP_BIN_MAGIC.length).toString('latin1');
-    if (head !== APP_BIN_MAGIC) {
-      fail('app.bin 容器', `容器头不是 ${APP_BIN_MAGIC}（实际 "${head}"），文件损坏、非本工具产物或旧版产物`);
+    const head = bin.subarray(0, APP_BIN_MAGIC3.length).toString('latin1');
+    if (head === APP_BIN_MAGIC) {
+      fail('app.bin 容器', `${APP_BIN_MAGIC} 属旧代际（密钥在公开源里，清单可被任意伪造）：请用 freedom-cli 1.14.0 及以上重新 build`);
+    } else if (head !== APP_BIN_MAGIC3) {
+      fail('app.bin 容器', `容器头不是 ${APP_BIN_MAGIC3}（实际 "${head}"），文件损坏、非本工具产物或旧代产物`);
     } else {
-      okc('app.bin 容器', `${APP_BIN_MAGIC} 头有效（${fmtSize(bin.length)}）`);
-      // 真解一次容器：认证失败 = 产物被篡改或 name 与容器不匹配；同时拿到 backend 供后端检查。
-      try {
-        securePayload = decryptApp(appName, bin);
-        okc('容器解密', `认证通过，html ${fmtSize(securePayload.html.length)} / config ${fmtSize(securePayload.config.length)}`);
-      } catch (e) {
-        fail('容器解密', e.message);
-      }
-      // .integrity 与容器一致（防整体替换：清单值由构建期容器盐派生密钥签名）
-      if (hasIntegrity) {
-        try {
-          const list = JSON.parse(fs.readFileSync(path.join(resDir, '.integrity'), 'utf8'));
-          const want = buildIntegrity(appName, bin).appBin;
-          if (list.appBin !== want) fail('完整性清单', '.integrity 与 app.bin 不一致（产物可能被替换）');
-          else okc('完整性清单', '.integrity 与 app.bin 一致');
-        } catch (e) {
-          fail('完整性清单', e.message);
-        }
-      }
+      okc('app.bin 容器', `${APP_BIN_MAGIC3} 头有效（${fmtSize(bin.length)}）`);
+      securePayload = checkSignedProduct({ projectDir, resDir, bin, appName, exePath, fail, okc });
     }
   } else {
     if (hasIntegrity) {
@@ -209,7 +263,7 @@ async function verifyProduct(projectDir, opts = {}) {
 
   const targets = findProducts(dir, cfg)
     .filter((t) => !opts.platform || t.plat === opts.platform)
-    .map((t) => ({ ...t, checks: checkPlatformProduct({ targetDir: t.dir, plat: t.plat, appName, hasBackend: hasBackendDir }) }));
+    .map((t) => ({ ...t, checks: checkPlatformProduct({ projectDir: dir, targetDir: t.dir, plat: t.plat, appName, hasBackend: hasBackendDir }) }));
 
   const ok = targets.length > 0 && targets.every((t) => t.checks.every((c) => c.pass));
   return { ok, targets, appName };

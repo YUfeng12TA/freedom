@@ -202,6 +202,57 @@ test('FRDM3: 跨语言夹具（Go security_test.go 读同一份）', () => {
   assert.strictEqual(k.mac.toString('hex'), golden.deriveGolden.macHex, 'macKey 与夹具不一致');
 });
 
+test('FRDM3: Tier B 注入表与 Go productMaster 同式（每产物主密钥编进壳）', () => {
+  const golden = JSON.parse(fs.readFileSync(FIXTURE, 'utf8'));
+  const cipher = sec.productMasterCipher(golden.productMasterHex);
+  // 注入表就是夹具里 Go 侧读的那一份：两侧各自实现掩码，此处双向锁死。
+  assert.strictEqual(cipher, golden.injectGolden.cipherHex, '注入密文与夹具不一致');
+  // 信任锚取的是私钥配对的公钥：传私钥必须与传公钥同解（构建期只有私钥在手）。
+  const kp = crypto.generateKeyPairSync('ed25519');
+  assert.strictEqual(sec.rawPubHexFromKey(kp.privateKey), sec.rawPubHexFromKey(kp.publicKey));
+  assert.strictEqual(golden.injectGolden.masterHex, golden.productMasterHex);
+  assert.notStrictEqual(cipher, golden.productMasterHex, '注入表不得是明文主密钥（strings 直读即泄）');
+  assert.match(cipher, /^[0-9a-f]{64}$/, '注入表须为 hex（-X 只能注入字符串）');
+  // 掩码是自逆的：还原一次即回明文（Go productMaster 走同一件事）
+  const back = Buffer.from(cipher, 'hex').map((b, i) => b ^ ((i * 7 + 0x5a) & 0xff));
+  assert.strictEqual(back.toString('hex'), golden.productMasterHex);
+  assert.throws(() => sec.productMasterCipher('ab'.repeat(31)), /32 字节/);
+  assert.throws(() => sec.productMasterCipher('zz'.repeat(32)), /32 字节/);
+  // 符号路径 = Go 包级变量名。改 Go 侧变量名而不同步这里，产出的壳会静默拿到空密钥。
+  assert.deepStrictEqual(Object.keys(sec.shellInject(golden.productMasterHex, golden.pubHex)), [
+    'freedom-cli-shell/pkg/freedom.securityMasterCipher',
+    'freedom-cli-shell/pkg/freedom.securityAnchorPubHex',
+  ]);
+  // 值必须过 shell.js 的 -X 字符集门（含空格即拼坏 -ldflags）
+  for (const v of Object.values(sec.shellInject(golden.productMasterHex, golden.pubHex))) {
+    assert.match(v, /^[A-Za-z0-9_./:-]+$/);
+  }
+});
+
+// high 模式的发布方资产门：缺任一把钥匙必须在跑 vite/编译壳之前拒绝，
+// 否则用户等了几分钟才被告知构建不可能成功（更糟：悄悄退回可伪造的旧代际）。
+test('FRDM3: freedom build --security high 缺密钥即拒（不静默降级）', async () => {
+  const build = require(path.join(here, '..', 'freedom-cli', 'lib', 'build.js'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'frdm3-secrets-'));
+  try {
+    await assert.rejects(build.prepareHighSecrets(dir, 'demo3'), /每产物主密钥/);
+    sec.createProductKey(dir, 'demo3');
+    await assert.rejects(build.prepareHighSecrets(dir, 'demo3'), /签名私钥/);
+    const kp = crypto.generateKeyPairSync('ed25519');
+    fs.writeFileSync(sec.signingKeyPath(dir), kp.privateKey.export({ type: 'pkcs8', format: 'pem' }), { mode: 0o600 });
+    const secrets = await build.prepareHighSecrets(dir, 'demo3');
+    assert.strictEqual(secrets.master, sec.loadProductKey(dir, 'demo3'));
+    assert.strictEqual(secrets.anchorPubHex, sec.rawPubHexFromKey(kp.publicKey), '信任锚须与私钥配对的原始公钥一致');
+    assert.strictEqual(secrets.privateKey.type, 'private');
+    // keygen 与 build 必须用同一套名字消毒取钥匙文件：一套消毒一套不消毒，
+    // 构建会去一个永不存在的文件名找主密钥（历史漂移 bug，见 appNameFor）。
+    assert.strictEqual(sec.productKeyPath(dir, 'Demo 3!'), sec.productKeyPath(dir, 'Demo-3-'));
+    assert.notStrictEqual(sec.productKeyPath(dir, 'demo3'), sec.productKeyPath(dir, 'demo4'));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('FRDM3: Go 侧加密并签名的产物，JS 能解能验（反向锁字段序）', () => {
   // 下列值由 Go 实算产出（FRDM3_GO_VECTOR=1 go test -run TestFRDM3EmitGoSignedVector .）。
   // 锁的是两侧序列化一致性：Go 用结构体字段序 marshal，JS 用对象字面量键序，
@@ -246,6 +297,7 @@ if (process.env.FRDM3_REGEN) {
     appBin: bin.toString('base64'), integrity: manifest,
     pubHex: sec.rawPubHexFromKey(kp.publicKey),
     deriveGolden: { saltHex: '000102030405060708090a0b0c0d0e0f', encHex: derived.enc.toString('hex'), macHex: derived.mac.toString('hex') },
+    injectGolden: { masterHex: master, cipherHex: sec.productMasterCipher(master) },
   };
   fs.writeFileSync(FIXTURE, JSON.stringify(out, null, 2) + '\n', 'utf8');
   console.log('夹具已重写：', FIXTURE);

@@ -251,7 +251,10 @@ func (a *App) Run() {
 		var se *secureFatalError
 		if errors.As(err, &se) {
 			fmt.Printf("freedom: 安全模式资源校验失败，拒绝运行：%v\n", err)
-			return
+			// 退出码必须非零：Run 返回 nil 会让"拒跑"与"正常退出"在脚本与 CI 眼里同形，
+			// 而这条分支存在的意义正是"不能让它悄悄跑起来"。此处尚无 defer 注册
+			// （cleanupSecureBackend 在下一行才 defer），os.Exit 不会跳过清理。
+			os.Exit(exitSecureFatal)
 		}
 		fmt.Printf("freedom: warning: %v\n", err)
 	}

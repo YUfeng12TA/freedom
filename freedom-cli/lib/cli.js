@@ -37,7 +37,7 @@ function help() {
   L.push(`  ${paint('freedom dmg [--platform <plat>]', C.fg.cyan)}  ${dim('将已构建的 .app 打包为 .dmg（需 macOS）')}`);
   L.push(section('开发与更新'));
   L.push(`  ${paint('freedom dev [--port <n>|--url <u>] [--command <cmd>]', C.fg.cyan)} ${dim('dev server 联调壳窗口：HMR 热更，改码免重打包')}`);
-  L.push(`  ${paint('freedom keygen', C.fg.cyan)}              ${dim('生成应用自更新 ed25519 密钥对（公钥进配置，私钥发布方保管）')}`);
+  L.push(`  ${paint('freedom keygen [--dir <项目目录>]', C.fg.cyan)}  ${dim('生成应用自更新 ed25519 密钥对 + 每产物主密钥（公钥进配置，私钥发布方保管）')}`);
   L.push(`  ${paint('freedom manifest --artifact <产物> --url <下载地址> [--version x]', C.fg.cyan)} ${dim('产出签名的更新清单 latest.json')}`);
   L.push(section('外观'));
   L.push(`  ${paint('freedom titlebar <native|frameless>', C.fg.cyan)} ${dim('一键切换标题栏策略')}`);
@@ -229,8 +229,12 @@ async function run(argv) {
 
     case 'keygen': {
       const { keygen } = require('./release');
+      // --dir 必须生效：忽略它会把密钥 mint 到当前目录，之后在项目里 build 只会在
+      // 一个从未存在的文件名下找主密钥（报"缺每产物主密钥"，用户无从下手）。
+      const di = rest.indexOf('--dir');
+      const dir = di >= 0 && rest[di + 1] && !rest[di + 1].startsWith('--') ? rest[di + 1] : process.cwd();
       try {
-        console.log(await keygen({ dir: process.cwd(), force: rest.includes('--force') }));
+        console.log(await keygen({ dir, force: rest.includes('--force') }));
       } catch (e) {
         console.error(`${err(e.message)}`);
         return 1;

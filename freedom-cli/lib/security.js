@@ -88,13 +88,18 @@ function appIdentityFor(name) {
   return s;
 }
 
+// maskPositional 按位置异或掩码（与 Go 侧 out[i] ^= byte((i*7+0x5A)&0xff) 严格同式）。
+// 目的单一：让静态 strings / 十六进制扫描在壳与 exe 里找不到完整的秘密字节串。
+// 这不是加密——密钥运行时仍在内存里，真正的对抗边界是反调试那一层。
+function maskPositional(cipher) {
+  const out = Buffer.alloc(cipher.length);
+  for (let i = 0; i < cipher.length; i++) out[i] = cipher[i] ^ ((i * 7 + 0x5a) & 0xff);
+  return out;
+}
+
 // masterSecret 还原主密钥（PBKDF2 的 password），与 Go masterSecret() 同式。
 function masterSecret() {
-  const out = Buffer.alloc(MASTER_KEY_CIPHER.length);
-  for (let i = 0; i < MASTER_KEY_CIPHER.length; i++) {
-    out[i] = MASTER_KEY_CIPHER[i] ^ ((i * 7 + 0x5a) & 0xff);
-  }
-  return out;
+  return maskPositional(MASTER_KEY_CIPHER);
 }
 
 // 容器密钥对：加密与认证分开，避免同一密钥同时服务 AES-CTR 与 HMAC。
@@ -258,7 +263,10 @@ function normalizePubHex(hex) {
 }
 
 function rawPubHexFromKey(key) {
-  const k = typeof key === 'string' || key instanceof Uint8Array ? crypto.createPublicKey(key) : key;
+  // 传私钥（KeyObject 或 PEM/DER）也取到它配对的原始公钥：信任锚只能由私钥推得，
+  // 而 createPublicKey 只吃 key data，直接对私钥 export 会报 options.type invalid。
+  const k = key instanceof Uint8Array || typeof key === 'string' || key.type === 'private'
+    ? crypto.createPublicKey(key) : key;
   return k.export({ type: 'spki', format: 'der' }).subarray(-32).toString('hex');
 }
 
@@ -294,8 +302,27 @@ function ensureKeysIgnored(dir) {
   return true;
 }
 
+// keysDir 是发布方秘密资产的唯一目录约定（与 KEYS_IGNORE_LINE 配对：整目录不入库）。
+function keysDir(dir) {
+  return path.join(path.resolve(dir), '.freedom', 'keys');
+}
+
+// appNameFor 应用名的文件名清洗（与 build.js / verify.js 的 `name` 同一规则）。
+// 密钥文件名必须按同一规则推导：keygen 拿到的是 freedom.config.js 里的原始 cfg.name，
+// build 拿到的是清洗后的 name，两者若各自清洗不一致，high 构建就会"密钥明明在却找不到"。
+function appNameFor(raw) {
+  return String(raw || 'freedom-app').replace(/[^a-zA-Z0-9_.-]/g, '-');
+}
+
 function productKeyPath(dir, appName) {
-  return path.join(path.resolve(dir), '.freedom', 'keys', appIdentityFor(appName) + '.key');
+  return path.join(keysDir(dir), appIdentityFor(appNameFor(appName)) + '.key');
+}
+
+// 发布方 ed25519 私钥（自更新清单与产物完整性清单共用一把）。
+const UPDATE_KEY_BASENAME = 'update_ed25519';
+
+function signingKeyPath(dir) {
+  return path.join(keysDir(dir), UPDATE_KEY_BASENAME);
 }
 
 // createProductKey 生成 32B 随机主密钥（hex 落盘）。已存在时除非 force 一律拒绝——
@@ -335,6 +362,33 @@ function loadProductKey(dir, appName) {
 function productMasterBytes(master) {
   if (Buffer.isBuffer(master)) return master;
   return Buffer.from(String(master).trim(), 'hex'); // 长度由 deriveKeysV3 显式校验
+}
+
+// ---- Tier B 编译期注入（每产物壳）----
+//
+// high 模式在 Tier B 下不再复制预编译通用壳，而是为本应用现编一个专属壳，把两样东西
+// 经 -ldflags -X 编进去：每产物主密钥（解密用）与发布方公钥（验签信任锚）。
+// 符号路径与 Go 侧包级变量一一对应，改任一侧必须同步——这是 build 产物能否启动的硬绑定。
+const SHELL_PKG = 'freedom-cli-shell/pkg/freedom';
+const SHELL_VAR_MASTER = 'securityMasterCipher';
+const SHELL_VAR_ANCHOR = 'securityAnchorPubHex';
+
+// productMasterCipher 把每产物主密钥（hex64）转成注入用密文表（hex）：
+// 与 Go productMaster() 的位置掩码同式，使 exe 里 strings 扫不到那 32 字节密钥。
+function productMasterCipher(master) {
+  const raw = productMasterBytes(master);
+  if (raw.length !== PRODUCT_KEY_LEN) {
+    throw new Error(`每产物主密钥需 32 字节（64 位十六进制），实际 ${raw.length} 字节`);
+  }
+  return maskPositional(raw).toString('hex');
+}
+
+// shellInject 返回 buildShell 可直接消费的 -X 映射（完整符号路径 → 值）。
+function shellInject(master, anchorPubHex) {
+  return {
+    [`${SHELL_PKG}.${SHELL_VAR_MASTER}`]: productMasterCipher(master),
+    [`${SHELL_PKG}.${SHELL_VAR_ANCHOR}`]: normalizePubHex(anchorPubHex),
+  };
 }
 
 // ---- 容器密钥派生（v3）----
@@ -398,6 +452,12 @@ function signIntegrityV3(opts) {
   };
 }
 
+// renderManifestV3 是清单的磁盘序列化（与 Go encoding/json 输出逐字节一致，
+// 两侧产物可互换校验；键序即 signIntegrityV3 的返回对象键序）。
+function renderManifestV3(manifest) {
+  return JSON.stringify(manifest, null, 2) + '\n';
+}
+
 // verifyIntegrityV3 用**信任锚公钥**校验清单，并把声明值与真实输入逐项比对。
 // 先比锚再验签：否则攻击者换一对钥匙即可自证合法（清单里的 pub 不可自证）。
 // 通过返回声明对象，失败抛错（调用方据此拒绝运行）。
@@ -443,6 +503,7 @@ module.exports = {
   parseSecurity,
   resolveSecurity,
   appIdentityFor,
+  appNameFor,
   masterSecret,
   deriveKeys,
   encryptApp,
@@ -454,6 +515,8 @@ module.exports = {
   // FRDM3
   APP_BIN_MAGIC3,
   ensureKeysIgnored,
+  keysDir,
+  signingKeyPath,
   productKeyPath,
   createProductKey,
   loadProductKey,
@@ -461,7 +524,13 @@ module.exports = {
   encryptAppV3,
   decryptAppV3,
   signIntegrityV3,
+  renderManifestV3,
   verifyIntegrityV3,
   rawPubHexFromKey,
   sha256hex,
+  productMasterCipher,
+  shellInject,
+  SHELL_PKG,
+  SHELL_VAR_MASTER,
+  SHELL_VAR_ANCHOR,
 };

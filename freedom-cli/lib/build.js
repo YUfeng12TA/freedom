@@ -23,6 +23,7 @@
 const fs = require('fs');
 const fsp = fs.promises;
 const path = require('path');
+const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 const { copyDir } = require('./utils');
 const {
@@ -35,13 +36,18 @@ const {
   normalizePlatform,
   localShellPath,
 } = require('./utils');
-const { hasShell, downloadShell, validateLocalShell } = require('./shell');
+const { buildShell, downloadShell, validateLocalShell } = require('./shell');
 const {
   SECURITY_MODES,
   resolveSecurity,
-  encryptApp,
-  buildIntegrity,
-  renderIntegrity,
+  encryptAppV3,
+  signIntegrityV3,
+  renderManifestV3,
+  shellInject,
+  loadProductKey,
+  signingKeyPath,
+  rawPubHexFromKey,
+  sha256hex,
 } = require('./security');
 
 function run(cmd, args, opts = {}) {
@@ -107,6 +113,14 @@ async function build(projectDir, opts = {}) {
   const platforms = parsePlatforms(opts.platform);
   const autoDownload = opts.autoDownload !== false;
 
+  // 安全模式：--security 优先于 freedom.config.js 的 security 字段，默认 none。
+  //   none  = 明文资源（默认，兼容历史产物）
+  //   basic = 明文资源 + 构建期安全提示（剥符号 / 混淆）
+  //   high  = FRDM3：resources 加密为 app.bin + 发布方私钥签名的 .integrity + 本应用专属壳
+  // 判定与发布方资产门都前置于前端打包：high 缺密钥属"注定失败的构建"，不该先跑几分钟 vite。
+  const security = resolveSecurity(opts.security, cfg.security);
+  const secrets = security === 'high' ? await prepareHighSecrets(dir, name) : null;
+
   // 1) 前端打包（带缓存：源码未变更时复用上次 vite 产物，跳过 npm run build）
   // cfg.staticHtml：静态单文件页面直通——不跑 npm install / vite，用于 freedom 自己的
   // Desktop 界面自举打包（以及纯静态页项目），零网络、零依赖。
@@ -142,11 +156,6 @@ async function build(projectDir, opts = {}) {
     warnIfNotSingleFile(html, distHtml);
   }
   const configJSON = renderConfigJSON(cfg, name, version);
-  // 安全模式：--security 优先于 freedom.config.js 的 security 字段，默认 none。
-  //   none  = 明文资源（默认，兼容历史产物）
-  //   basic = 明文资源 + 构建期安全提示（剥符号 / 混淆，后续可用高模式加密）
-  //   high  = resources 整体加密为 app.bin（AES-256-CTR+HMAC）+ .integrity 完整性清单，磁盘无明文
-  const security = resolveSecurity(opts.security, cfg.security);
 
   // 2) 后端目录（若配置了 backend 进程）
   const backendDir = path.join(dir, cfg.backendDir || 'backend');
@@ -162,7 +171,7 @@ async function build(projectDir, opts = {}) {
   const results = await Promise.all(
     platforms.map(async (plat) => {
       const targetDir = multi ? path.join(outDirPath, plat) : outDirPath;
-      const emitted = await emitPlatform({ plat, name, version, targetDir, html, configJSON, backendDir, hasBackend, autoDownload, icon, security, installer: opts.installer === true });
+      const emitted = await emitPlatform({ plat, name, version, targetDir, html, configJSON, backendDir, hasBackend, autoDownload, icon, security, installer: opts.installer === true, secrets });
       return { plat, ...emitted };
     })
   );
@@ -197,34 +206,66 @@ async function build(projectDir, opts = {}) {
   return { results };
 }
 
-async function emitPlatform({ plat, name, version, targetDir, html, configJSON, backendDir, hasBackend, autoDownload, icon, security, installer }) {
-  // 取预编译壳二进制
-  const shell = localShellPath(plat);
-  if (!fs.existsSync(shell)) {
-    if (!autoDownload) {
-      throw new Error(
-        `缺少平台 ${plat} 的壳二进制：${shell}\n` +
-          `可运行 freedom shell download ${plat} 下载，或 freedom shell build ${plat} 本地编译。`
-      );
-    }
-    process.stdout.write(`[freedom] 本地无 ${plat} 壳，尝试自动下载...\n`);
-    await downloadShell(plat);
-  } else {
-    // 壳格式校验：防止 mac/linux 平台误用 Windows 假壳被静默分发（历史缺陷：shell/<darwin-*>/<linux-*> 曾误填 Windows PE 副本）。
-    const formatIssue = validateLocalShell(plat);
-    if (formatIssue) {
-      throw new Error(formatIssue);
-    }
+// prepareHighSecrets —— high 模式（Tier B）的发布方资产门。
+//
+// 两样东西缺一不可：
+//   每产物主密钥 .freedom/keys/<app>.key —— 编译进本应用专属壳，容器 KEK 的输入；
+//   发布方私钥 .freedom/keys/update_ed25519 —— 签 resources/.integrity（与自更新清单同一把钥匙）。
+// 缺失一律拒绝构建：退回 FRDM2 那把随 npm 包公开的全域主密钥，等于签出一份谁都能伪造的清单
+// （台账 B-20260925-054）。私钥只用于签名，公钥才是注入壳的信任锚，私钥本身永不进产物。
+async function prepareHighSecrets(dir, name) {
+  const master = loadProductKey(dir, name);
+  const privPath = signingKeyPath(dir);
+  if (!fs.existsSync(privPath)) {
+    throw new Error(`缺少发布方签名私钥：${privPath}\n请先运行 freedom keygen（私钥是发布方资产，勿入库、勿分发）`);
   }
+  const privateKey = crypto.createPrivateKey(await fsp.readFile(privPath));
+  return { master, anchorPubHex: rawPubHexFromKey(privateKey), privateKey };
+}
 
-  await fsp.mkdir(targetDir, { recursive: true });
-
-  // 壳二进制 -> 应用可执行文件
+async function emitPlatform({ plat, name, version, targetDir, html, configJSON, backendDir, hasBackend, autoDownload, icon, security, installer, secrets }) {
   const exeName = platformExeName(plat, name);
   const outFile = path.join(targetDir, exeName);
-  await fsp.copyFile(shell, outFile);
-  if (!isWinPlat(plat)) {
-    await fsp.chmod(outFile, 0o755);
+  await fsp.mkdir(targetDir, { recursive: true });
+
+  // 取壳：high 模式（Tier B）编译本应用专属壳，把每产物主密钥与信任锚编进 exe；
+  // 其余模式沿用包内/下载的通用预编译壳（明文资源，无需任何注入）。
+  if (security === 'high') {
+    if (!secrets) throw new Error('internal: high 模式缺少 secrets');
+    if (plat !== nativePlatform()) {
+      throw new Error(
+        `high 模式需要在本机编译 ${plat} 的专属壳（webview_go 依赖目标平台系统 WebView，无法交叉编译）。` +
+          `当前平台是 ${nativePlatform()}：请在 ${plat} 机器上执行 freedom build --security high，` +
+          `或该平台改用 --security basic。`
+      );
+    }
+    process.stdout.write(
+      `[freedom] high 模式（Tier B）：编译 ${name} 的专属壳，注入每产物主密钥与信任锚公钥（需 Go 工具链）...\n`
+    );
+    buildShell(plat, { dest: outFile, inject: shellInject(secrets.master, secrets.anchorPubHex) });
+    if (!isWinPlat(plat)) await fsp.chmod(outFile, 0o755);
+  } else {
+    const shell = localShellPath(plat);
+    if (!fs.existsSync(shell)) {
+      if (!autoDownload) {
+        throw new Error(
+          `缺少平台 ${plat} 的壳二进制：${shell}\n` +
+            `可运行 freedom shell download ${plat} 下载，或 freedom shell build ${plat} 本地编译。`
+        );
+      }
+      process.stdout.write(`[freedom] 本地无 ${plat} 壳，尝试自动下载...\n`);
+      await downloadShell(plat);
+    } else {
+      // 壳格式校验：防止 mac/linux 平台误用 Windows 假壳被静默分发（历史缺陷：shell/<darwin-*>/<linux-*> 曾误填 Windows PE 副本）。
+      const formatIssue = validateLocalShell(plat);
+      if (formatIssue) {
+        throw new Error(formatIssue);
+      }
+    }
+    await fsp.copyFile(shell, outFile);
+    if (!isWinPlat(plat)) {
+      await fsp.chmod(outFile, 0o755);
+    }
   }
 
   // 自定义 exe 图标（仅 Windows PE 支持嵌入 .ico 资源；mac 用 .icns 走 .app 分支）
@@ -262,8 +303,21 @@ async function emitPlatform({ plat, name, version, targetDir, html, configJSON, 
     if (stripped > 0) {
       process.stdout.write(`[freedom] high 模式：已抹去前端页内 ${stripped} 处 source map 引用（可能含原始源码）。\n`);
     }
-    const appBin = encryptApp(name, secureHtml, configJSON, backendFiles);    await fsp.writeFile(path.join(resDir, 'app.bin'), appBin);
-    await fsp.writeFile(path.join(resDir, '.integrity'), renderIntegrity(buildIntegrity(name, appBin)), 'utf8');
+    // FRDM3 容器：KEK 由「每产物主密钥 + 应用标识 + 容器随机盐」派生，主密钥只在发布方
+    // 仓库与本应用专属壳里，公开 npm 源上没有任何一把能解开它。
+    const appBin = encryptAppV3(secrets.master, name, secureHtml, configJSON, backendFiles);
+    await fsp.writeFile(path.join(resDir, 'app.bin'), appBin);
+    // self 绑定 exe 此刻的字节，故哈希必须在图标注入之后、安装包/.app 组装之前取
+    //（后续步骤不再改写 exe 本体）。事后改写 exe（尤其补做 Authenticode 签名）会让壳拒启动。
+    const selfHash = sha256hex(await fsp.readFile(outFile));
+    const manifest = signIntegrityV3({
+      name,
+      appBin,
+      signingKey: secrets.privateKey,
+      selfHash,
+      built: new Date().toISOString(),
+    });
+    await fsp.writeFile(path.join(resDir, '.integrity'), renderManifestV3(manifest), 'utf8');
   } else {
     for (const legacy of ['app.bin', '.integrity']) {
       const p = path.join(resDir, legacy);
@@ -736,4 +790,4 @@ function stripSourceMapRefs(html) {
   return { html: out, stripped };
 }
 
-module.exports = { build, parsePlatforms, renderConfigJSON };
+module.exports = { build, parsePlatforms, renderConfigJSON, prepareHighSecrets };

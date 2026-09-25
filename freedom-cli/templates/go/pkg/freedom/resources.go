@@ -34,6 +34,11 @@ func secureFatal(err error) error {
 	return &secureFatalError{err: err}
 }
 
+// exitSecureFatal 是 high 模式拒绝运行时的进程退出码（见 freedom.go Run）。
+// 取 70 —— BSD sysexits 的 EX_SOFTWARE："这份产物本身不可信"，与 1（一般失败）、
+// 130（Ctrl+C 收尾）区分开，发布脚本据此认出这一具体事件。
+const exitSecureFatal = 70
+
 // runtimeBackend 描述 config.json 中的后端进程配置（任意语言，经 stdio NDJSON 桥接）。
 type runtimeBackend struct {
 	Command string   `json:"command"`

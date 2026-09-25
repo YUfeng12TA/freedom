@@ -1,24 +1,12 @@
 package freedom
 
 import (
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
-
-// hexHmac 复算 .integrity 清单用的 HMAC-SHA256（与 lib/security.js buildIntegrity 同式：
-// 密钥是容器派生的 macKey，非加密密钥）。
-func hexHmac(appName string, salt, data []byte) string {
-	mac := hmac.New(sha256.New, deriveSecurityKey(appName, salt).mac)
-	mac.Write(data)
-	return hex.EncodeToString(mac.Sum(nil))
-}
 
 // withResourcesDir 把 resources 定位与 exe 标识重定向到测试目录（作用域=本测试）。
 func withResourcesDir(t *testing.T, dir, appIdentity string) {
@@ -161,25 +149,17 @@ func TestBackendExplicitGuardsOverlay(t *testing.T) {
 	}
 }
 
-// high 模式：app.bin（含 .integrity）解密配置与页面；Debug 强制关；exe 改名/篡改拒绝运行。
+// high 模式（FRDM3 / Tier B 专属壳）：app.bin + 签名 .integrity 解密配置与页面；
+// Debug 强制关；exe 改名 / 篡改 / 整体替换一律拒绝运行。
 func TestRuntimeSecureMode(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "resources")
 	writeResources(t, dir, map[string][]byte{"index.html": []byte("<p>plain-must-lose</p>")})
 	withResourcesDir(t, dir, "demo.exe")
 
-	bin, err := encryptForTest("demo.exe", "<html>secure</html>",
+	seal := tierBPublisher(t, "demo.exe")
+	bin, manifest := seal("<html>secure</html>",
 		`{"title":"加密标题","debug":true,"width":640,"height":480}`, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	salt, _, _, _, err := splitAppBin(bin)
-	if err != nil {
-		t.Fatal(err)
-	}
-	writeResources(t, dir, map[string][]byte{
-		"app.bin":    bin,
-		".integrity": []byte(fmt.Sprintf(`{"v":2,"appBin":"%s"}`, hexHmac("demo.exe", salt, bin))),
-	})
+	writeResources(t, dir, map[string][]byte{"app.bin": bin, ".integrity": manifest})
 
 	a := New(Config{Title: "默认"})
 	if err := a.loadRuntimeConfig(); err != nil {
@@ -198,10 +178,11 @@ func TestRuntimeSecureMode(t *testing.T) {
 		t.Fatalf("容器无 backend 时不应建临时目录: %q", a.secureBackendDir)
 	}
 
-	// exe 被重命名（标识变）→ 解密失败 → secureFatalError，resolveHTML 拒绝回退。
+	// exe 被重命名（标识变）→ 清单里的身份与当前 exe 对不上 → secureFatalError，
+	// resolveHTML 拒绝回退占位页。
 	appIdentityOverride = "other.exe"
 	b := New(Config{})
-	err = b.loadRuntimeConfig()
+	err := b.loadRuntimeConfig()
 	var se *secureFatalError
 	if !errors.As(err, &se) {
 		t.Fatalf("renamed exe must yield secureFatalError, got %v", err)
@@ -210,7 +191,7 @@ func TestRuntimeSecureMode(t *testing.T) {
 		t.Fatalf("resolveHTML must refuse fallback in secure failure: %v", err)
 	}
 
-	// 密文被篡改一位 → 同样拒绝运行（HMAC 认证）。
+	// 密文被篡改一位 → 签名清单当场对不上（Encrypt-then-MAC + 清单双重）→ 拒绝运行。
 	appIdentityOverride = "demo.exe"
 	bad := append([]byte(nil), bin...)
 	bad[len(bad)-1] ^= 0x02
@@ -219,12 +200,9 @@ func TestRuntimeSecureMode(t *testing.T) {
 		t.Fatalf("tampered app.bin must yield secureFatalError, got %v", err)
 	}
 
-	// 整体替换攻击：换成另一个合法容器（同应用名、新随机盐）→ 密钥随盐变化，
-	// .integrity 里记录的 appBin 校验值对不上 → 拒绝运行。
-	other, err := encryptForTest("demo.exe", "<html>attacker</html>", `{"title":"劫持"}`, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	// 整体替换攻击：换成另一个合法容器（另一套密钥、新随机盐）但清单仍是原产物的那份
+	// → 清单记的 appBin 哈希与容器对不上 → 拒绝运行。
+	other, _ := seal("<html>attacker</html>", `{"title":"劫持"}`, nil)
 	writeResources(t, dir, map[string][]byte{"app.bin": other})
 	if err := New(Config{}).loadRuntimeConfig(); !errors.As(err, &se) {
 		t.Fatalf("substituted app.bin must fail .integrity, got %v", err)
@@ -236,20 +214,11 @@ func TestRuntimeSecureMode(t *testing.T) {
 func TestSecureBackendMaterialized(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "resources")
 	withResourcesDir(t, dir, "demo")
-	bin, err := encryptForTest("demo", "<html>x</html>",
+	seal := tierBPublisher(t, "demo")
+	bin, manifest := seal("<html>x</html>",
 		`{"backend":{"command":"node","args":["backend/main.mjs"]}}`,
 		map[string]secureFile{"backend/main.mjs": {Data: []byte("console.log(1)"), Mode: 0o755}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	salt, _, _, _, err := splitAppBin(bin)
-	if err != nil {
-		t.Fatal(err)
-	}
-	writeResources(t, dir, map[string][]byte{
-		"app.bin":    bin,
-		".integrity": []byte(fmt.Sprintf(`{"v":2,"appBin":"%s"}`, hexHmac("demo", salt, bin))),
-	})
+	writeResources(t, dir, map[string][]byte{"app.bin": bin, ".integrity": manifest})
 
 	a := New(Config{})
 	if err := a.loadRuntimeConfig(); err != nil {

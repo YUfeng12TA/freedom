@@ -387,7 +387,12 @@ async function fetchShellDirect(plat, url, dest) {
 
 // 本地用 Go 编译指定平台壳（需要 Go + 该平台编译环境）。
 // Windows 产物以 GUI 子系统编译（-H windowsgui），运行时无 cmd 黑窗。
-function buildShell(plat) {
+//
+// opts.dest：产物落点（默认为包内通用壳位置）。high 模式传临时路径，编出的是
+// 本应用专属壳（Tier B），不得覆盖通用壳缓存。
+// opts.inject：{-X 符号路径: 值} 映射，用于把每产物主密钥与信任锚编进壳（见 lib/security.js
+// shellInject）。值必须是命令行安全字符集——这里拼进单个 -ldflags 字符串，含空格即串味。
+function buildShell(plat, opts = {}) {
   plat = requirePlatform(plat);
   // 本机只能编译本机平台（webview_go 依赖系统 WebView 框架，无法交叉编译）。
   // 这道判断刻意前置于 Go 探测：平台不匹配是与工具有关的硬事实，先报工具有关
@@ -407,13 +412,19 @@ function buildShell(plat) {
         '或手动获取 https://go.dev/dl/ ，或改用 freedom shell download 拉取预编译壳。'
     );
   }
-  const dest = localShellPath(plat);
+  const dest = opts.dest ? path.resolve(opts.dest) : localShellPath(plat);
   fs.mkdirSync(path.dirname(dest), { recursive: true });
 
   const buildDir = goTemplateDir();
   // 剥离符号与调试信息（-s -w）+ 抹掉构建期绝对路径（-trimpath）：
   // 通用壳里编译进了 high 模式的密钥派生逻辑，函数名/DWARF 是给逆向者的地图。
   const ldflags = ['-s', '-w'];
+  for (const [sym, val] of Object.entries(opts.inject || {})) {
+    if (!/^[A-Za-z0-9_./:-]+$/.test(val)) {
+      throw new Error(`-X 注入值含非法字符（仅允许字母数字与 _./:-）：${sym}`);
+    }
+    ldflags.push('-X', `${sym}=${val}`);
+  }
   if (plat.startsWith('win')) ldflags.push('-H', 'windowsgui');
   // Linux：新发行版只有 webkit2gtk-4.1，需要 -tags webkit2_41（探测与注入见 lib/webkit.js）。
   const webkit = applyWebkitTags(process.env);

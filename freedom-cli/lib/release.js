@@ -15,19 +15,20 @@ const fsp = fs.promises;
 const path = require('path');
 
 const { loadConfig } = require('./utils');
-const { ensureKeysIgnored } = require('./security');
+const { ensureKeysIgnored, signingKeyPath, productKeyPath, createProductKey } = require('./security');
 
 function manifestPayload(version, url, sha256hex) {
   return Buffer.from(`freedom-update-v1\n${version}\n${url}\n${String(sha256hex).toLowerCase()}`, 'utf8');
 }
 
-function keysPath(dir) {
-  return path.join(dir, '.freedom', 'keys', 'update_ed25519');
-}
-
+// keygen 一次性 mint 发布方的两把资产：
+//   1) ed25519 签名私钥 —— 签自更新清单（latest.json）与产物完整性清单（.integrity v3）；
+//   2) 每产物主密钥 .freedom/keys/<app>.key —— high 模式容器 KEK 的输入（FRDM3）。
+// 两把都落在 .freedom/keys/（ensureKeysIgnored 保证不入库），都属于"丢了就没法再为该应用
+// 重签产物"的发布方资产，故 keygen 的输出把两个路径都念给用户。
 async function keygen(opts = {}) {
   const dir = path.resolve(opts.dir || '.');
-  const privPath = opts.out ? path.resolve(opts.out) : keysPath(dir);
+  const privPath = opts.out ? path.resolve(opts.out) : signingKeyPath(dir);
   if (fs.existsSync(privPath) && !opts.force) {
     throw new Error(`私钥已存在：${privPath}（重新生成请 --force，注意旧公钥签发的客户端将收不到新签名）`);
   }
@@ -37,9 +38,22 @@ async function keygen(opts = {}) {
   await fsp.writeFile(privPath, privateKey.export({ type: 'pkcs8', format: 'pem' }), { mode: 0o600 });
   const rawPub = publicKey.export({ type: 'spki', format: 'der' }).subarray(-32); // SPKI 尾部 32 字节即原始公钥
   const pubB64 = rawPub.toString('base64');
+  // 应用标识必须与 build 同源（cfg.name），否则 high 构建按名字找主密钥会找不到。
+  let appName = path.basename(dir);
+  try {
+    appName = (await loadConfig(dir)).name || appName;
+  } catch { /* 非项目目录：按目录名 mint；在项目内重跑 keygen 即可 */ }
+  const masterPath = productKeyPath(dir, appName);
+  // 已有主密钥就沿用：老项目升级 CLI 后重跑 keygen 只为补这把钥匙，不该被迫 --force 轮换签名私钥。
+  let minted = '沿用';
+  if (!fs.existsSync(masterPath)) {
+    createProductKey(dir, appName);
+    minted = '新生成';
+  }
   const lines = [
     `私钥已生成：${privPath}（发布方资产，勿入库/勿分发）`,
     `公钥（base64）：${pubB64}`,
+    `每产物主密钥（${minted}）：${masterPath}（high 模式产物加密所需，应用名 ${appName}）`,
     '用法：freedom.config.js 中设置',
     `  updater: { manifestURL: 'https://your.host/latest.json', publicKey: '${pubB64}' }`,
     '发版时：freedom manifest 生成签名 latest.json。',
@@ -73,7 +87,7 @@ async function manifest(opts = {}) {
     || (() => { try { return require(path.join(dir, 'package.json')).version; } catch { return null; } })();
   if (!version) throw new Error('版本未定：--version / freedom.config.js 的 version / 项目 package.json 的 version 均缺失');
 
-  const keyPath = opts.key ? path.resolve(opts.key) : keysPath(dir);
+  const keyPath = opts.key ? path.resolve(opts.key) : signingKeyPath(dir);
   if (!fs.existsSync(keyPath)) {
     throw new Error(`私钥不存在：${keyPath}，先运行 freedom keygen`);
   }
