@@ -1,6 +1,6 @@
 {
   "version": 4,
-  "lastUpdated": "2026-09-24",
+  "lastUpdated": "2026-09-25T01:52:28.611Z",
   "decisions": [
     {
       "date": "2026-08-19",
@@ -76,6 +76,26 @@
       "date": "2026-09-24",
       "decision": "freedom mcp serve 做成零依赖 Node stdio MCP server，8 个工具全部 spawn 本 CLI 子进程实现，不直接 require lib 内部函数",
       "rationale": "CLI 是单一权威实现，MCP 面自动跟随 CLI 演进；同时避免在长驻 MCP 进程里持有构建状态导致与 CLI 行为漂移"
+    },
+    {
+      "date": "2026-09-25",
+      "decision": "许可证从 MIT 改为闭源专有：仓库根 LICENSE 与 freedom-cli/LICENSE 换成中文专有许可（源码与产物不授予源码级权利，仅允许合法使用/评估/打包自有应用），npm 字段写 \"license\": \"SEE LICENSE IN LICENSE\"",
+      "rationale": "用户裁定不再开源；框架核心价值在 FRDM2 加密容器与反调试层，MIT 授予的再分发/再许可权与商业保护目标直接冲突",
+      "alternatives": [
+        "保留 MIT 只对 freedom-cli 闭源（壳与框架源码仍被 MIT 覆盖，起不到作用）",
+        "GPL/AGPL 弱 copyleft（仍是开源，且与\"闭源\"诉求不符）"
+      ],
+      "notes": "vendored 的 third_party/webview_go 保持其上游 MIT 许可不动（第三方权利不可被我方改动抹除）"
+    },
+    {
+      "date": "2026-09-25",
+      "decision": "Agent skill/MCP 写入前强制\"安装足迹检测门\"：只有配置文件在 / 注册的 home 或 evidence 路径在 / PATH 命中该 agent 可执行才算已安装；未检出即 not-installed，只输出可粘贴片段，绝不新建目录。逃生通道 --force / --config / --skills-dir",
+      "rationale": "用户明确要求\"必须检测到装了哪些 Agent 才允许安装\"；HOME 与 AppData/Roaming 恒在，\"父目录存在\"不能作为证据，据此写入等于往没装的东西里造配置",
+      "alternatives": [
+        "全部登记项一律写入（污染未安装 agent 的配置树）",
+        "只按 bin 探测（多数 agent 无 CLI 入口，误判为未装）"
+      ],
+      "notes": "已登记 17 家，含新增 Reasonix（%APPDATA%/reasonix/config.toml 的 [[plugins]] 数组表按 name 定位，取证于本机实况）"
     }
   ]
 }

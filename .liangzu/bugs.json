@@ -1,7 +1,7 @@
 {
   "version": 4,
   "subKind": "bugs",
-  "lastUpdated": "2026-09-24T12:53:22.000Z",
+  "lastUpdated": "2026-09-25T01:52:28.610Z",
   "bugRegistry": [
     {
       "id": "B01",
@@ -528,6 +528,50 @@
       "fix": "新增 cli-contract-tests job（三 OS 矩阵跑 node --test tests/*.test.mjs），并在 ubuntu 侧加 Template mirror in sync 步骤：全量 .go 双向比对（缺/多/内容不一致）+ third_party/webview_go 整树 diff + 两份 embed 资源比对；release job 仍只 needs build（新门挂红会失败整条 workflow，但不必阻塞已构建好的资产上线）",
       "regressionTest": "本地以同一段脚本正反两跑：干净态 MIRROR_OK / exit 0；给 templates/go/pkg/freedom/store.go 追加一行后 exit 1 且命中「模板 store.go 与仓库根内容不一致」，随后按备份还原并 cmp 确认字节一致；build.yml 经 yaml.safe_load 解析通过，jobs=build/linux-webkit241/cli-contract-tests/release",
       "fixedAt": "2026-09-24T12:53:22.000Z"
+    },
+    {
+      "id": "B-20260925-041",
+      "sev": "major",
+      "file": "anti_debug_windows.go",
+      "line": 0,
+      "summary": "第七道反调试信号（硬件断点 DR0–DR3）首版实现有三处致命错误：contextAMD64 把 Dr0 放在偏移 56（真实为 0x48），结构体 1116B 大于栈缓冲 1032B 造成越界写，ContextFlags 只置 CONTEXT_AMD64 漏了 CONTEXT_DEBUG_REGISTERS（0x10）导致 GetThreadContext 根本不回填 Dr0–Dr7、读到栈上残值即误报",
+      "status": "fixed",
+      "fix": "按 winnt.h 重排结构体（_ [48]byte + contextFlags + _ [20]byte 覆盖 MxCsr/6 段寄存器/EFlags，dr0..dr7 落在 0x48/0x50/0x58/0x60/0x68/0x70），缓冲扩为 sizeof+16 并 round16 对齐；输入 ContextFlags 改为 CONTEXT_AMD64|CONTEXT_DEBUG_REGISTERS，命中判定要求 dr7 局部置位掩码 0b1111 非零且 dr0–dr3 至少一个非零；顺带删掉循环里把 th32Flags 与 THREAD_GET_CONTEXT 相与的无效过滤（快照本就不带该位，且漏过滤非本进程线程）",
+      "regressionTest": "anti_debug_windows_test.go：TestContextAMD64FieldOffsets 用 unsafe.Offsetof 逐字段钉死 0x30/0x48/0x50/0x58/0x60/0x68/0x70 且 sizeof>=1024；TestRound16Aligns 覆盖 0–15 全部偏移落点；TestHardwareBreakpointNoFalsePositive 断言本机无调试器时不误报。go test -count=1 ./... → ok freedom",
+      "fixedAt": "2026-09-25T01:52:28.610Z"
+    },
+    {
+      "id": "B-20260925-042",
+      "sev": "major",
+      "file": "shutdown_windows.go",
+      "line": 22,
+      "summary": "SetConsoleCtrlHandler 的回调按 Win32 习惯写成 func(uint32) uint32（BOOL），syscall.NewCallback 在包级变量求值时直接 panic：compileCallback: expected function with one uintptr-sized result——壳一启动就崩，整个退出清扫通道失效",
+      "status": "fixed",
+      "fix": "回调签名改为 func(ctrlType uintptr) uintptr，比较时显式转 uint32；保持 syscall.NewCallback 固定在包级求值一次（与 events_windows.go 的 windowSubclassCB 同规，避免热路径重复占用全局句柄表）。此前一次「改成懒创建」的修复是误诊：真正原因不是 init 时序而是签名",
+      "regressionTest": "shutdown_windows_test.go：TestConsoleCtrlCleanupInstallsWithoutPanic 真实调用 installConsoleCtrlCleanup() 断言 consoleCtrlHandler!=0 且回调可重复调用不 panic；反证——把签名改回 uint32 后 go test 立刻复现同一 panic 信息。Windows go test -count=1 ./... 全绿",
+      "fixedAt": "2026-09-25T01:52:28.610Z"
+    },
+    {
+      "id": "B-20260925-043",
+      "sev": "major",
+      "file": "anti_debug_other.go",
+      "line": 1,
+      "summary": "新增 anti_debug_linux.go（PTRACE_TRACEME 自检 + PR_SET_DUMPABLE=0）后，占位文件的 build tag 仍是 !windows，与 Linux 实装同时参与编译 → 构建失败：antiDebugCheck redeclared in this block",
+      "status": "fixed",
+      "fix": "占位 tag 收紧为 //go:build !windows && !linux；配套把 antiDebugCheck 的 Linux 实现独立成文件，macOS 仍走占位（诚实的\"未实现\"优于未验证代码）",
+      "regressionTest": "WSL2 Ubuntu-22.04：go test -count=1 . → ok freedom（此前为编译错误）；GOOS=darwin 编译门（CI 的 darwin-build job）仍通过，证明 !windows && !linux 侧占位可用",
+      "fixedAt": "2026-09-25T01:52:28.610Z"
+    },
+    {
+      "id": "B-20260925-044",
+      "sev": "major",
+      "file": "resources.go",
+      "line": 204,
+      "summary": "high 模式解密的明文后端源码目录只由 Run 的 defer 清扫；SIGINT/SIGTERM（Ctrl+C、kill、systemd stop）绕过 defer，明文长期残留 /tmp（本机取证：两个历史残留 freedom-freedom-desktop-32228-2231459472、freedom-freedom-desktop-32740-2394293224），\"磁盘不留明文\"的承诺存在真空档",
+      "status": "fixed",
+      "fix": "新增 shutdown.go：signal.Notify(os.Interrupt, SIGTERM) → 先执行 secureCleanup（Run 注册的 App.cleanupSecureBackend）再以 130 退场，cleanupOnce 保证只挂一次；Windows 侧 shutdown_windows.go 经 SetConsoleCtrlHandler 接 CTRL_CLOSE_EVENT（约 5s 宽限期）补上控制台窗口关闭路径。SIGKILL/taskkill /F 无法拦截，仍由下次启动 gcStaleSecureBackendDirs 兜底（诚实边界写进注释与 README）",
+      "regressionTest": "shutdown_posix_test.go：TestShutdownCleansTempDirOnRealSignal 用同测试二进制当子进程走完整链路（建 freedom-r4sig-<pid>-<rand> 目录→注册 secureCleanup→挂通道→自选 SIGTERM），父进程断言退出码 130 且目录已消失；反证（负向对照）把信号换成 SIGUSR1 后测试立刻 FAIL(\"helper 未退场\")，证明断言有牙齿。shutdown_test.go 三条槽位级用例 + WSL go test -count=1 . → ok freedom",
+      "fixedAt": "2026-09-25T01:52:28.610Z"
     }
   ]
 }

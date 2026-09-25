@@ -18,9 +18,32 @@
 - CLI 壳下载回退路径：直连 Release 下载失败时自动改走 GitHub Release API 资产端点（可用 `FREEDOM_GITHUB_TOKEN` 提额）。
 - 治理基建：`CONTRIBUTING.md`、`SECURITY.md`、issue 与 PR 模板、本文件。
 - CI 新增 `gofmt clean` 门（文件集取 `git ls-files '*.go'` 排除 `third_party/`），并一次性对齐 21 个存量文件的 gofmt 排版。
+- **退出清扫通道**（`shutdown.go` / `shutdown_windows.go`）：high 模式解密到临时目录的后端源码，
+  过去只由 `Run` 的 `defer` 删除；`Ctrl+C` / `kill` / 会话结束会让进程直接终止、`defer` 不执行，
+  明文源码留在磁盘上等下次启动回收。现在 SIGINT / SIGTERM 与 Windows `CTRL_CLOSE_EVENT`
+  命中即先清扫再以 130 退场（SIGKILL / `taskkill /F` 仍无法拦截，边界如实写在源码注释里）。
+  覆盖范围按子系统有别：POSIX 侧信号恒可用；Windows 侧 `-H windowsgui` 发布的 GUI 壳没有控制台，
+  `CTRL_CLOSE_EVENT` 到不了它（注册失败即静默跳过），其正常关窗仍走 `defer`，强杀/崩溃由下次启动
+  `gcStaleSecureBackendDirs` 回收——该通道实际服务的是控制台子系统构建（裸 `go build`、调试期直接跑 exe）。
+  回归含真实进程链路用例（子进程自投 SIGTERM 后核对退出码与目录消失），非仅注入槽位的逻辑断言。
+- **Linux 反调试**（`anti_debug_linux.go`）：一次性 `PTRACE_TRACEME` 探测（结论缓存，因 TRACEME 不可复位）
+  + `prctl(PR_SET_DUMPABLE, 0)` 收紧 core dump 与 `/proc/<pid>/mem`；macOS 仍是诚实的未实现占位。
+- **Windows 第七道反调试信号**：Toolhelp 枚举本进程线程 + `GetThreadContext` 读 `DR0–DR3`，
+  抓不改 PEB、不建调试端口的硬件/内存断点（调试器 attach 时线程被挂起，正是这一路能读通的状态）。
+- 主密钥生命周期收紧：`withMasterSecret` 把还原出的 password 限定在回调作用域并在返回时抹零；
+  密钥缓存淘汰前先清零被丢弃的 enc/mac 字节（只删引用＝密钥仍可被内存扫描捡到）。
+- Desktop 模板默认 `security: 'high'`（自举产物同样不留明文源码），并修正 high 模式下后端从临时目录
+  运行时 `app.info` 取不到 CLI 版本的问题（改由 `cli-entry.json` 反查包内 package.json）。
+- Agent 集成新增 **安装检测门**：`freedom skill/mcp install` 仅在检出该 agent 的安装足迹
+  （配置文件 / 专属目录 / PATH 可执行）时写入，未检出返回 `not-installed` 并只给可粘贴片段；
+  `--force` 强行写入并告警，`--config` / `--skills-dir` 按指定路径绕开推断。矩阵输出逐行标注「已安装/未检出 + 依据」。
+- 新增 **Reasonix** agent 登记：MCP 写 `AppData/Roaming/reasonix/config.toml` 的 TOML 数组表
+  `[[plugins]]`（按 `name` 定位、保留兄弟插件、幂等替换），技能装 `~/.reasonix/skills`。
 
 ### 变更
 
+- 许可从 MIT 改为**闭源专有许可**（根与 `freedom-cli/LICENSE`，npm `license` 字段改 `SEE LICENSE IN LICENSE`）：
+  允许使用与打包分发自己的应用产物，禁止再分发源码/衍生作品与做竞争工具；`third_party/webview_go` 的 MIT 声明原样保留。
 - FRDM1 → FRDM2 加密容器断代（1.13.2 引入）再次明确：**旧容器不兼容，升级后必须重新打包**，无自动迁移。
 
 ## [1.13.2] - 2026-09-24
