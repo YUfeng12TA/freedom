@@ -100,6 +100,11 @@
   密钥写到 CLI 自己家里并顺手创建一个 `.gitignore`）；现在 `--dir` 生效且帮助文本同步。
 - 单实例回归 `TestRequestSingleInstanceLock` 在 `-count>1` 下必然假红（互斥体不可重入，进程活着锁就活着）：
   改为二次进入时 `t.Skip` 并写明原因，`go test -count=2 ./...` 从此可用。
+- CI 的 `cli-contract-tests` 三平台**常红**（`tests/npm-pack-contents.test.mjs`，台账 B-20260925-061）：
+  该用例硬性要求 `npm pack` 清单里有三只随包壳，而壳二进制由 `.gitignore` 排除入库、只存在于发布机，
+  CI 检出树里天然为空 ⇒ 每次 push 必红一条与改动无关的失败，真回归被埋在固定噪音里。
+  现改为分层断言（静态骨架恒查；壳只在磁盘上有该文件时要求进包；另锁 `files` 白名单含 `shell`），
+  「发布机三只壳必须齐全」移交 `prepublishOnly` 代际预检。取证：真实树与无壳等价检出树各跑一遍，均 `85/85`。
 
 ## [1.13.3] - 2026-09-25
 

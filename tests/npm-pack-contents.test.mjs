@@ -91,16 +91,21 @@ test('从 bin/freedom.js 出发的静态 require 图：目标存在且全部随�
   assert.ok(seen.size >= 5, `require 图异常小：${seen.size} 个文件`);
 });
 
-test('发布骨架：三平台壳 + README + tutorial 在包内', () => {
+test('发布骨架：README + tutorial + 框架镜像在包内，磁盘上的随包壳必须进包', () => {
   const packed = packedFiles();
-  const must = [
-    'shell/win-x64/freedom-shell.exe',
-    'shell/linux-x64/freedom-shell',
-    'shell/darwin-arm64/freedom-shell',
-    'README.md',
-    'package.json',
-  ];
+  const pkg = JSON.parse(fs.readFileSync(path.join(cliDir, 'package.json'), 'utf8'));
+  const must = ['README.md', 'package.json'];
   assert.deepEqual(findMissing(must, packed), [], '发布骨架缺项');
   assert.ok(packed.some((f) => f.startsWith('tutorial/')), 'tutorial 目录未随包');
   assert.ok(packed.some((f) => f.startsWith('templates/go/')), 'templates/go 框架镜像未随包');
+  // 壳二进制不入库（.gitignore 排除、由 CI 产），所以 CI 检出树里 shell/ 天然为空——本断言
+  // 只在"本机确实有壳"时要求它进包（防 files 白名单漏收导致装包用户无壳可用）。
+  // 「发布机必须三只齐全」不在这里管：由 package.json 的 prepublishOnly 代际预检把关，缺壳即拒发布。
+  const onDisk = [
+    'shell/win-x64/freedom-shell.exe',
+    'shell/linux-x64/freedom-shell',
+    'shell/darwin-arm64/freedom-shell',
+  ].filter((rel) => fs.existsSync(path.join(cliDir, rel.split('/').join(path.sep))));
+  assert.deepEqual(findMissing(onDisk, packed), [], '有随包壳未进包');
+  assert.ok(pkg.files.includes('shell'), 'files 白名单丢了 shell 目录');
 });

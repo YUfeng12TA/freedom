@@ -132,3 +132,12 @@
 - 交付物: `.liangzu/decisions.json`
 - 验收：`node --test tests/shell-generation-preflight.test.mjs` 全绿 + 对真实树跑 `npm run prepublishOnly` 报出落后的两只壳且退出码非零 + 全量 `node --test tests/*.test.mjs` 无回归
 - 状态：done — E-R7-15
+
+### 13 发布链收口
+- 判据：远端标签 commit 与本地 HEAD 一致；三只随包壳经内容判据确认同代且预检空问题单；CI 常红定位到根因并修，两种环境测试均绿
+- 交付物: `tests/npm-pack-contents.test.mjs`
+- 交付物: `.liangzu/bugs.json`
+- 交付物: `CHANGELOG.md`
+- 交付物: `.liangzu/plans/r7-source-protection/progress.md`
+- 验收：`checkBundledShells() → problems: []` + 无壳等价检出树 `node --test tests/*.test.mjs → 85/85` + 真实树同命令 `85/85`
+- 状态：done — E-R7-16

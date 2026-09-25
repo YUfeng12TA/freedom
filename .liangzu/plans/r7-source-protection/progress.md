@@ -16,6 +16,7 @@
 | 10 全闸门 + 提交 | `go test ./...`、`node --test tests/*.test.mjs`、镜像门、`gofmt -l` 全绿，工作树干净 | done — E-R7-7（甲）+ E-R7-9（乙复跑同口径） |
 | 11 旧代际文案点名安装通道 | 重编的 win-x64 壳二进制内含 `npm i -D @yufengtadian/freedom-cli@preview`（UTF-8 读法命中）+ 镜像哈希一致 + `go test -count=1 .` 与 `node --test tests/*.test.mjs` 全绿 | done — E-R7-14 |
 | 12 发布代际预检门 | `node --test tests/shell-generation-preflight.test.mjs` 全绿 + 对真实树跑 `npm run prepublishOnly` 报出落后的两只壳且退出码非零 + 全量 `node --test tests/*.test.mjs` 无回归 | done — E-R7-15 |
+| 13 发布链收口 | 随包三只壳同代（内容判据：均含今日新文案且预检 `problems: []`）+ CI 常红根因定位并修 + 台账登记 | done — E-R7-16 | `node --test tests/shell-generation-preflight.test.mjs` 全绿 + 对真实树跑 `npm run prepublishOnly` 报出落后的两只壳且退出码非零 + 全量 `node --test tests/*.test.mjs` 无回归 | done — E-R7-15 |
 
 ## 证据明细
 
@@ -63,6 +64,15 @@
   缺壳即红、`_test.go`/非 Go 文件更新不惊动门（反向控制，防门退化成噪音源）、钩子接线锁。
   真实树取证：`npm run prepublishOnly` 报出 darwin-arm64（09-24 11:40Z）与 linux-x64（04:14Z）落后于
   `security.go`（09:36Z），win-x64 重编后（09:41Z）转绿 ⇒ E-R7-13 的人工比对从此由机器把关。
+- **E-R7-16 发布链收口**：用户推 `main` + `v1.14.0-preview`（远端标签核实 `4f36b877…` = 本地 HEAD，含门与新文案）。
+  tag run #19：`build` 三平台 + `release` 全 success，`cli-contract-tests` 三平台 failure。
+  ① **壳回填**：`freedom shell download darwin-arm64`（直连一次成功）、`linux-x64`（直连 `fetch failed` ⇒ 自动回退
+  Release API 资产端点成功）；同代判据用**内容**不用 mtime——三只壳（含重编的 win-x64）均含今日 09:36Z 才引入的
+  `@yufengtadian/freedom-cli@preview` 串且不含旧串，`checkBundledShells() → problems: []`。
+  ② **CI 常红根因**（台账 B-20260925-061，major）：`tests/npm-pack-contents.test.mjs` 的「发布骨架」要求 `npm pack`
+  清单含三只随包壳，而壳由 `.gitignore` 排除入库、只存在于发布机 ⇒ **自该用例引入起每次 push 必红一条无关失败**。
+  复现方式：`git clone file://` 到 `build-tmp/ci-repro`（得到与 CI 等价的无壳检出树）跑同一命令 ⇒ `fail 1`；
+  修成分层断言后同环境 `85/85`，真实树（三只壳在位，断言仍有效）也 `85/85`。
 - **E-R7-12 乙-变异取证**（四处各红后还原转绿）：
   M-a `renderKeySlotGo` 里把 `add` 的逆写成加 → 跨语言锁红（证明该断言真在验证 Go 渲染而非只跑 JS）；
   M-b 去掉 `len==32 && !isZero` 校验 → 「短 / 长 / 全零」三条红；

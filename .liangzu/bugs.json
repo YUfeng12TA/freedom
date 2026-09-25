@@ -748,6 +748,17 @@
       "fix": "主密钥不再有 -X 通道：CLI 每次 high 构建现场生成只属于本产物的装配码 keyslot_<tag>.go（lib/security.js keySlotForBuild：切成 3~7 片、切法/顺序/变换 xor|add|sub|rol|posxor 与参数全随机），经 go build -overlay（lib/shell.js stageOverlayFiles）虚拟进 pkg/freedom 编译，临时目录编完即删（严禁落进 templates/go）。壳侧钩子 keySlotAssemble 默认 nil ⇒ Tier A 结构上仍解不开；productMaster() 只认非 nil、长度 32、非全零的结果，否则退出码 70。删除 SHELL_VAR_MASTER / productMasterCipher / securityMasterCipher 与 JS 侧 maskPositional 的 v3 用途，-X 只剩信任锚公钥。契约见 frdm3-contract.md §7。",
       "regressionTest": "tests/security-frdm3.test.mjs 四条：每构建唯一且装配回原主密钥（8 seed，含\"无 ≥32 字节连续字面量\"）/ 变换族 ≥3（防伪多态）/ **真编译并 go run 生成码**断言输出等于主密钥（跨语言锁，本机无 Go 即 skip）/ -X 注入面收缩（符号表只剩 securityAnchorPubHex，productMasterCipher 与 SHELL_VAR_MASTER 必须不存在）；security_frdm3_test.go TestFRDM3ProductMasterHookContract 锁坏值必拒（nil/短/长/全零）。变异四处各红：Go 渲染把 add 的逆写成加 → 跨语言锁红；去掉长度与全零校验 → 短/长/全零三条红；去掉 nil 守卫 → panic 红。真机：build-tmp/hi2 重编专属壳 → REALCASE_PASS + TIER_A_REFUSE_OK；r7-scan.cjs 扫产物 exe，主密钥明文 hex、明文 32B、旧掩码 ASCII、旧掩码 32B 全部不存在（同时用最小 Go 复现证明 -X 注入值本会以 ASCII 落进数据段）。",
       "fixedAt": "2026-09-25"
+    },
+    {
+      "id": "B-20260925-061",
+      "sev": "major",
+      "file": "tests/npm-pack-contents.test.mjs",
+      "line": 94,
+      "summary": "CI cli-contract-tests 三平台常红：该用例硬性要求 npm pack 清单里有三只随包壳，而壳二进制由 .gitignore 排除入库、只存在于发布机——CI 检出树里天然为空，于是每次 push 都红（自该用例引入起），把真回归埋在固定噪音里",
+      "status": "fixed",
+      "fix": "改为分层断言：README/package.json/tutorial/templates 恒查；壳只在\"本机磁盘上有\"时要求进包（防 files 白名单漏收）；另锁 files 白名单含 shell 目录。「发布机三只壳必须齐全」移交 package.json 的 prepublishOnly 代际预检（checkBundledShells 对缺壳即报问题、拒发布）",
+      "regressionTest": "node --test tests/*.test.mjs 在两种环境各跑一遍：真实树（三只壳在位，onDisk 非空 ⇒ 断言有效）85/85；无壳等价检出树（git clone file:// 到 build-tmp/ci-repro）85/85 —— 修前该树报「发布骨架缺项」",
+      "fixedAt": "2026-09-25"
     }
   ]
 }
