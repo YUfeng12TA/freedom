@@ -660,6 +660,17 @@
       "fix": "collectTree 对 .integrity 取真实 stat.size（仍不展开内容），并把该分支移到 stat 计算之后；真机复查：重新构建后输出「.integrity (92 B) [校验值]」",
       "regressionTest": "tests/verify-tree-size.test.mjs：临时目录写 92 B 清单 + 3388 B app.bin，断言树里出现「(92 B)」、不含「0 B)」、清单内容不外泄、同目录文件仍按 KB 口径显示。单文件 1 pass，全量 63 pass / 0 fail",
       "fixedAt": "2026-09-25T03:55:06.389Z"
+    },
+    {
+      "id": "B-20260925-053",
+      "sev": "major",
+      "file": "freedom-cli/package.json",
+      "line": 0,
+      "summary": "npm files 白名单靠人肉维护：新增 lib/toolchain.js 这类模块若未入库，仓库内测试全绿而装包用户执行 freedom toolchain 当场 ENOENT（发布期缺陷，回归网完全失明）",
+      "status": "fixed",
+      "fix": "tests/npm-pack-contents.test.mjs 三条用例：磁盘 bin/+lib/ 全部模块必须在 npm pack 清单内；从 bin/freedom.js 静态解析 require 图，目标须存在且随包；三平台壳+README+tutorial+templates 骨架齐",
+      "regressionTest": "tests/npm-pack-contents.test.mjs（红证：临时摘掉 files 里的 lib → 两条用例当场红，恢复后字节全等；绿证：node --test tests/*.test.mjs → tests 66 / fail 0 / exit 0）",
+      "fixedAt": "2026-09-25"
     }
   ]
 }
