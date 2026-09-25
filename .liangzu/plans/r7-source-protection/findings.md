@@ -90,3 +90,17 @@
   ⇒ task_plan 的承诺行必须让 `交付物:` 独占一行、行尾只留路径，多项写多行；`验收:` 另起一行。
 - Bash `grep --include=*_test.go`（不带引号的 glob）被 pretool-gate 拦成 exit 2 ⇒ 一律改用 `git grep ... -- "*_test.go"`。
 - `grep -n "pat" -A 12 -- file` 里的 `-A` 被 bash 吞成参数（`unable to resolve revision`）⇒ 用 `grep -n "pat" -A 12 file`，别加 `--`。
+
+
+## 发布链与预检门（2026-09-25 追加）
+
+- **npm 拒发 prerelease 是特性不是坑**：`npm publish` 对 `x.y.z-tag` 形态的版本要求显式 `--tag`（否则会把 prerelease 写进 `latest`）。
+  所以本预览代的发布命令只能是 `npm publish --tag preview`——与 `lib/shell.js releaseTag()` 的 `v`+包版本耦合一起看，
+  代际三元组是锁死的：npm `1.14.0-preview` ↔ 标签 `v1.14.0-preview` ↔ dist-tag `preview`。
+- **预检门的判据选型**：先想过"壳二进制里扫当前版本号"（内容判据、跨克隆可靠），实测否掉——`templates/go` 内的
+  FRDM2 拒跑文案本身含 `1.14.0-preview`，任何含该文案的壳都会假绿，判据不自证。退回 mtime：壳是 download/build
+  生成的产物，其时间是"最后一次同步"的证据；盲区（全新克隆必然最新）写进函数注释与 decisions.json。
+  门的噪音控制由测试反向锁：只统计编进壳的源（`*.go`/`go.mod`/`go.sum`，排除 `_test.go` 与非 Go 文件），
+  否则改一行测试或 README 就会要求重编三壳。
+- **门要能被绕过才知道门在哪**：`npm publish --ignore-scripts` 是 npm 内置逃生口，故不另设 `FREEDOM_SKIP_*` 环境变量（铁律 17：无第二个配置不建配置项）。
+- **随包壳体积基线**：win-x64 通用壳 7,510,528 B（`-s -w -trimpath -H windowsgui`），文案加长不影响量级。

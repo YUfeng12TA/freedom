@@ -33,7 +33,8 @@
     "README.md"
   ],
   "scripts": {
-    "postinstall": "node postinstall.js"
+    "postinstall": "node postinstall.js",
+    "prepublishOnly": "node -e \"require('./lib/shell').preflightBundledShells()\""
   },
   "engines": {
     "node": ">=18"

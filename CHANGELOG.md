@@ -85,6 +85,14 @@
   `FRDM3_GO_VECTOR=1 go test -run TestFRDM3EmitGoSignedVector` 出 Go 侧签名向量）+
   Go `security_frdm3_test.go`（Tier B 端到端：注入 → 签名 → 验签 → 解密，含锚不符、签名不符、改名、
   旧代际容器四类拒绝）。改任一侧参数都会撞同一份夹具。
+- **发布代际预检门**（`freedom-cli/lib/shell.js` 的 `preflightBundledShells`，挂在 `package.json` 的
+  `prepublishOnly`）：任一随包壳（`shell/<plat>`）的生成时间早于 `templates/go` 内最新框架源即**拒绝
+  `npm publish`**。动因是 1.14.0-preview 定版时人工比对发现三只壳全部早于当时 `security.go` 的改动——
+  照发就是「新 CLI + 旧壳」混合代 tarball，新 CLI 产的 FRDM3 产物会被旧壳直接拒跑。判据只取编进壳的源
+  （`*.go`/`go.mod`/`go.sum`，排除 `_test.go` 与非 Go 文件），由 `tests/shell-generation-preflight.test.mjs` 锁。
+- 旧代际（FRDM1/FRDM2）拒跑文案点名**安装通道**（`security.go` 与 `lib/verify.js`）：预览代不占 npm
+  `latest`，只说「请用 1.14.0-preview 及以上重新 build」会让用户按老习惯装到无 R7 的 1.13.3，
+  故补 `npm i -D @yufengtadian/freedom-cli@preview`。
 
 ### 修复
 

@@ -1,7 +1,7 @@
 {
   "version": 4,
   "subKind": "bugs",
-  "lastUpdated": "2026-09-25T09:10:00.000Z",
+  "lastUpdated": "2026-09-25",
   "bugRegistry": [
     {
       "id": "B01",
@@ -327,7 +327,7 @@
       "line": 0,
       "summary": "Linux/WSLg 二级窗口 SIGSEGV：webview 在 runtime.LockOSThread goroutine 中创建并 run，违反 GTK 主线程模型（webview_run 内 Pango/GTK critical 后崩溃）",
       "status": "known",
-      "fix": "未修复——需把二级窗口创建 marshal 回 GTK 主循环（每窗口独立 main loop 不成立）；M2 线程模型为 Windows 设计，Linux 侧属架构级改造，另行专项波次",
+      "fix": "【2026-09-25 用户裁定「全」】 归入 Linux 能力面专项（任务 P-C），不与 R7 安全波次混编；未修复——需把二级窗口创建 marshal 回 GTK 主循环（每窗口独立 main loop 不成立）；M2 线程模型为 Windows 设计，Linux 侧属架构级改造，另行专项波次",
       "regressionTest": "无（运行时崩溃，单测层面 M2 多窗口逻辑在 Linux 全绿）",
       "fixedAt": ""
     },

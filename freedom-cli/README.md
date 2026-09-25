@@ -141,6 +141,8 @@ mac 用户解压 `.app.zip` 即得 `.app`，拖入 `/Applications` 即可直接�
 
 **预编译壳的来源与 CI**：`webview_go` 依赖各系统自带 WebView 框架，**无法交叉编译**，三平台壳必须在对应平台本机编译。自 v1.13.0 起由仓库 `.github/workflows/build.yml` 统一承担：推送 `vX.Y.Z` tag → 三平台 runner 编译通用壳 → `release` job 自动创建 GitHub Release 并上传资产 `freedom-shell-<plat>`，供 `freedom shell download` 按「`v<包版本>` tag + 同名资产」拉取（Intel Mac 已不支持，见 `nativePlatform()` 的明确报错）。发版顺序：先推 GitHub tag、等 Release 资产就绪，再 `npm publish` 同版本——保证 shell 下载默认源始终可用（紧急时可设 `FREEDOM_SHELL_TAG` 指向既有 tag）。
 
+**发布代际预检（`npm publish` 前置门）**：`package.json` 的 `prepublishOnly` 会跑 `lib/shell.js` 的 `preflightBundledShells()`——任一随包壳（`shell/<plat>`）的生成时间早于 `templates/go` 内最新框架源即**拒绝发布**。防的是「改了框架源、忘了重新同步壳」这类混合代 tarball：新 CLI 产的 FRDM3 产物会被旧壳直接拒跑（`npm publish --ignore-scripts` 可绕过，仅限确知安全时）。
+
 **平台名写法与下载回退**：`--platform` 与 `freedom shell download/build` 接受别名与架构后缀——
 `win` / `windows` / `mac` / `macos` / `osx` / `ubuntu` / `linux-x86_64` / `mac-arm64` 等统一归一到
 `win-x64` / `darwin-arm64` / `linux-x64`；无法支持的组合（`win-x86`、`darwin-x64`、`plan9`）直接报「未知平台」并给出可选值，不做猜测。

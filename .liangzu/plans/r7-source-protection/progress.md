@@ -14,6 +14,8 @@
 | 8 真机四用例 | ①正常启动 ②改造 resources ③换公钥文件 ④Tier A 壳加载 Tier B 产物；②③④ 必须 exit 70 | done — E-R7-5（甲代）+ **E-R7-11（乙代重跑）**：`freedom build` 现编专属壳（overlay 注入生成码）产物自检 10 项通过 → `REALCASE_PASS`（②③ exit 70）、`TIER_A_REFUSE_OK`（④ exit 70）；另 `r7-scan.cjs` 静态面取证 A/B/C 三条断言成立 |
 | 9 台账 | `bugs.json` 登记并关闭本波缺口，open critical/major = 0 | done — E-R7-6 + E-R7-12：058、059 已 fixed（甲）；060（掩码公开固定式 + 提取法跨产物复用）已 fixed（乙），脚本回读 `open critical/major = []` |
 | 10 全闸门 + 提交 | `go test ./...`、`node --test tests/*.test.mjs`、镜像门、`gofmt -l` 全绿，工作树干净 | done — E-R7-7（甲）+ E-R7-9（乙复跑同口径） |
+| 11 旧代际文案点名安装通道 | 重编的 win-x64 壳二进制内含 `npm i -D @yufengtadian/freedom-cli@preview`（UTF-8 读法命中）+ 镜像哈希一致 + `go test -count=1 .` 与 `node --test tests/*.test.mjs` 全绿 | done — E-R7-14 |
+| 12 发布代际预检门 | `node --test tests/shell-generation-preflight.test.mjs` 全绿 + 对真实树跑 `npm run prepublishOnly` 报出落后的两只壳且退出码非零 + 全量 `node --test tests/*.test.mjs` 无回归 | done — E-R7-15 |
 
 ## 证据明细
 
@@ -48,6 +50,19 @@
   静态扫描（`r7-scan.cjs`）：产物 exe 中 主密钥 ASCII / 主密钥 32B / 甲代掩码 ASCII / 甲代掩码 32B **四项全不存在**，
   同时用一个最小 Go 复现证明 `-X` 注入的同一串掩码值**确实**以 ASCII 落在二进制数据段（⇒ 前四项为"没了"而非"扫不到"），
   并验证同 master 两次构建的装配码文件名与内容互不相同（实测分片：`subx1,rolx15,rolx2,subx14`）。
+- **E-R7-14 旧代际文案点名安装通道**（用户裁定「全」之 A）：`security.go:408-410`（+ 逐字节镜像）与
+  `freedom-cli/lib/verify.js:196` 的 FRDM2 拒跑文案补 `npm i -D @yufengtadian/freedom-cli@preview`。
+  动因是预览代不占 npm `latest`——只说"用 1.14.0-preview 及以上重新 build"，用户按老习惯 `npm i` 拿到的是
+  无 R7 的 1.13.3，等于把断代风险提示成升级指令。取证：改后重编 win-x64 通用壳，按 UTF-8 读二进制命中新串 ×1；
+  镜像哈希 `a2954d0ed16de8fd` 两侧一致；`go test -count=1 . → ok freedom 18.563s`、`node --test tests/*.test.mjs → 85/85`。
+- **E-R7-15 发布代际预检门**（用户裁定「全」之 C）：`lib/shell.js` 新增 `checkBundledShells`（纯函数，可注入
+  `goTemplateDir`/`shellsDir`/`platforms` 供测试）与 `preflightBundledShells`（写 stderr + `exit 1`，不抛堆栈），
+  经 `package.json` 的 `prepublishOnly` 挂在 `npm publish` 前。判据取 mtime 而**不**取"壳内是否含当前版本号"：
+  `templates/go` 里的拒跑文案本身就带版本号，旧文案壳会假绿（见 findings）。回归网
+  `tests/shell-generation-preflight.test.mjs` 五条：同代放行、源新即逐只点名（含触发的源文件名）、
+  缺壳即红、`_test.go`/非 Go 文件更新不惊动门（反向控制，防门退化成噪音源）、钩子接线锁。
+  真实树取证：`npm run prepublishOnly` 报出 darwin-arm64（09-24 11:40Z）与 linux-x64（04:14Z）落后于
+  `security.go`（09:36Z），win-x64 重编后（09:41Z）转绿 ⇒ E-R7-13 的人工比对从此由机器把关。
 - **E-R7-12 乙-变异取证**（四处各红后还原转绿）：
   M-a `renderKeySlotGo` 里把 `add` 的逆写成加 → 跨语言锁红（证明该断言真在验证 Go 渲染而非只跑 JS）；
   M-b 去掉 `len==32 && !isZero` 校验 → 「短 / 长 / 全零」三条红；
@@ -57,6 +72,7 @@
 ## 裁定与待裁
 
 - 无新增用户裁定。§5 待裁一项：**是否把"核心逻辑服务端化"列入路线**（这是达成"逆向就是拿不到源码"语义的唯一手段，属架构取舍）。建议本波不动。
+  **→ 追加（同日）：上表的"无新增用户裁定"已被推翻——用户对交付报告里三条 `待裁:` 回复「全」，逐条落为步骤 11/12 + 台账裁定，见 E-R7-14、E-R7-15。**
 - handoff（上下文预算，非可做而未做）：步骤 5/6/7 的乙部分 = 任务 #49。落点已想清楚，写在 `gate.md` §3 乙：
   CLI 在一次性构建目录生成 `keyslot_*.go`（每构建随机分片数/顺序/组合式），
   `security.go` 侧以 `var keySlotAssemble func() []byte`（默认 nil ⇒ Tier A 恒解不开）承接，

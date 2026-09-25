@@ -406,7 +406,9 @@ func loadSecureResources() (*securePayload, bool, error) {
 	}
 	if len(data) >= len(securityMagic) && string(data[:len(securityMagic)]) == securityMagic {
 		return nil, true, errors.New("app.bin 是 FRDM2 旧代际容器，本壳不再接受（其主密钥与清单密钥都在公开源里，可被任意伪造）：" +
-			"请用 freedom-cli 1.14.0-preview 及以上重新 freedom build（high 模式需本机 Go 工具链编译本应用专属壳）")
+			"请用 freedom-cli 1.14.0-preview 及以上重新 freedom build" +
+			"（预览代走 preview 通道：npm i -D @yufengtadian/freedom-cli@preview；" +
+			"high 模式需本机 Go 工具链编译本应用专属壳）")
 	}
 	p, err := loadSecureResourcesV3(dir, name, data)
 	if err != nil {

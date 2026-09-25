@@ -1,6 +1,6 @@
 {
   "version": 4,
-  "lastUpdated": "2026-09-25T03:55:43.588Z",
+  "lastUpdated": "2026-09-25",
   "decisions": [
     {
       "date": "2026-08-19",
@@ -128,6 +128,36 @@
         "删掉编译期 Version 只信容器（丢失裸 go build 自研应用与 ldflags 注入的既有能力）"
       ],
       "notes": "capabilities 透传采用「编译期显式配置优先于外部文件」：防止 resources/ 被替换即悄悄提权"
+    },
+    {
+      "date": "2026-09-25",
+      "decision": "1.14.0 出走预览代：npm 版本 1.14.0-preview + GitHub 标签 v1.14.0-preview + npm dist-tag preview，registry latest 留在 1.13.3；旧本地标签 v1.14.0（不含 R7 甲/乙）删除",
+      "rationale": "标签名不是自由变量——lib/shell.js 的 releaseTag() 恒等于 v+包版本，而 npm 只收 semver，故用户口述的 v1.14-preview 无法与包版本对齐（会让 freedom shell download 默认 404）。R7 是断代波次，先出预览代收风险",
+      "alternatives": [
+        "发 1.14.0 正式版并直接占 latest（FRDM3 断代 + high 需 Go 工具链，影响面未验证就让全员自动升级）",
+        "发 1.14.1（版本号语义不表达代际）"
+      ],
+      "notes": "build.yml 的 release job 加 prerelease: contains(github.ref_name,'-')，预览代不占 GitHub 的 Latest 位；tools/freedomres/main.go parseVersion 在 - 处截断，版本戳解析为 1.14.0.0，CI 不因预览名构建失败"
+    },
+    {
+      "date": "2026-09-25",
+      "decision": "发布代际预检入 prepublishOnly：随包壳（shell/<plat>）生成时间早于 templates/go 内最新框架源即拒发布；判据只取编进壳的源（*.go/go.mod/go.sum，排除 _test.go 与非 Go 文件）",
+      "rationale": "1.14.0-preview 定版时人工比对才发现三只随包壳全部早于 security.go 改动——若当场 npm publish 会发出「新 CLI + 旧壳」混合代 tarball，新 CLI 产的 FRDM3 产物被旧壳直接拒跑。同类缺陷靠人不漏眼不可持续",
+      "alternatives": [
+        "把壳二进制入库或以 CI hash 对账（网络受限环境不可达，且壳体积进 git）",
+        "比 mtime 之外再检壳内版本号（templates 里 security.go 的错误文案本身含版本号，旧文案壳会假绿，判据不稳）"
+      ],
+      "notes": "盲区如实记录：全新克隆里壳刚下载必然最新，此门只证明「同步之后没再改过源」；紧急发布可 npm publish --ignore-scripts 绕过（内置能力，不另设开关）"
+    },
+    {
+      "date": "2026-09-25",
+      "decision": "B-20260924-022（Linux 二级窗口 SIGSEGV）裁定推到 Linux 能力面专项（任务 P-C），不与 R7 安全波次混编",
+      "rationale": "根因是 M2 多窗口线程模型为 Windows 设计，Linux 需把次级窗口 marshal 回 GTK 主循环——架构级改造；R7 的验收链（Tier A/B 拒跑、内存生命周期、装配码）全部不依赖它，混编会让两个波次的回归网互相污染",
+      "alternatives": [
+        "R7 内顺带修（范围外扩，且改线程模型需 Linux 真机反复验，本机只有 WSLg）",
+        "标记为 won't fix（二级窗口在 Linux 是已发布能力，不能装不存在）"
+      ],
+      "notes": "台账 status 保持 known；发布不受阻（R7 交付时闸门全绿）"
     }
   ]
 }

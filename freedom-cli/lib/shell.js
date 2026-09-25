@@ -176,6 +176,78 @@ function hasShell(plat) {
   return fs.existsSync(localShellPath(plat));
 }
 
+// ---- 发布代际预检（npm publish 前置门）----
+// 随包壳是三平台预编译二进制、不随 git 入库；改了框架源却忘了重新同步壳，就会发出
+// 「新 CLI + 旧壳」的混合代 tarball——FRDM3 断代下新 CLI 产的产物被旧壳直接拒跑
+// （1.14.0-preview 发布前实测：三只壳的生成时间全部早于当时 security.go 的改动时间）。
+// 判据取 mtime：壳文件的时间是「最后一次 download/build 同步」的证据，框架源比它新即可疑。
+// 盲区如实说明：全新克隆里壳刚下载完必然最新，此时本门只证明「同步之后没再改过源」。
+const PUBLISH_PLATFORMS = ['win-x64', 'darwin-arm64', 'linux-x64'];
+
+// newestSourceMtime 遍历将编进壳的框架源（*.go / go.mod / go.sum，排除 _test.go）。
+function newestSourceMtime(dir) {
+  let newest = 0;
+  let file = null;
+  const stack = [dir];
+  while (stack.length) {
+    const d = stack.pop();
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) {
+        stack.push(p);
+        continue;
+      }
+      if (!/\.(go|mod|sum)$/.test(e.name) || e.name.endsWith('_test.go')) continue;
+      const t = fs.statSync(p).mtimeMs;
+      if (t > newest) {
+        newest = t;
+        file = p;
+      }
+    }
+  }
+  return { newest, file };
+}
+
+function checkBundledShells(opts = {}) {
+  const plats = opts.platforms || PUBLISH_PLATFORMS;
+  const tplDir = opts.goTemplateDir || goTemplateDir();
+  const shellsDir = opts.shellsDir || shellDir();
+  const iso = (ms) => new Date(ms).toISOString();
+  const rel = (p, base) => path.relative(base, p).split(path.sep).join('/');
+  const problems = [];
+  const src = newestSourceMtime(tplDir);
+  if (!src.newest) problems.push(`预检无法判定代际：${tplDir} 下找不到 *.go 框架源`);
+  for (const plat of plats) {
+    const exe = path.join(shellsDir, plat, SHELL_EXE_NAME[plat] || 'freedom-shell');
+    if (!fs.existsSync(exe)) {
+      problems.push(`${plat}: 缺随包壳 ${rel(exe, shellsDir)}`);
+      continue;
+    }
+    const t = fs.statSync(exe).mtimeMs;
+    if (src.newest && t < src.newest) {
+      problems.push(`${plat}: 壳生成于 ${iso(t)}，早于框架源最新改动 ${iso(src.newest)}（${rel(src.file, tplDir)}）`);
+    }
+  }
+  return problems;
+}
+
+function preflightBundledShells(opts = {}) {
+  const problems = checkBundledShells(opts);
+  if (!problems.length) {
+    process.stdout.write('[freedom] 发布预检通过：随包壳不早于框架源\n');
+    return;
+  }
+  // 走 stderr + 退出码而非抛错：本函数由 npm 的 prepublishOnly 直接调用，抛错会带一串
+  // 对用户无用的堆栈，把「该重编哪几只壳」这句关键信息挤到屏幕外。
+  process.stderr.write(
+    'freedom: 随包壳与框架源代际不一致，禁止发布（发出即成混合代 tarball，新 CLI 的产物会被旧壳拒跑）：\n  - ' +
+      problems.join('\n  - ') +
+      '\n处置：先推 tag 让 CI 产壳，再 freedom shell download <plat> 覆盖 shell/<plat>' +
+      '（本机有工具链时 freedom shell build <plat>），然后重跑发布。\n'
+  );
+  process.exit(1);
+}
+
 // ---- 代理支持（修复：本地无 linux/mac 壳时自动下载必失败的历史根因） ----
 // 背景：GitHub Releases 资产重定向到 S3，Node 内置 fetch 直连在受限网络下
 // body 下载会卡死（可拿到 200 响应头但 arrayBuffer 永远不结束）。本机若跑
@@ -496,4 +568,6 @@ module.exports = {
   detectShellFormat,
   expectedFormat,
   validateLocalShell,
+  checkBundledShells,
+  preflightBundledShells,
 };

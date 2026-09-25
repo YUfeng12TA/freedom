@@ -108,5 +108,27 @@
 - 未改的两处及理由：`.liangzu/**` 与 `tests/*.mjs` 注释里的 `1.14.0` 是**当时的台账/取证记录**，
   历史记录不回改；`verify.js`/`security.go` 的"旧代际请重新 build"文案只改了版本号，
   未改成 `npm i @…@preview` 这种安装指引（安装通道属发布策略，等用户定预览推广口径再动）。
+  **→ 该"等用户定"已于同日被用户裁定「全」推翻，见下方步骤 11。**
 - 下一步（用户执行）：`git push origin main v1.14.0-preview` → 等 `build.yml` 产三壳 →
   我用资产 API 回填 `freedom-cli/shell/<plat>` + `npm pack` 冒烟 → 用户 `cd freedom-cli && FREEDOM_AUTO_UPDATE=0 npm publish --tag preview --otp=…`。
+
+## 追加步骤（2026-09-25 用户裁定「全」：三条待裁全部当场落地）
+
+### 11 旧代际文案点名安装通道
+- 判据：壳侧与 CLI 侧的 FRDM2 拒跑文案都点名 preview 安装通道，且 `templates/go` 镜像与根目录逐字节相同
+- 交付物: `security.go`
+- 交付物: `freedom-cli/templates/go/pkg/freedom/security.go`
+- 交付物: `freedom-cli/lib/verify.js`
+- 交付物: `CHANGELOG.md`
+- 验收：重编的 win-x64 壳二进制内含 `npm i -D @yufengtadian/freedom-cli@preview`（UTF-8 读法命中）+ 镜像哈希一致 + `go test -count=1 .` 与 `node --test tests/*.test.mjs` 全绿
+- 状态：done — E-R7-14
+
+### 12 发布代际预检门
+- 判据：`npm publish` 前置门在「随包壳早于框架源」时拒发布并逐只点名，判据只取编进壳的源；有回归测试锁正反两向
+- 交付物: `freedom-cli/lib/shell.js`
+- 交付物: `freedom-cli/package.json`
+- 交付物: `tests/shell-generation-preflight.test.mjs`
+- 交付物: `freedom-cli/README.md`
+- 交付物: `.liangzu/decisions.json`
+- 验收：`node --test tests/shell-generation-preflight.test.mjs` 全绿 + 对真实树跑 `npm run prepublishOnly` 报出落后的两只壳且退出码非零 + 全量 `node --test tests/*.test.mjs` 无回归
+- 状态：done — E-R7-15
