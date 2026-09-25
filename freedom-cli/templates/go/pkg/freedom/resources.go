@@ -111,6 +111,8 @@ func (a *App) loadRuntimeConfig() error {
 				return secureFatal(fmt.Errorf("后端源码解密落地失败：%w", err))
 			}
 			a.secureBackendDir = bdir
+			// 落盘完成即擦：载荷缓存会活到进程结束，后端源码没有理由跟着一起常驻。
+			scrubSecureBackendPayload(p)
 		}
 		a.applyRuntimeConfig(&rc)
 		// high 模式强制关闭 WebView 开发者工具，防止前端源码经 devtools 直接查看。

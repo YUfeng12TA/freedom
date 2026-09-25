@@ -1,7 +1,7 @@
 {
   "version": 4,
   "subKind": "bugs",
-  "lastUpdated": "2026-09-25T12:00:00.000Z",
+  "lastUpdated": "2026-09-25T08:30:00.000Z",
   "bugRegistry": [
     {
       "id": "B01",
@@ -715,6 +715,38 @@
       "fixedAt": "2026-09-25",
       "fix": "改为申请失败即 t.Skip（附\"锁不可重入\"原因注释），使 -count>1 的重跑有意义",
       "regressionTest": "go test -count=2 ./... → ok freedom 26.918s（修前该测试在第二轮 t.Fatal）；gofmt -l 无输出"
+    },
+    {
+      "id": "B-20260925-058",
+      "sev": "major",
+      "file": "security.go",
+      "line": 643,
+      "summary": "FRDM3 派生容器密钥（KEK+认证钥）写入全局 secureKeyCache 且随进程终生驻留（上限 8 条、单进程实际只用 1~2 条 ⇒ 抹零淘汰分支永不触发）。容器盐与 IV 都在 app.bin 头部，故对手只需一次进程内存取样拿到这 64B，即获得对该产物磁盘文件的永久离线解密能力——不再需要每产物主密钥、不再需要跑 PBKDF2。这条把\"内存 dump 只能看当下明文\"升级成\"可离线全量还原源码\"。",
+      "status": "fixed",
+      "fixedAt": "2026-09-25",
+      "fix": "deriveSecurityKeyV3 不再写缓存（secureKeyCache 退回只服务 FRDM2 黄金向量测试，顺手删掉随之变死的 cacheSecureKey）；新增 secureKey.clear()，decryptAppBinV3 用 defer k.clear() 把派生钥作用域收进一次解密。",
+      "regressionTest": "security_lifecycle_test.go TestSecurePayloadDecryptedOnceAndKeyNotResident 断言加载后 len(secureKeyCache)==0（按整表为空断言而非按键名前缀，防换名静默绕过）；变异验证：在 deriveSecurityKeyV3 里恢复写缓存 → 该用例红（条目=1）。"
+    },
+    {
+      "id": "B-20260925-059",
+      "sev": "major",
+      "file": "resources.go",
+      "line": 98,
+      "summary": "high 产物在一份进程里被解密两次：loadRuntimeConfig(resources.go:98) 与 loadRuntimeHTML(resources.go:274) 各调一次 loadSecureResources ⇒ 堆内同时存在两份 html/config/backend 全量明文；且 decryptAppBinV3 的解密缓冲 plain 与物化后的 secureFile.Data 从不擦除（对照 security.go 已对 master 做 defer clearBytes——纪律存在但没铺全）。",
+      "status": "fixed",
+      "fixedAt": "2026-09-25",
+      "fix": "按 (应用标识, 容器字节哈希) 记忆化解密结果（securePayloadCache）：验签链每次照跑，缓存只跳过派生+解密；plain 用后 defer clearBytes；后端源文写入私有临时目录后 scrubSecureBackendPayload 抹掉内存副本。顺带把启动路径的 PBKDF2 从 2 次降到 1 次（实测约 −180ms）。",
+      "regressionTest": "TestSecurePayloadDecryptedOnceAndKeyNotResident（解密次数==1）+ TestSecurePayloadCacheKeyBindsContainer（两份合法容器各得各明文、重复读取不再解密）+ TestSecureBackendScrubbedAfterMaterialize（物化后缓存里后端条目为 0）；三处变异各自红：去掉 storeSecurePayload → 次数=2；缓存键退化为仅应用标识 → 容器乙拿到甲的明文；注释掉 scrub → 缓存仍持 1 份后端明文。"
+    },
+    {
+      "id": "B-20260925-060",
+      "sev": "major",
+      "file": "security.go",
+      "line": 621,
+      "summary": "主密钥掩码是公开固定式：Go productMaster() 与 npm 包内 lib/security.js maskPositional() 同式（out[i]^=(i*7+0x5A)）⇒ 静态逆向出任一 Tier B 专属壳者能还原其每产物主密钥；更关键的是这套提取法**跨产物复用**（写一个通用脱壳器，之后所有 Freedom 产物一次到位）。",
+      "status": "open",
+      "fix": "",
+      "regressionTest": "在办：R7-乙「每产物多态密钥装配」（.liangzu/plans/r7-source-protection/gate.md §3 乙，任务 #49）——CLI 在一次性构建目录里代码生成每产物唯一的装配片段，使\"公开源里的算法\"不再等于万能钥匙，破一个产物的成果对下一个产物无效。诚实上限：只抬自动化与复用成本，不挡愿意逐产物人工逆向的人。"
     }
   ]
 }

@@ -3,6 +3,26 @@
 本项目的所有显著变更都记录在此文件。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [未发布]
+
+### 安全
+
+- **high 产物的内存明文生命周期收口**（`security.go` / `resources.go`，R7 方向闸门
+  `.liangzu/plans/r7-source-protection/gate.md` 甲）：
+  - **派生容器密钥不再跨调用驻留**——FRDM3 的 KEK 与认证钥此前写进全局 `secureKeyCache` 且随进程终生保留，
+    而容器盐与 IV 都在 `app.bin` 头部，所以对手只要做一次进程内存取样，就获得"对该产物磁盘文件永久离线解密"的能力
+    （不再需要主密钥、不再需要跑 PBKDF2）。现在派生只发生在一次解密的作用域内，`defer k.clear()` 用后即擦；
+  - **一份产物只解密一次**——配置与页面两处加载原本各触发一次"读盘 + PBKDF2 + 全量解密"，堆内同时存在两份明文副本；
+    现按 `(应用标识, 容器字节哈希)` 记忆化解密结果，**验签链每次照跑**（清单读盘、ed25519 复核、exe 自摘要一律不省），
+    缓存只负责跳过昂贵的派生与解密。启动路径上 PBKDF2（实测约 180ms）由 2 次降为 1 次；
+  - **后端源文物化后即擦**——`backend/**` 明文字节写进私有临时目录后，其在内存里的那份副本由
+    `scrubSecureBackendPayload` 抹零；解密缓冲本身同样 `defer clearBytes(plain)`。
+  诚实边界不变：前端页面与配置的明文必须交给 WebView，能读进程内存者始终看得到那一份（`SECURITY.md` 与
+  `freedom-cli/README.md` 已按此改写口径）。回归网：`security_lifecycle_test.go` 三条断言 + 四处变异验证
+  （去掉缓存写入 / 恢复 KEK 缓存 / 不擦后端 / 缓存键退化为仅应用标识，逐条红）；
+  R6 真机三用例与 Tier A 拒跑在重编专属壳后复跑通过。
+  > 注：本条改的是运行期代码，**发布前必须用它重编三平台壳**并同步 `freedom-cli/shell/<plat>`（Tier B 专属壳另由用户本机现编，不受影响）。
+
 ## [1.14.0] - 2026-09-25
 
 ### 破坏性变更

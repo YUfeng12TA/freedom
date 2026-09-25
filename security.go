@@ -186,6 +186,13 @@ type secureKey struct {
 	mac []byte // HMAC-SHA256 密钥（KEK 经固定标签拉伸）
 }
 
+// clear 抹零派生钥。用完即擦是 FRDM3 运行期的硬要求：丢弃引用不等于销毁，
+// Go 的分配器会把那片内存直接给下一个对象用（见 clearBytes）。
+func (k secureKey) clear() {
+	clearBytes(k.enc)
+	clearBytes(k.mac)
+}
+
 // deriveSecurityKey 派生容器密钥。盐 = 固定前缀 + 应用标识 + 容器内构建期随机盐，
 // 故不同应用密钥不同、同一应用每次 build 密钥也不同，仅拿到主密钥常量不足以复现。
 //
@@ -224,6 +231,9 @@ var (
 	secureKeyMu    sync.Mutex
 	secureKeyCache = make(map[string]secureKey)
 )
+
+// secureDecryptCount 统计容器实际解密次数（单测缝：断言"同一容器一份产物只解一次"）。
+var secureDecryptCount int
 
 // splitAppBin 校验并拆分容器头（FRDM2 代际）。magic 不符（含旧版 FRDM1）时给出可操作错误，
 // 绝不回退明文路径。
@@ -376,8 +386,8 @@ func (a *App) antiDebugEnabled() bool {
 // （台账 B-20260925-054），任何持 CLI 者都能造出「合法」的 v2 容器与清单。若本壳仍认 v2，
 // 攻击者把 app.bin 换成 v2 即完成降级，签名清单这道门等于白建。
 //
-// 每次调用都重新读盘并复算认证标签（不缓存载荷）：容器被替换后立即失效，
-// 启动路径上真正昂贵的 PBKDF2 已由派生缓存记忆化。
+// 每次调用都重读清单并跑完整验签链（容器被替换、锚被换掉、exe 被补缀都当场失效），
+// 只有"派生 + 解密"这一步的结果按容器哈希缓存——一份产物在进程内只解一次。
 func loadSecureResources() (*securePayload, bool, error) {
 	dir, err := resourcesDir()
 	if err != nil {
@@ -410,6 +420,41 @@ func loadSecureResources() (*securePayload, bool, error) {
 //
 // 顺序刻意是「先验签、后解密」：清单是这份产物经发布方私钥背书的外部绑定，
 // 先解密等于把 PBKDF2 与 AES 花在未经背书的内容上（且验签失败时解出的明文已进过内存）。
+//
+// 配置与页面两处加载共用一份载荷（securePayloadCache），于是堆内只有一份明文、
+// 启动路径上只跑一次 PBKDF2（实测 ~180ms）。缓存只跳过"派生 + 解密"这一段：
+// 验签链每次照跑，因为它的结论还依赖清单与 exe 字节，不是容器哈希能代表的。
+var (
+	securePayloadMu    sync.Mutex
+	securePayloadCache = map[string]*securePayload{}
+	// securePayloadCacheMax 是防御性上限：一个进程正常只服务一份产物。
+	securePayloadCacheMax = 4
+)
+
+// securePayloadKey 绑的是"这次解密用掉的秘密输入"：应用标识（进派生）+ 容器字节哈希
+// （盐与密文都在里面）。两份都通过校验、内容却不同的容器绝不能共用一份载荷。
+// 信任锚不进键是有意为之：锚变了由前面那道验签拒绝，轮不到缓存说话——验签链一次都不省。
+func securePayloadKey(identity string, container []byte) string {
+	sum := sha256.Sum256(container)
+	return appIdentityName(identity) + "\x00" + hex.EncodeToString(sum[:])
+}
+
+func lookupSecurePayload(key string) (*securePayload, bool) {
+	securePayloadMu.Lock()
+	defer securePayloadMu.Unlock()
+	p, ok := securePayloadCache[key]
+	return p, ok
+}
+
+func storeSecurePayload(key string, p *securePayload) {
+	securePayloadMu.Lock()
+	defer securePayloadMu.Unlock()
+	if len(securePayloadCache) >= securePayloadCacheMax {
+		securePayloadCache = map[string]*securePayload{}
+	}
+	securePayloadCache[key] = p
+}
+
 func loadSecureResourcesV3(dir, name string, data []byte) (*securePayload, error) {
 	master, ok := productMaster()
 	if !ok {
@@ -434,7 +479,17 @@ func loadSecureResourcesV3(dir, name string, data []byte) (*securePayload, error
 	if err := verifySelfHash(claims.Self); err != nil {
 		return nil, err
 	}
-	return decryptAppBinV3(master, name, data)
+	// 到这里本次请求的验签结论已经成立，缓存才有资格接手（跳过派生+解密）。
+	key := securePayloadKey(name, data)
+	if p, ok := lookupSecurePayload(key); ok {
+		return p, nil
+	}
+	p, err := decryptAppBinV3(master, name, data)
+	if err != nil {
+		return nil, err
+	}
+	storeSecurePayload(key, p)
+	return p, nil
 }
 
 // verifySelfHash 用清单里发布方签下的 exe 哈希自校验。
@@ -526,6 +581,18 @@ func materializeSecureBackend(files map[string]secureFile) (string, error) {
 	return dir, nil
 }
 
+// scrubSecureBackendPayload 在源文已写入私有临时目录后，抹掉缓存载荷里的后端源码明文字节。
+// 后端源码是产物里价值最高的那份，也是这里唯一"擦得掉"的那份——HTML/Config 是 Go string
+// 且必须交给 webview，明文常驻是逻辑必然（强度分层见 freedom-cli/README「加固上限说明」）。
+// 置 nil 之后没有别的读者（唯一的消费者就是上面的物化），运行期真正执行的是临时目录里那份。
+func scrubSecureBackendPayload(p *securePayload) {
+	for rel, f := range p.Backend {
+		clearBytes(f.Data)
+		p.Backend[rel] = secureFile{Mode: f.Mode}
+	}
+	p.Backend = nil
+}
+
 // ==================== FRDM3：每产物主密钥 + ed25519 签名清单 ====================
 //
 // 契约权威：.liangzu/plans/r6-defense-max/frdm3-contract.md；与 freedom-cli lib/security.js
@@ -585,39 +652,21 @@ func productMaster() ([]byte, bool) {
 	return out, true
 }
 
-// cacheSecureKey 写入派生密钥缓存（调用方持锁）。上限淘汰前先抹零：
-// 丢弃引用不等于销毁密钥，Go 的分配器会复用那片内存。
-func cacheSecureKey(id string, k secureKey) {
-	if len(secureKeyCache) >= secureKeyCacheMax {
-		for _, stale := range secureKeyCache {
-			clearBytes(stale.enc)
-			clearBytes(stale.mac)
-		}
-		secureKeyCache = make(map[string]secureKey)
-	}
-	secureKeyCache[id] = k
-}
-
-// deriveSecurityKeyV3 用每产物主密钥派生容器密钥。缓存键必须带上主密钥指纹：
-// 同一 (应用, 容器盐) 在不同主密钥下是两个不同的密钥，漏了指纹就会串号。
+// deriveSecurityKeyV3 用每产物主密钥派生容器密钥（PBKDF2 60 万次，实测约 180ms）。
+//
+// 刻意**不写入 secureKeyCache**（那张表只服务 FRDM2 黄金向量测试）：派生钥一旦跨调用驻留，
+// 攻击者只要有一次内存取样拿到 KEK，就能对磁盘上的 app.bin 离线全量解密——salt/iv 都在容器头，
+// 除 KEK 外没有第二个秘密输入。驻留把"内存 dump 只能看当下明文"升级成"永久解密能力"，
+// 这不是省一次 PBKDF2 的价钱。一份产物只解密一次（见 securePayloadCache），不缓存也不重复付费。
 func deriveSecurityKeyV3(appName string, salt, master []byte) (secureKey, error) {
 	if len(master) != securityProductKeyLen {
 		return secureKey{}, fmt.Errorf("每产物主密钥需 %d 字节，实际 %d", securityProductKeyLen, len(master))
-	}
-	sum := sha256.Sum256(master)
-	id := "v3:" + hex.EncodeToString(sum[:8]) + ":" + appIdentityName(appName) + "\x00" + string(salt)
-	secureKeyMu.Lock()
-	defer secureKeyMu.Unlock()
-	if k, ok := secureKeyCache[id]; ok {
-		return k, nil
 	}
 	base := append([]byte(securityDeriveSalt3+":"+appIdentityName(appName)), salt...)
 	kek := pbkdf2HMACSHA256(master, base, securityPbkdf2Iter, securityKeyLen)
 	m := hmac.New(sha256.New, kek)
 	m.Write([]byte(securityMacLabel3))
-	k := secureKey{enc: kek, mac: m.Sum(nil)}
-	cacheSecureKey(id, k)
-	return k, nil
+	return secureKey{enc: kek, mac: m.Sum(nil)}, nil
 }
 
 // splitAppBinAt 校验指定代际的 magic 并拆分容器头。magic 不符（含旧代）时给出
@@ -666,6 +715,8 @@ func decryptAppBinV3(master []byte, appName string, data []byte) (*securePayload
 	if err != nil {
 		return nil, err
 	}
+	defer k.clear() // 派生钥只活在这一次解密的作用域里：见 deriveSecurityKeyV3 的驻留论证
+	secureDecryptCount++
 	if !hmac.Equal(tag, appBinTag(k, data, ct)) {
 		return nil, errors.New("app.bin 认证失败（exe 被重命名、资源被篡改，或缺每产物主密钥）")
 	}
@@ -675,6 +726,7 @@ func decryptAppBinV3(master []byte, appName string, data []byte) (*securePayload
 	}
 	plain := make([]byte, len(ct))
 	cipher.NewCTR(block, iv).XORKeyStream(plain, ct)
+	defer clearBytes(plain) // 明文缓冲（base64 形态的后端源码也在里面）不留给下一次堆扫描
 	var p securePayload
 	if err := json.Unmarshal(plain, &p); err != nil {
 		return nil, fmt.Errorf("app.bin 载荷无效：%w", err)
