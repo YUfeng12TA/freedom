@@ -68,5 +68,8 @@
 
 ## 环境/工具坑（本轮新增）
 
+- **Stop 钩子按"到行尾"抓 `交付物:` 的路径**：表格里写 `交付物: X<br>验收: Y` 会把 `<br>` 连同验收句
+  当成路径去核对，于是**已存在且非空的 X 也报"缺失或空占位"**（本轮 gate.md 就这样被误拦一次）。
+  ⇒ task_plan 的承诺行必须让 `交付物:` 独占一行、行尾只留路径，多项写多行；`验收:` 另起一行。
 - Bash `grep --include=*_test.go`（不带引号的 glob）被 pretool-gate 拦成 exit 2 ⇒ 一律改用 `git grep ... -- "*_test.go"`。
 - `grep -n "pat" -A 12 -- file` 里的 `-A` 被 bash 吞成参数（`unable to resolve revision`）⇒ 用 `grep -n "pat" -A 12 file`，别加 `--`。
