@@ -123,14 +123,19 @@ test('toolchain: PATH 指纹变化或 --refresh 即失效', () => {
 test('toolchain: install 默认只打印计划，--apply 才执行且传播失败', () => {
   const sb = sandbox({}); // 全缺失
   const exec = fakeExec({ winget: { status: 0, stdout: '' } });
-  const plan = tc.install('rust', { env: sb.env(), exec, home: sb.home });
+  const linux = Object.assign(sb.env(), { FREEDOM_HOST_PLATFORM: 'linux' });
+  const plan = tc.install('rust', { env: linux, exec, home: sb.home });
   assert.equal(plan.dryRun, true);
   assert.equal(exec.calls.length, 0, '未授权不得执行任何安装命令');
   assert.equal(plan.rows[0].action, 'plan');
-  assert.match(plan.rows[0].commands[0], /rustup/i);
+  assert.match(plan.rows[0].commands[0], /^sudo apt-get install -y rustc$/, '按宿主平台选安装路径');
+  const win = tc.install('rust', { env: Object.assign({}, linux, { FREEDOM_HOST_PLATFORM: 'win32' }), exec, home: sb.home });
+  assert.match(win.rows[0].commands[0], /winget install -e --id Rustlang\.Rustup/);
 
   const bad = fakeExec({ winget: { status: 3, stdout: '' } });
-  const applied = tc.install('rust', { env: sb.env(), exec: bad, home: sb.home, apply: true });
+  const applied = tc.install('rust', {
+    env: Object.assign({}, linux, { FREEDOM_HOST_PLATFORM: 'win32' }), exec: bad, home: sb.home, apply: true,
+  });
   assert.equal(applied.dryRun, false);
   assert.equal(applied.rows[0].action, 'applied');
   assert.equal(applied.rows[0].ran[0].status, 3, '退出码必须原样带回，否则就是又一处「成功却报错/失败却报成功」');
