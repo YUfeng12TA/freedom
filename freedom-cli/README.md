@@ -1,6 +1,6 @@
 # freedom-cli
 
-Freedom 桌面壳打包工具：把你的 Web 前端一键打包成跨平台桌面应用（v1.13.2）。
+Freedom 桌面壳打包工具：把你的 Web 前端一键打包成跨平台桌面应用（v1.13.3）。
 
 基于自研 Freedom WebView 壳层（对标 Wails / Tauri）：前端完全自由、后端可任意语言、渲染复用系统 WebView（Windows WebView2 / macOS WKWebView / Linux WebKitGTK），产物为单个可执行文件 + resources 目录，前端页面内存加载，不占本地端口。
 
@@ -12,6 +12,7 @@ Freedom 桌面壳打包工具：把你的 Web 前端一键打包成跨平台桌�
 - **销毁竞态收口**：修复 webview2 在 `Destroy` 中泵出滞留 dispatch 回调导致的随机崩溃（0xc0000005，多窗口 / 快速关闭场景），回收后所有排队回调按拆除旗标自我作废，并配套红绿回归测试；
 - **v1.13.1**：文档同步（本 README 更新至 v1.13.x 真实现状、壳 CI 章节勘误），无功能与壳二进制变更。
 - **v1.13.2 反逆向加固（FRDM2）**：容器升 FRDM2（构建期随机盐 + PBKDF2 60 万次 + enc/mac 域分离 + MAC 覆盖容器头部），主密钥改为掩码表运行时组装（壳二进制 `strings` 直取不到），`backend/**` 后端源码一并入容器并在运行期解密到私有临时目录（退出即删、崩溃残留按 PID 回收），前端产物 `sourceMappingURL` 构建期抹除，anti-debug 扩到六道信号，本地与 CI 壳统一 `-trimpath -s -w`。**旧版本 CLI 产出的 FRDM1 资源包在新壳上明确拒绝运行（不静默降级），须重新 `freedom build`**；三平台壳随本版本经 CI 重编发布。
+- **v1.13.3 内置工具链扩展 + 加固与健壮性收口**：新增 `freedom toolchain status|install|optimize|clear`，探测 / 安装 / 优化 C++（MSVC / MinGW / clang）、Rust、Go 三条工具链并按平台映射到 winget / brew / apt；探测结论缓存（绑 PATH 指纹 + 7 天 TTL）**只缓存成功**，即「检测到配置好就不再实探」，刚装好的工具当场可识别，`install` 默认只打印命令、`--apply` 才执行。同轮收口：Windows 第七道反调试信号（`DR0–DR3` 硬件断点）、SIGTERM / `CTRL_CLOSE_EVENT` 退出清扫通道（临时目录不再等下次启动回收）、`.integrity` 缺失即拒绝启动、Linux WebKitGTK 4.1 构建路径自动注入 `-tags=webkit2_41`、`shell build` / `shell download` 成功却非零退出的退出码修正、产物自检不再把 `.integrity` 大小说成 0 B。许可改为闭源专有许可（详见根 `LICENSE`）。
 
 **v1.12.17 安全模式全面落地**：三档安全模式 `freedom security <none|basic|high>` 正式随包分发——high 档把 resources 加密为 `app.bin`（AES-256-CTR + HMAC-SHA256 + PBKDF2 密钥派生），配合 `.integrity` 完整性校验、anti-debug 与进程隐藏，磁盘无明文、篡改即拒运行；三平台预编译壳经 CI 重建分发，补齐 v1.12.16 仅重编 win-x64 壳的缺口。
 

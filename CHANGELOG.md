@@ -3,7 +3,7 @@
 本项目的所有显著变更都记录在此文件。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [未发布]
+## [1.13.3] - 2026-09-25
 
 ### 新增
 
@@ -140,7 +140,8 @@
 - M7 项目 CLI `cmd/freedom`：`new`（embed/go/node/python/rust 五模板）与 `build` 包装。
 - M8 生命周期审查收口与三平台产物矩阵（`dist/` + SHA256SUMS）。
 
-[未发布]: https://github.com/YUfeng12TA/freedom/compare/v1.13.2...HEAD
+[未发布]: https://github.com/YUfeng12TA/freedom/compare/v1.13.3...HEAD
+[1.13.3]: https://github.com/YUfeng12TA/freedom/compare/v1.13.2...v1.13.3
 [1.13.2]: https://github.com/YUfeng12TA/freedom/compare/v1.13.1...v1.13.2
 [1.13.1]: https://github.com/YUfeng12TA/freedom/compare/v1.13.0...v1.13.1
 [1.13.0]: https://github.com/YUfeng12TA/freedom/compare/v1.12.17...v1.13.0

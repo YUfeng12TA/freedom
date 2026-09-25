@@ -74,7 +74,7 @@ body:
       label: 版本
       description: >-
         CLI 用 `freedom version`（同时检测最新）；框架用 `node -p "require('./freedom-cli/package.json').version"` + `git rev-parse --short HEAD`。
-      placeholder: freedom-cli 1.13.2 / 框架 main@8033da4
+      placeholder: freedom-cli 1.13.3 / 框架 main@8033da4
     validations:
       required: true
 
