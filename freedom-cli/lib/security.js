@@ -348,7 +348,11 @@ function loadProductKey(dir, appName) {
     raw = fs.readFileSync(p, 'utf8');
   } catch (e) {
     if (e.code === 'ENOENT') {
-      throw new Error(`缺每产物主密钥：${p}（先运行 freedom keygen 生成，切勿丢失或入库）`);
+      // 文案必须自带可执行命令：keygen 的落点与应用名都由 cwd/目录名推导，只说
+      // 「先运行 freedom keygen」会让用户在家目录跑出另一把名字不同的钥匙（B-20260925-063）。
+      throw new Error(
+        `缺每产物主密钥：${p}\n请在该项目目录执行 freedom keygen --dir ${path.resolve(dir)}（该资产丢了就没法再为此应用重签产物，切勿丢失或入库）`
+      );
     }
     throw e;
   }

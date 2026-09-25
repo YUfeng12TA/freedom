@@ -158,3 +158,11 @@
 - 交付物: .liangzu/decisions.json
 - 验收：`node --test tests/desktop-secrets.test.mjs → 4/4` + 全量 `node --test tests/*.test.mjs → 91/91` + 真机 `node bin/freedom.js desktop --no-launch` 产出 Tier B 产物且自检十项通过
 - 状态：done — E-R7-18
+
+### 16 Desktop 降为零工具链档（推翻 15 的修法）
+- 判据：把 Go 摘出 PATH 后 `freedom desktop --rebuild` 仍完整产出并通过产物自检；Desktop 流程不再需要任何发布方资产；"不得要求工具链"有回归锁
+- 交付物: freedom-cli/templates/desktop/freedom.config.js
+- 交付物: tests/desktop-zero-toolchain.test.mjs
+- 交付物: .liangzu/decisions.json
+- 验收：`GO_ABSENT_OK` + 产物自检通过 + `node --test tests/desktop-zero-toolchain.test.mjs → 5/5` + 全量 `92/92`
+- 状态：done — E-R7-19

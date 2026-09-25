@@ -172,6 +172,20 @@
       "chose": "B",
       "rationale": "C 与「闭源自举也要经得起逆向」的设计目的冲突；A 把一次可自动化的动作留成用户手工步骤，且 TUI 里那条错误没人读得完。B 的代价是 CLI 在用户主目录写秘密文件，故必须打印落点 + 勿入库，并锁死不轮换既有签名资产；资产位置沿用同一套约定，未开第二套。",
       "consequence": "已发布的 1.14.0-preview 不含本修复：老用户首次跑 Desktop 仍会撞错误；本机两把资产已由真机验证补齐，后续 desktop 命令直接复用。新用户随下一个发布版本获得该修复。"
+    },
+    {
+      "id": "D-20260925-desktop-tierA",
+      "date": "2026-09-25",
+      "title": "【取代 D-20260925-desktop-autokey】Freedom Desktop 降为零工具链档（Tier A + basic），不再用 high",
+      "context": "上一条裁定用「CLI 替 Desktop mint 密钥」保住了 high，但用户当轮推翻其前提：本框架的立项意义就是不给前端界面（尤其 Windows 用户）塞 C++/Go 工具链，自带界面第一个要求 Go 属于自我否定。",
+      "options": [
+        "A 保住 high：CLI 自动 mint 密钥 + 缺 Go 时自动装工具链（freedom toolchain install go）",
+        "B Desktop 降 basic：通用预编译壳 + 明文资源，零工具链、零密钥、开箱即用",
+        "C 折中：CI 预编译 Desktop 专属壳随包分发（保留容器且零工具链）"
+      ],
+      "chose": "B",
+      "rationale": "high 对 Desktop 的保护收益实测为 0：app.bin 装的就是 templates/desktop/{app.html,backend/desktop.mjs,freedom.config.js}，而 package.json 的 files 白名单含 templates ⇒ 同一份 npm tarball 里就有明文原件，加密只是把已公开的东西再包一层。C 要成立必须把每产物主密钥放进公开分发物，正是 R6-D2 刚清除的 FRDM2 根因（全域一把、公开源可解），故否。B 的代价是 Desktop 自身资源明文可读，而它保护的对象本来就在明文里。A 保留工具链依赖，与用户裁定冲突。",
+      "consequence": "Desktop 打包路径不再调用 Go，也不再生成任何发布方资产；B-063 引入的 ensureSecrets 与其测试删除（方向性推翻，非回滚 bug）。用户项目仍可选 high（那是发布方自己的取舍，且其源码不在 npm 包里）——high 需要 Go 这条限制在文档里保持不变。本机 ~/.freedom/desktop 下由上一条裁定 mint 出的两把资产成为孤儿，未删（秘密文件删除不可逆，交用户处置）。"
     }
   ]
 }

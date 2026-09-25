@@ -7,14 +7,20 @@
 
 ### 修复
 
-- **`freedom` → 选「Freedom Desktop」首次运行必失败**（`freedom-cli/lib/desktop.js`，台账 B-20260925-063）：
-  Desktop 模板声明 `security: 'high'`（Tier B），构建前需两把发布方资产，但首次打包流程从不生成它们，只抛
-  「缺每产物主密钥：`~/.freedom/desktop/.freedom/keys/freedom-desktop.key`（先运行 freedom keygen 生成）」。
-  而 `freedom keygen` 按 **cwd** 落盘、按**目录名**取应用名——照提示在家目录跑只会 mint 出
-  `~/.freedom/keys/Administrator.key`，与那个路径永不相交 ⇒ 用户按指引操作也无法打开自举界面（1.14.0-preview 真机复现）。
-  现由 `ensure()` 在 `build()` 前就地补齐两把密钥（打印路径 + 勿入库提示；缺主密钥时只补主密钥，
-  绝不轮换既有签名私钥），并加 4 条锁（`tests/desktop-secrets.test.mjs`）。真机复验：`freedom desktop --no-launch`
-  完整产出 Tier B 产物，产物自检十项通过（含 ed25519 验签与 exe 自绑定）。
+- **Freedom Desktop 不再要求 Go 工具链**（`templates/desktop/freedom.config.js`，台账 B-20260925-064，
+  裁定 `D-20260925-desktop-tierA`）：自举界面此前声明 `security: 'high'`（Tier B），首次打包要求本机有
+  Go 工具链并在用户主目录生成两把发布方资产——违背本框架「不给前端塞工具链」的立项初衷。而 high 对它的
+  实测收益为 0：`app.bin` 装的就是 `templates/desktop/*`，同一份 npm 包里以明文随 `files` 白名单分发。
+  现降为 `basic`（Tier A 通用壳 + 明文资源，壳直接取包内 `shell/<plat>`），零工具链、零密钥、开箱即用。
+  真机取证：把 Go 摘出 PATH 后 `freedom desktop --rebuild` 仍完整产出并通过产物自检。不变量由
+  `tests/desktop-zero-toolchain.test.mjs`（5 条）锁住，含"降级依据是否仍成立"的前提锁。
+  注：用户项目仍可选 `high`（其源码不在 npm 包里，且是否引入 Go 是发布方自己的取舍），该限制不变。
+- **`freedom` → 选「Freedom Desktop」首次运行必失败**（台账 B-20260925-063）：`security: 'high'` 需两把
+  发布方资产，首次打包从不生成，只抛「缺每产物主密钥：…（先运行 freedom keygen 生成）」；而 `freedom keygen`
+  按 **cwd** 落盘、按**目录名**取应用名——照提示在家目录跑只会得到另一把名字不同的资产，那个路径永远补不上
+  ⇒ 用户按指引操作也打不开自举界面（1.14.0-preview 真机复现）。上一轮曾以「CLI 就地 mint 两把密钥」收口，
+  该方向已被上条推翻并删除；**保留的修复是文案**：`loadProductKey` 与 `prepareHighSecrets` 的缺资产错误现在
+  直接给出可执行命令 `freedom keygen --dir <该项目目录>`，用户项目用 high 时不再需要猜落点。
 - 发布代际预检对**已安装副本**集体假红（`lib/shell.js`，台账 B-20260925-062）：npm 解包把 tarball 内所有文件
   mtime 写成同一秒，零容差比对下三只壳全被判"早于框架源"。改 `STALE_TOLERANCE_MS = 5 分钟`（真实代际差是
   小时～天级），同时锁"壳早于源 10 分钟仍逐只点名"，容差没把门掏空。

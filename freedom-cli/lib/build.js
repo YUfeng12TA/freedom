@@ -218,7 +218,7 @@ async function prepareHighSecrets(dir, name) {
   const master = loadProductKey(dir, name);
   const privPath = signingKeyPath(dir);
   if (!fs.existsSync(privPath)) {
-    throw new Error(`缺少发布方签名私钥：${privPath}\n请先运行 freedom keygen（私钥是发布方资产，勿入库、勿分发）`);
+    throw new Error(`缺少发布方签名私钥：${privPath}\n请在该项目目录执行 freedom keygen --dir ${path.resolve(dir)}（私钥是发布方资产，勿入库、勿分发）`);
   }
   const privateKey = crypto.createPrivateKey(await fsp.readFile(privPath));
   return { master, anchorPubHex: rawPubHexFromKey(privateKey), privateKey };

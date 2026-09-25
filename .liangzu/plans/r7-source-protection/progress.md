@@ -117,3 +117,18 @@
 - 测试：`tests/desktop-secrets.test.mjs` 4/4；全量 `node --test tests/*.test.mjs → 91/91`。
 - 遗留事实：已发布的 1.14.0-preview **不含**此修复（`latest`/`preview` 通道都不含）；本机 Desktop 目录两把资产已就位，
   故用户当下再跑 `freedom desktop` 不再撞错。新用户要拿到修复需下一次发布（是否追加一个预览代由用户裁）。
+- **本条修法已被 E-R7-19 推翻**（`ensureSecrets` 与其测试已删除）；保留原文留审计痕迹。
+
+## E-R7-19 方向推翻：Desktop 降为零工具链档（B-20260925-064，取代 E-R7-18 的修法）
+- 用户裁定原文：「需 go 工具链再次违反了初衷做这个打包工具的意义，本来就是不可能去依赖任何工具链」。
+- 取证支持降级而非"保住 high"：`app.bin`（44.8 KB）内容即 `templates/desktop/*`，而 `package.json` 的
+  `files` 白名单含 `templates` ⇒ 同一份 npm tarball 里就有明文原件，加密收益为 0；
+  代价却是 Go 工具链（不可交叉编译）+ 用户主目录秘密 + 每次模板变更重编 7MB 专属壳。
+  方案 C（CI 预编 Desktop 专属壳随包分发）被否：那要把每产物主密钥放进公开分发物 = FRDM2 根因（R6-D2 刚清除）。
+- 落地：模板 `security: 'high'` → `'basic'`；删除 `ensureSecrets` 与其测试（方向性推翻，非回滚 bug）；
+  保留的可复用修复是文案 —— `loadProductKey` / `prepareHighSecrets` 现在直接给 `freedom keygen --dir <项目目录>`。
+- 不变量锁：`tests/desktop-zero-toolchain.test.mjs` 5 条，含"降级依据是否仍成立"的前提锁（templates 必须随包明文分发），
+  防日后有人以"保护 Desktop 源码"为由改回 high 而无人复核前提。
+- 真机取证（Go 摘出 PATH）：`GO_ABSENT_OK` + `freedom desktop --rebuild --no-launch` 成功，产物自检 7 项通过、
+  资源形态=明文（index.html 28.4KB / config.json / backend 两文件），拉起后 5 秒进程存活；全量 `node --test tests/*.test.mjs → 92/92`。
+- 未清理项：本机 `~/.freedom/desktop` 下 E-R7-18 期间 mint 的两把发布方资产成为孤儿，**未删**（秘密文件删除不可逆，交用户处置）。

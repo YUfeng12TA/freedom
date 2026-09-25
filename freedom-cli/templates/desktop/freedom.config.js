@@ -15,11 +15,13 @@ export default {
   staticHtml: 'app.html',
 
   titlebar: 'native',
-  // 闭源自举：Desktop 自身也要经得起逆向——前端 app.html、config.json 与后端
-  // backend/*（含 cli-entry.json）整体进 FRDM3 容器，磁盘只留 app.bin + .integrity，
-  // 运行期由壳解密到私有临时目录（退出即删，崩溃残留由下次启动回收）。
-  // 两把发布方密钥（签名私钥 + 每产物主密钥）由 `freedom desktop` 首次打包时就地 mint。
-  security: 'high',
+  // 自举界面走零工具链档（Tier A 通用壳 + 明文资源）。
+  // 这里不用 high：high 的保护对象是「app.bin 里那份前端 + 后端源码」，而 Desktop 的这两样
+  // 就是 templates/desktop/*，同一个 npm 包里以明文随 `files` 白名单分发 ⇒ 加密收益为 0。
+  // 代价却是实打实的：要求本机 Go 工具链（无法交叉编译）、在用户主目录 mint 两把发布方密钥、
+  // 每次模板变更重编 7MB 专属壳。本框架的初衷是"不依赖任何工具链把前端变成桌面应用"，
+  // 自带界面不能第一个破坏它。回归锁见 tests/desktop-zero-toolchain.test.mjs。
+  security: 'basic',
   outDir: 'dist',
 
   // 应用图标：构建时注入 exe（Windows 用 rcedit 写 PE 资源），运行时壳层经

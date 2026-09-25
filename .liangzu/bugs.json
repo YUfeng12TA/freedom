@@ -780,6 +780,18 @@
       "status": "fixed",
       "fix": "ensure() 在 build() 前调 ensureSecrets(dir)：两把齐⇒静默跳过；缺签名资产⇒ await keygen({dir})（应用名取自该目录 freedom.config.js，与 build 同源）后按同一推导函数复核补齐；只缺每产物主密钥⇒createProductKey 补齐，绝不轮换既有签名资产。补齐后打印两个落点与勿入库提示",
       "regressionTest": "新增 tests/desktop-secrets.test.mjs 4 条（就位且可被 build 侧同一读取函数读出 / 幂等不轮换 / 半齐只补主密钥且签名资产字节不变 / 模板 cfg.name 与 APP_NAME 同源）→ 4/4；全量 node --test tests/*.test.mjs → 91/91；真机 node bin/freedom.js desktop --no-launch 完整产出 Tier B 产物、产物自检十项通过（含 ed25519 验签、exe 自绑定、容器解密）",
+      "fixedAt": "2026-09-25",
+      "note": "本条的修法（CLI 替 Desktop mint 密钥）随后被 B-20260925-064 的方向裁定推翻：ensureSecrets 已删除，改由 D-20260925-desktop-tierA 收口。保留原文以留审计痕迹。"
+    },
+    {
+      "id": "B-20260925-064",
+      "sev": "major",
+      "file": "freedom-cli/templates/desktop/freedom.config.js",
+      "line": 24,
+      "summary": "Freedom Desktop（CLI 自带的自举界面）声明 security:high，首次打包要求本机 Go 工具链、并在用户主目录生成两把发布方资产——直接违背本框架「不依赖任何工具链把前端变成桌面应用」的立项初衷（用户裁定：「需 go 工具链再次违反了做这个打包工具的意义」）。且加密收益实测为 0：app.bin 内容就是 templates/desktop/*，同一 npm 包里以明文随 files 白名单分发",
+      "status": "fixed",
+      "fix": "Desktop 模板降为 security:basic（Tier A 通用壳 + 明文资源，壳直接取 npm 包内 shell/<plat>，全程不碰 Go）；删除 B-063 引入的 ensureSecrets（连同其测试），Desktop 不再需要任何发布方资产；把「Desktop 不得要求工具链」写成不变量锁，并锁住其降级依据（templates 随包明文分发）以防日后有人以「保护 Desktop 源码」为由改回 high",
+      "regressionTest": "新增 tests/desktop-zero-toolchain.test.mjs 5/5（security 只能是 basic/none / 明文分发前提成立 / desktop.js 不得再出现密钥原语 / 缺密钥文案含 --dir / cfg.name 与 APP_NAME 同源）；全量 node --test tests/*.test.mjs → 92/92；真机把 Go 摘出 PATH 后 node bin/freedom.js desktop --rebuild --no-launch 仍成功（GO_ABSENT_OK + 产物自检 7 项通过、资源形态=明文），拉起后 5 秒进程存活",
       "fixedAt": "2026-09-25"
     }
   ]
