@@ -154,7 +154,7 @@ async function run(argv) {
       if (home && !home.startsWith('--')) process.env.FREEDOM_AGENT_HOME = path.resolve(home.replace(/^--home=/, ''));
       if (!sub || sub === 'list') return require('./agents').printMatrix();
       if (sub !== 'install') {
-        console.error(`${err(`未知 agents 子命令：${sub}`)} ${dim('可用：list / install --what <mcp|skill> --agent <key|all> [--dry-run]')}`);
+        console.error(`${err(`未知 agents 子命令：${sub}`)} ${dim('可用：list / install --what <mcp|skill> --agent <key|all> [--dry-run] [--force]')}`);
         return 1;
       }
       const wi = flags.indexOf('--what');
@@ -499,7 +499,7 @@ async function runAgents(cmd, rest) {
     return await require('./mcp').serve();
   }
   if (sub !== 'install') {
-    console.error(`${err('用法：')}${paint(`freedom ${cmd} install --agent <key|all> [--dry-run]`, C.fg.cyan)}`);
+    console.error(`${err('用法：')}${paint(`freedom ${cmd} install --agent <key|all> [--dry-run] [--force]`, C.fg.cyan)}`);
     if (cmd === 'mcp') {
       console.error(`     ${paint('freedom mcp serve', C.fg.cyan)} ${dim('（stdio MCP 服务，通常由 agent 配置自动拉起）')}`);
     }
@@ -515,6 +515,7 @@ async function runAgents(cmd, rest) {
       config: optVal('config'),
       format: optVal('format'),
       skillsDir: optVal('skills-dir'),
+      force: rest.includes('--force'),
       home: optVal('home'),
     });
     return r.code;

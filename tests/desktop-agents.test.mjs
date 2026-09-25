@@ -76,16 +76,87 @@ test('agents: 无足迹的 agent 只输出片段，不落盘', async () => {
   const sandbox = mkdtempSync(path.join(os.tmpdir(), 'frdm-agents-'));
   try {
     const r = await agents.install({ what: 'mcp', agent: 'trae', home: sandbox });
-    assert.equal(r.results[0].state, 'snippet');
-    assert.equal(existsSync(path.join(sandbox, '.trae')), false, '未取证路径不得被创建');
+    assert.equal(r.results[0].state, 'not-installed');
+    assert.equal(r.results[0].detected, false);
+    assert.equal(existsSync(path.join(sandbox, '.trae')), false, '未检出安装时不得创建任何目录');
     const r2 = await agents.install({ what: 'skill', agent: 'trae', home: sandbox });
-    assert.equal(r2.results[0].state, 'snippet');
-    // 显式 --config 覆写：即使未取证也按用户指定路径写入，并留 .bak 之外的正确内容
+    assert.equal(r2.results[0].state, 'not-installed');
+    assert.equal(existsSync(path.join(sandbox, '.trae')), false, 'skill 侧同受检测门约束');
+    // 显式 --config 覆写：即使未检出也按用户指定路径写入，并留 .bak 之外的正确内容
     const target = path.join(sandbox, 'custom-mcp.json');
     writeFileSync(target, '{"mcpServers":{"keepme":{}}}\n', 'utf8');
     const r3 = await agents.install({ what: 'mcp', agent: 'trae', home: sandbox, config: target });
     assert.equal(r3.results[0].state, 'added');
     assert.ok(JSON.parse(readFileSync(target, 'utf8')).mcpServers.freedom);
+  } finally {
+    rmSync(sandbox, { recursive: true, force: true });
+  }
+});
+
+test('agents: 检测门——安装足迹命中才写入，--force 可强行覆写', async () => {
+  const sandbox = mkdtempSync(path.join(os.tmpdir(), 'frdm-gate-'));
+  try {
+    // ① 只有公共父目录（AppData/Roaming）在 → 不算 Claude Desktop 已安装
+    mkdirSync(path.join(sandbox, 'AppData', 'Roaming'), { recursive: true });
+    let r = await agents.install({ what: 'mcp', agent: 'claude-desktop', home: sandbox });
+    assert.equal(r.results[0].state, 'not-installed', '公共父目录不得当作安装证据');
+    assert.equal(existsSync(path.join(sandbox, 'AppData', 'Roaming', 'Claude')), false);
+
+    // ② agent 专属目录在 → 已安装，按约定新建配置文件并写入
+    mkdirSync(path.join(sandbox, 'AppData', 'Roaming', 'Claude'), { recursive: true });
+    r = await agents.install({ what: 'mcp', agent: 'claude-desktop', home: sandbox });
+    assert.equal(r.results[0].state, 'added');
+    assert.equal(r.results[0].detected, true);
+    const cfg = JSON.parse(readFileSync(path.join(sandbox, 'AppData', 'Roaming', 'Claude', 'claude_desktop_config.json'), 'utf8'));
+    assert.ok(cfg.mcpServers.freedom.command, '写入的条目要有 command');
+
+    // ③ 未检出 + --force → 仍写入（明知在但足迹未覆盖的逃生通道）
+    rmSync(path.join(sandbox, 'AppData'), { recursive: true, force: true });
+    r = await agents.install({ what: 'mcp', agent: 'trae', home: sandbox, force: true });
+    assert.equal(r.results[0].state, 'added', '--force 须绕过检测门');
+    assert.ok(existsSync(path.join(sandbox, '.trae', 'mcp.json')));
+  } finally {
+    rmSync(sandbox, { recursive: true, force: true });
+  }
+});
+
+// ---- Reasonix：TOML 数组表 [[plugins]]，按 name 字段定位条目 ----
+test('agents: Reasonix [[plugins]] upsert 保留兄弟条目且幂等', () => {
+  const src = 'config_version = 12\n\n[[plugins]]\nname = "computer-use"\ntype = "stdio"\ncommand = "D:\\\\x\\\\mcp-computer.exe"\n\n[skills]\npaths = ["C:\\\\y"]\n';
+  const def = { name: 'freedom', type: 'stdio', command: 'node', args: ['C:\\z\\freedom.js', 'mcp', 'serve'] };
+  const first = agents.upsertTomlAoT(src, 'plugins', 'name', 'freedom', def);
+  assert.equal(first.had, false, '首次应为新增');
+  assert.ok(first.text.includes('name = "computer-use"'), '既有兄弟条目保留');
+  assert.ok(first.text.includes('[skills]'), '后续 section 不得被吞掉');
+  assert.ok(first.text.includes('config_version = 12'), '文件头保留');
+  const second = agents.upsertTomlAoT(first.text, 'plugins', 'name', 'freedom', def);
+  assert.equal(second.had, true, '二次应识别为替换');
+  assert.equal(second.text, first.text, '二次写入幂等');
+  assert.equal((second.text.match(/\[\[plugins\]\]/g) || []).length, 2, '不得出现重复 freedom 条目');
+  const idx = second.text.indexOf('name = "freedom"');
+  assert.ok(second.text.slice(idx).includes('command = "node"'), '替换后内容指向 freedom');
+});
+
+test('agents: reasonix 登记可安装（配置目录即安装证据）', async () => {
+  const sandbox = mkdtempSync(path.join(os.tmpdir(), 'frdm-reasonix-'));
+  try {
+    mkdirSync(path.join(sandbox, 'AppData', 'Roaming', 'reasonix'), { recursive: true });
+    writeFileSync(
+      path.join(sandbox, 'AppData', 'Roaming', 'reasonix', 'config.toml'),
+      '# External MCP servers\n[[plugins]]\nname = "computer-use"\ntype = "stdio"\ncommand = "D:\\\\x\\\\mcp-computer.exe"\n',
+      'utf8',
+    );
+    const r = await agents.install({ what: 'mcp', agent: 'reasonix', home: sandbox });
+    assert.equal(r.results[0].state, 'added');
+    const toml = readFileSync(path.join(sandbox, 'AppData', 'Roaming', 'reasonix', 'config.toml'), 'utf8');
+    assert.ok(toml.includes('[[plugins]]'), '数组表头保留');
+    assert.ok(toml.includes('name = "freedom"'), 'freedom 条目写入');
+    assert.ok(toml.includes('name = "computer-use"'), '既有 plugin 不被清掉');
+    assert.ok(existsSync(path.join(sandbox, 'AppData', 'Roaming', 'reasonix', 'config.toml.bak')), '覆盖前留备份');
+    const again = await agents.install({ what: 'mcp', agent: 'reasonix', home: sandbox });
+    assert.equal(again.results[0].state, 'replaced');
+    const toml2 = readFileSync(path.join(sandbox, 'AppData', 'Roaming', 'reasonix', 'config.toml'), 'utf8');
+    assert.equal((toml2.match(/name = "freedom"/g) || []).length, 1, '重复安装不产生第二条');
   } finally {
     rmSync(sandbox, { recursive: true, force: true });
   }

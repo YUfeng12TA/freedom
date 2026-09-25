@@ -121,9 +121,9 @@ freedom titlebar <native|frameless> | icon <path> | security <mode>
 freedom shell list|download <plat>|build <plat>
 freedom keygen               # 生成自更新 ed25519 密钥对（私钥只在发布方）
 freedom manifest --artifact <产物> --url <下载地址> [--version x] [--notes y]
-freedom agents                          # Agent 集成支持矩阵（本机证据判定）
-freedom skill install --agent all [--dry-run]
-freedom mcp install --agent <key> [--config <path> --format json|toml|yaml]
+freedom agents                          # Agent 集成支持矩阵（本机足迹判定「是否安装」，未安装不写入）
+freedom skill install --agent all [--dry-run] [--force]
+freedom mcp install --agent <key> [--config <path> --format json|toml|toml-aot|yaml] [--force]
 freedom mcp serve                       # stdio MCP 服务（一般由 agent 拉起，不手敲）
 freedom update | version | tutorial | help
 ```
