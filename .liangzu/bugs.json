@@ -1,7 +1,7 @@
 {
   "version": 4,
   "subKind": "bugs",
-  "lastUpdated": "2026-09-25T01:52:28.610Z",
+  "lastUpdated": "2026-09-25T03:02:17.949Z",
   "bugRegistry": [
     {
       "id": "B01",
@@ -572,6 +572,17 @@
       "fix": "新增 shutdown.go：signal.Notify(os.Interrupt, SIGTERM) → 先执行 secureCleanup（Run 注册的 App.cleanupSecureBackend）再以 130 退场，cleanupOnce 保证只挂一次；Windows 侧 shutdown_windows.go 经 SetConsoleCtrlHandler 接 CTRL_CLOSE_EVENT（约 5s 宽限期）补上控制台窗口关闭路径。SIGKILL/taskkill /F 无法拦截，仍由下次启动 gcStaleSecureBackendDirs 兜底（诚实边界写进注释与 README）",
       "regressionTest": "shutdown_posix_test.go：TestShutdownCleansTempDirOnRealSignal 用同测试二进制当子进程走完整链路（建 freedom-r4sig-<pid>-<rand> 目录→注册 secureCleanup→挂通道→自选 SIGTERM），父进程断言退出码 130 且目录已消失；反证（负向对照）把信号换成 SIGUSR1 后测试立刻 FAIL(\"helper 未退场\")，证明断言有牙齿。shutdown_test.go 三条槽位级用例 + WSL go test -count=1 . → ok freedom",
       "fixedAt": "2026-09-25T01:52:28.610Z"
+    },
+    {
+      "id": "B-20260925-045",
+      "sev": "major",
+      "file": "freedom-cli/lib/cli.js",
+      "line": 469,
+      "summary": "freedom shell build / shell download 明明成功却以非零码报「执行失败」：成功路径的打印行调用了本文件未导入的 normalizePlatform（顶部 utils 只解构 packageRoot / tutorialFile），Go 编译已完成、shell/<plat>/freedom-shell.exe 已落盘，仍抛 ReferenceError——退出码说谎，脚本化构建会把一次成功产物判成失败并重跑或放弃。成因是 B-20260924-038（平台别名归一）整改时把归一函数用到 cli.js 的成功打印行，却没补 import；这条路径 lib 单测测不到（buildShell 有自己的用例），只有走 CLI 入口才命中",
+      "status": "fixed",
+      "fix": "cli.js:8 的 utils 解构补上 normalizePlatform。取证：修复前 node freedom-cli/bin/freedom.js shell build win-x64 输出「[freedom] 执行失败： normalizePlatform is not defined」而产物 7493632 B 在盘上；修复后同一命令输出「✓ 已编译 win-x64 壳：…freedom-shell.exe」且 EXIT=0",
+      "regressionTest": "tests/cli-shell-command-path.test.mjs：以桩替换 require.cache 里的 lib/shell.js（buildShell/downloadShell 直接返回假路径），再重新求值 lib/cli.js，跑 run([shell,build,win]) 与 run([shell,download,linux-x64]) 两条完整分支，断言退出码 0、输出含壳路径、且不含「执行失败」——不依赖真编 Go 与网络下载。TDD 红绿实测：补 import 前 2 fail 且报错正是 ReferenceError: normalizePlatform is not defined，补后 2 pass；node --test tests/*.test.mjs → tests 49 / pass 49 / fail 0",
+      "fixedAt": "2026-09-25T03:02:17.949Z"
     }
   ]
 }

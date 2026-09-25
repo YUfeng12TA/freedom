@@ -40,6 +40,16 @@
 - 新增 **Reasonix** agent 登记：MCP 写 `AppData/Roaming/reasonix/config.toml` 的 TOML 数组表
   `[[plugins]]`（按 `name` 定位、保留兄弟插件、幂等替换），技能装 `~/.reasonix/skills`。
 
+### 修复
+
+- **`freedom shell build` / `shell download` 成功却报失败**：两条命令的成功打印行调用了 `lib/cli.js`
+  未导入的 `normalizePlatform`（顶部 utils 只解构了 `packageRoot` / `tutorialFile`）。后果不是功能崩溃，
+  而是 Go 编译已完成、`shell/<plat>/freedom-shell.exe` 已落盘，CLI 仍抛 `ReferenceError` 并以非零码退出——
+  **退出码说谎**，脚本化构建会把一次成功产物误判为失败并重跑或放弃。取证：`freedom shell build win-x64`
+  打印 `[freedom] 执行失败： normalizePlatform is not defined`，而产物 7,493,632 B 确实在盘上。
+  回归以桩替换 shell 模块跑通 `run(['shell', …])` 完整分支（`tests/cli-shell-command-path.test.mjs`，
+  修复前红 / 修复后绿），无需真编 Go 也无需真下载。
+
 ### 变更
 
 - 许可从 MIT 改为**闭源专有许可**（根与 `freedom-cli/LICENSE`，npm `license` 字段改 `SEE LICENSE IN LICENSE`）：

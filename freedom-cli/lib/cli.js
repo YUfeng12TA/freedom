@@ -5,7 +5,7 @@ const path = require('path');
 const { init } = require('./init');
 const { build } = require('./build');
 const { setConfig, showConfig } = require('./config');
-const { packageRoot, tutorialFile } = require('./utils');
+const { packageRoot, tutorialFile, normalizePlatform } = require('./utils');
 const theme = require('./theme');
 const update = require('./update');
 
