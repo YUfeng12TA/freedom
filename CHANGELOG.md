@@ -5,6 +5,20 @@
 
 ## [未发布]
 
+### 修复
+
+- **`freedom` → 选「Freedom Desktop」首次运行必失败**（`freedom-cli/lib/desktop.js`，台账 B-20260925-063）：
+  Desktop 模板声明 `security: 'high'`（Tier B），构建前需两把发布方资产，但首次打包流程从不生成它们，只抛
+  「缺每产物主密钥：`~/.freedom/desktop/.freedom/keys/freedom-desktop.key`（先运行 freedom keygen 生成）」。
+  而 `freedom keygen` 按 **cwd** 落盘、按**目录名**取应用名——照提示在家目录跑只会 mint 出
+  `~/.freedom/keys/Administrator.key`，与那个路径永不相交 ⇒ 用户按指引操作也无法打开自举界面（1.14.0-preview 真机复现）。
+  现由 `ensure()` 在 `build()` 前就地补齐两把密钥（打印路径 + 勿入库提示；缺主密钥时只补主密钥，
+  绝不轮换既有签名私钥），并加 4 条锁（`tests/desktop-secrets.test.mjs`）。真机复验：`freedom desktop --no-launch`
+  完整产出 Tier B 产物，产物自检十项通过（含 ed25519 验签与 exe 自绑定）。
+- 发布代际预检对**已安装副本**集体假红（`lib/shell.js`，台账 B-20260925-062）：npm 解包把 tarball 内所有文件
+  mtime 写成同一秒，零容差比对下三只壳全被判"早于框架源"。改 `STALE_TOLERANCE_MS = 5 分钟`（真实代际差是
+  小时～天级），同时锁"壳早于源 10 分钟仍逐只点名"，容差没把门掏空。
+
 ## [1.14.0-preview] - 2026-09-25
 
 ### 破坏性变更
@@ -105,10 +119,6 @@
   CI 检出树里天然为空 ⇒ 每次 push 必红一条与改动无关的失败，真回归被埋在固定噪音里。
   现改为分层断言（静态骨架恒查；壳只在磁盘上有该文件时要求进包；另锁 `files` 白名单含 `shell`），
   「发布机三只壳必须齐全」移交 `prepublishOnly` 代际预检。取证：真实树与无壳等价检出树各跑一遍，均 `85/85`。
-- 发布代际预检的**零容差 mtime 比对**（`lib/shell.js` 的 `checkBundledShells`，台账 B-20260925-062）：npm 从
-  tarball 解出的安装目录里，三只壳与 `go.sum` 的 mtime 只差毫秒级（实测 `11:39:38.159/.173/.190` vs `.286`），
-  于是对任何已安装副本**集体假红**——这个工具实际只能对发布机跑。现引入 `STALE_TOLERANCE_MS = 5 分钟`
-  （真实代际差是小时～天级，分钟级差只可能是解压/复制噪声），并加两条锁：容差内放行、壳早于源 10 分钟仍逐只点名。
 
 ## [1.13.3] - 2026-09-25
 

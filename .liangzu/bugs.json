@@ -770,6 +770,17 @@
       "fix": "引入 STALE_TOLERANCE_MS = 5 分钟：t + tol < src.newest 才判落后。真实代际差是小时~天级（发版间隔多久壳就落后多久），分钟级差只可能是解压/复制噪声；不注入参数、不建配置项（铁律 17）",
       "regressionTest": "node --test tests/shell-generation-preflight.test.mjs → 7/7；新增两条：容差内(30s/1min/4min)放行 + 壳早于源 10 分钟仍逐只点名（证明容差没掏空门）。另对本机全局安装目录复跑 checkBundledShells → problems: []（修前 3 条假红）",
       "fixedAt": "2026-09-25"
+    },
+    {
+      "id": "B-20260925-063",
+      "sev": "major",
+      "file": "freedom-cli/lib/desktop.js",
+      "line": 104,
+      "summary": "1.14.0-preview 真机：freedom 选 Freedom Desktop 首次打包必失败。模板 security:high（Tier B）需要两把发布方资产，ensure() 从不生成，只抛「缺每产物主密钥」并让用户先跑 freedom keygen；而 keygen 的落点与资产名都由 cwd/目录名推导——在家目录跑得到的是另一把名字不同的资产，照提示做永远补不上 build 要的那个路径 ⇒ 自举界面对新用户 100% 不可用",
+      "status": "fixed",
+      "fix": "ensure() 在 build() 前调 ensureSecrets(dir)：两把齐⇒静默跳过；缺签名资产⇒ await keygen({dir})（应用名取自该目录 freedom.config.js，与 build 同源）后按同一推导函数复核补齐；只缺每产物主密钥⇒createProductKey 补齐，绝不轮换既有签名资产。补齐后打印两个落点与勿入库提示",
+      "regressionTest": "新增 tests/desktop-secrets.test.mjs 4 条（就位且可被 build 侧同一读取函数读出 / 幂等不轮换 / 半齐只补主密钥且签名资产字节不变 / 模板 cfg.name 与 APP_NAME 同源）→ 4/4；全量 node --test tests/*.test.mjs → 91/91；真机 node bin/freedom.js desktop --no-launch 完整产出 Tier B 产物、产物自检十项通过（含 ed25519 验签、exe 自绑定、容器解密）",
+      "fixedAt": "2026-09-25"
     }
   ]
 }

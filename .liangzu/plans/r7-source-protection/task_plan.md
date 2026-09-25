@@ -149,3 +149,12 @@
 - 交付物: `.liangzu/bugs.json`
 - 验收：`node --test tests/shell-generation-preflight.test.mjs → 7/7` + 全量 `node --test tests/*.test.mjs → 87/87` + 对全局安装目录复跑预检 `problems: []`
 - 状态：done — E-R7-17
+
+### 15 Desktop 首次打包的发布方资产缺口（用户真机报回）
+- 判据：`freedom desktop` 在全新 Desktop 目录（两把资产皆无）也能一路走到产物自检通过，不再要求用户猜 keygen 的落点；已齐备时静默复用、绝不轮换既有签名资产
+- 交付物: freedom-cli/lib/desktop.js
+- 交付物: tests/desktop-secrets.test.mjs
+- 交付物: .liangzu/bugs.json
+- 交付物: .liangzu/decisions.json
+- 验收：`node --test tests/desktop-secrets.test.mjs → 4/4` + 全量 `node --test tests/*.test.mjs → 91/91` + 真机 `node bin/freedom.js desktop --no-launch` 产出 Tier B 产物且自检十项通过
+- 状态：done — E-R7-18

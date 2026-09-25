@@ -16,8 +16,9 @@ export default {
 
   titlebar: 'native',
   // 闭源自举：Desktop 自身也要经得起逆向——前端 app.html、config.json 与后端
-  // backend/*（含 cli-entry.json）整体进 FRDM2 容器，磁盘只留 app.bin + .integrity，
+  // backend/*（含 cli-entry.json）整体进 FRDM3 容器，磁盘只留 app.bin + .integrity，
   // 运行期由壳解密到私有临时目录（退出即删，崩溃残留由下次启动回收）。
+  // 两把发布方密钥（签名私钥 + 每产物主密钥）由 `freedom desktop` 首次打包时就地 mint。
   security: 'high',
   outDir: 'dist',
 

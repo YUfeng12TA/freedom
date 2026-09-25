@@ -103,3 +103,17 @@
   `STALE_TOLERANCE_MS = 5*60*1000` 而非可注入参数（铁律 17：无第二个调用方不建配置项）。
 - 复验：`node --test tests/shell-generation-preflight.test.mjs → 7/7`；全量 `node --test tests/*.test.mjs → 87/87`；
   全局安装目录复跑预检 → `problems: []`。
+
+## E-R7-18 Desktop 首次打包资产缺口（B-20260925-063，用户真机报回）
+- 用户实测：`freedom` → 选 Freedom Desktop → `✗ 缺每产物主密钥：<home>\.freedom\desktop\.freedom\keys\freedom-desktop.key（先运行 freedom keygen 生成）`；
+  其前先跑的 `freedom keygen` 在 `C:\Users\Administrator` 只产出 `keys\Administrator.key`（落点=cwd、应用名=目录名）⇒ 提示不可执行。
+- 定位：`templates/desktop/freedom.config.js` 声明 `security: 'high'`，`build.js prepareHighSecrets` 要两把发布方资产；
+  `lib/desktop.js` 的 `ensure()` 从不生成，`cli.js`/`tui.js` 两条入口共用该 `ensure()` ⇒ TUI 与 `freedom desktop` 同病。
+- 修：`ensure()` 在 `build()` 前调新增的 `ensureSecrets(dir)`（复用 `release.keygen` 与 `security.createProductKey`，
+  路径推导直接用 `signingKeyPath` / `productKeyPath`，与 build 同一函数），并顺手把模板里过期的 "FRDM2 容器" 注释改成 FRDM3。
+- 取证：`node bin/freedom.js desktop --no-launch` 真机走通 —— Tier B 专属壳编译 + 图标/版本注入 +
+  产物自检十项全通过（`FRDM3` 头 44.7KB、ed25519 验签、exe 自绑定 `20c52e17…`、容器解密 html 26.7KB、后端 2 文件磁盘无明文），
+  产物 `freedom-desktop.exe` 7.22 MB。能走到自检通过即证明两把资产就位（缺任一把 `prepareHighSecrets` 直接抛）。
+- 测试：`tests/desktop-secrets.test.mjs` 4/4；全量 `node --test tests/*.test.mjs → 91/91`。
+- 遗留事实：已发布的 1.14.0-preview **不含**此修复（`latest`/`preview` 通道都不含）；本机 Desktop 目录两把资产已就位，
+  故用户当下再跑 `freedom desktop` 不再撞错。新用户要拿到修复需下一次发布（是否追加一个预览代由用户裁）。

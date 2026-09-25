@@ -85,6 +85,28 @@ function resolveExe(dir, plat) {
   return path.join(dir, 'dist', platformExeName(plat, APP_NAME));
 }
 
+// Desktop 声明 security: 'high'（Tier B），build 前需要本机的两把发布方资产：
+// ed25519 签名私钥 + 每产物主密钥。Desktop 的工作目录由 CLI 自己选定（~/.freedom/desktop），
+// 却要求用户猜出"得在哪个目录跑 keygen"才能拿到那个路径——按提示在家目录跑只会 mint 出
+// 另一把名字不同的钥匙（台账 B-20260925-063：首次运行 100% 打不开 Desktop）。
+// 密钥文件名与 build 同源：都经 productKeyPath(dir, cfg.name) 推导，故此处直接复用同一函数。
+async function ensureSecrets(dir) {
+  const { signingKeyPath, productKeyPath, createProductKey } = require('./security');
+  const priv = signingKeyPath(dir);
+  const master = productKeyPath(dir, APP_NAME);
+  if (fs.existsSync(priv) && fs.existsSync(master)) return null;
+  if (!fs.existsSync(priv)) {
+    await require('./release').keygen({ dir });
+    // keygen 的应用名取自该目录的 freedom.config.js；与 APP_NAME 不一致时（模板被改过、
+    // 或目录里残留别的 config）build 仍会找不到钥匙，这里按同一判据补齐。
+    if (!fs.existsSync(master)) createProductKey(dir, APP_NAME);
+  } else {
+    // 私钥在、主密钥缺（例如用户只跑过自更新 keygen）：补主密钥，绝不轮换既有签名私钥。
+    createProductKey(dir, APP_NAME);
+  }
+  return { priv, master };
+}
+
 // 打包（幂等）：产物缺失 / stamp 变更 / rebuild 时执行，其余情况直接复用上次产物。
 async function ensure({ rebuild = false } = {}) {
   const dir = desktopDir();
@@ -105,6 +127,13 @@ async function ensure({ rebuild = false } = {}) {
       }
     }
     process.stdout.write(`[freedom] ${fs.existsSync(exe) ? 'Desktop 模板或 CLI 版本已变更，重新打包中…' : '首次运行：正在用 freedom 打包 Freedom Desktop…'}\n`);
+    const minted = await ensureSecrets(dir);
+    if (minted) {
+      process.stdout.write(
+        `[freedom] 已在 Desktop 目录 mint high 模式所需的两把本机密钥（发布方资产，勿入库/勿分发）：\n` +
+          `  ${minted.priv}\n  ${minted.master}\n`
+      );
+    }
     const { build } = require('./build');
     await build(dir, { platform: plat, noCache: true });
     fs.writeFileSync(path.join(dir, STAMP_FILE),
@@ -130,4 +159,4 @@ async function desktop({ rebuild = false, noLaunch = false } = {}) {
   return { ...r, launched: true, pid: launch(r.exe, r.dir) };
 }
 
-module.exports = { desktop };
+module.exports = { desktop, ensureSecrets };
